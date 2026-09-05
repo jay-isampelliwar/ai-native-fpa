@@ -28,6 +28,9 @@ from sqlalchemy import text
 TEST_USER_ID = 9001
 
 CLEANUP_ORDER = [
+    "staged_rows",
+    "import_templates",
+    "document_imports",
     "goal_fundings",
     "goals",
     "investment_transactions",
@@ -79,7 +82,10 @@ async def purge(user_id: int) -> None:
     async with session_scope() as session:
 
         for table in CLEANUP_ORDER:
-            await session.execute(text(f"DELETE FROM {table} WHERE user_id = :uid"), {"uid": user_id})
+
+            column = "created_by_user_id" if table == "import_templates" else "user_id"
+
+            await session.execute(text(f"DELETE FROM {table} WHERE {column} = :uid"), {"uid": user_id})
 
         await session.execute(text("DELETE FROM users WHERE id = :uid"), {"uid": user_id})
 

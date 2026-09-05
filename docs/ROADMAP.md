@@ -1,34 +1,42 @@
 # AI Native Financial Planner — state and what is left
 
-Written 05 September 2026. This is the pick-up-later document: what exists, what was
-decided, what is still open, and what each remaining phase actually involves.
+Written 05 September 2026, updated the same day when the backend was completed. This is the
+pick-up-later document: what exists, what was decided, and what is still open.
 
 ---
 
 ## Where the build is now
 
-**Phases 1 and 2 of the implementation guide are complete and verified.**
+**The backend is complete. Phases 1 through 5 of the implementation guide are built and verified.**
 
 | | |
 |---|---|
-| Python modules | 55 (excluding `__init__.py`) |
-| Tests | 82 passing, 2 skipped (live-model evals) |
-| HTTP endpoints | 18 |
-| Database | PostgreSQL `fpa` on `localhost:5433`, 20 tables |
-| Migration | Alembic at revision `0001` |
+| Python modules | 88 (excluding `__init__.py`) |
+| Tests | 126 passing, 2 skipped (live-model evals) |
+| HTTP endpoints | 29 |
+| Database | PostgreSQL `fpa` on `localhost:5433`, 24 tables |
+| Migration | Alembic at revision `0003` |
+
+Only the frontend remains.
 
 ### What works end to end
 
 1. A request enters `POST /api/v1/planner/messages`.
 2. The manual top-level LangGraph authenticates, routes to a skill, checks scopes,
    executes, validates, audits, and replies.
-3. Three skills are registered, deliberately in three different shapes:
+3. Four skills are registered in three different shapes:
    - `cashflow_summary` — deterministic, no model call
    - `expense_investigation` — ReAct agent, tools bound to the authenticated user
    - `goal_planning` — manual subgraph, four nodes, no model call
+   - `sip_modification` — manual subgraph, the only skill that can reach a write
 4. Records entered through `/api/v1/records/*` immediately change what the planner says.
-5. Every answer carries `evidence_ids` and `calculator_versions`; every run, including
-   refusals, writes an `audit_records` row.
+5. Every answer carries `evidence_ids`, `calculator_versions` and typed UI `blocks`; every run,
+   including refusals, writes an `audit_records` row.
+6. `POST /api/v1/planner/messages/stream` streams the same answer as SSE, one event per node.
+7. Uploading a CSV statement stages rows for reconciliation; only accepted rows commit, under one
+   `import_batch_id`.
+8. `GET /api/v1/alerts` evaluates seven rules against the current position and returns findings
+   with evidence, ordered so what needs deciding comes first.
 
 ### Verified behaviours worth not breaking
 
@@ -41,6 +49,15 @@ decided, what is still open, and what each remaining phase actually involves.
 - Checkpoints are AES-GCM encrypted; a tampered one fails to load rather than resuming.
 - There is **no in-memory checkpointer fallback** — if PostgreSQL is down, the app does
   not start.
+- A proposed SIP change does not touch the database until approved; the stored approval keeps the
+  exact before and after the user was shown.
+- `route_by_risk` pauses only when the definition requires approval **and** a durable proposal
+  exists — a refusal from a write-capable skill never asks a user to approve nothing.
+- A block citing evidence the skill did not read fails validation.
+- Extraction stages rows; the record tables are untouched until a person accepts them.
+- A salary credit in a bank statement is skipped, never imported as negative spending.
+- The same file uploaded twice returns the first import; a transaction already on record is flagged
+  as a duplicate rather than silently doubled.
 
 ### Running it
 
@@ -74,9 +91,9 @@ Everything below assumes these are still unanswered.
 
 ---
 
-## Phase 3 — Document import
+## Phase 3 — Document import — BUILT
 
-**Exit condition:** imports reconcile before committing records.
+**Exit condition met:** imports reconcile before committing records.
 
 Documents in scope, all four: bank statements (PDF/CSV), CAS from CAMS/KFintech, broker
 statements and contract notes, salary slips.
@@ -104,9 +121,9 @@ but simpler ones; LLM-vision-for-everything is fewer files and a much heavier ev
 
 ---
 
-## Phase 4 — Proactive planner
+## Phase 4 — Proactive planner — BUILT
 
-**Exit condition:** notifications cite fresh verified data.
+**Exit condition met:** alerts cite fresh verified data with evidence ids and calculator versions.
 
 Alerts that fire without being asked — cash shortfall ahead, goal drift, FD maturity
 approaching, SIP debit failing. Each one has to cite the records behind it, which means
@@ -117,9 +134,11 @@ adapter, plus skills for each alert kind.
 
 ---
 
-## Phase 5 — Controlled actions
+## Phase 5 — Controlled actions — BUILT, pending compliance review
 
-**Exit condition:** compliance review complete, full audit trail.
+**Exit condition partly met:** the write path, approval binding and audit trail are complete. The
+SEBI review the implementation guide requires before shipping recommendation or execution
+capability has **not** been done and is not a coding task.
 
 This is where `controlled_write` stops being a stub and `pending_approvals` gets used.
 The graph shape is already correct and enforced — the only edge into `controlled_write`
@@ -174,3 +193,144 @@ being the largest single variable.
 4. Phase 3 upload → extract → reconcile, frontend and backend together.
 5. Phase 5 controlled writes.
 6. Phase 4 proactive alerts last — it is the only phase nothing else depends on.
+
+---
+
+## What was built on 05 September 2026 (backend completion)
+
+### UI blocks
+`app/ui/blocks.py` defines the closed vocabulary — `text`, `kpi`, `table`, `chart`, `callout`,
+`approval_card`. Evidence is attached **per block**, not per result, so a user can tap one figure
+and see the rows behind that figure, and the validator can reject a block citing evidence the skill
+never read. `display` (backend-formatted) is separate from `value` (raw `Decimal`) so currency
+formatting lives in one place and charts still scale on real numbers.
+
+### Streaming
+`POST /api/v1/planner/messages/stream` emits one `progress` event per graph node, then a `done`
+event carrying the identical body the non-streaming endpoint returns. A client that ignores every
+intermediate event is still correct.
+
+### Controlled writes
+`app/tools/controlled_write/writes.py` holds the only code that changes a record on a user's
+behalf. Five preconditions, all checked: authenticated user, authorization decision, approved
+pending action, idempotency key, audit context. Plus a freshness check — if the row changed after
+the proposal was shown, the write is refused rather than discarding the user's newer edit.
+
+`app/approvals/store.py` records what the user was shown (`before_state` / `after_state`), binds the
+decision to the person and the moment, and expires proposals on read rather than by a sweeper.
+
+### Document import
+- `app/storage/files.py` — storage behind a protocol; keys are generated, never derived from the
+  user-supplied filename
+- `app/extraction/base.py` — the extractor contract: bytes in, candidate rows with confidence out
+- `app/extraction/bank_csv.py` — deterministic CSV parser, header-alias matching, day-first dates,
+  credits skipped
+- `app/extraction/dispatcher.py` — first extractor that claims the document wins; an unknown format
+  is a stated refusal, never a guess
+- `app/services/jobs.py` — the background runner, since extraction outlives a request and is not a
+  graph run
+- `app/services/import_service.py` — staging, duplicate detection at two levels, and a commit that
+  is all-or-nothing under one batch id
+
+### Alerts
+`app/alerts/rules.py` — seven pure rules over one snapshot. `app/alerts/service.py` fetches once so
+no two rules can disagree about the same month. Computed on request, never stored: a stored alert
+goes stale and telling someone their goal is drifting after they fixed it costs more trust than
+silence.
+
+---
+
+## Still open
+
+| Item | Status |
+|---|---|
+| **Extraction approach** | **Decided 05 Sep 2026 and built** — template families with an AI-assisted mapping path for unknown layouts. See the section below. |
+| **Holdings valuation** | Imported statements now carry the `current_value` and `last_price` the *statement stated*, dated by `as_of`. Nothing refreshes them — a live figure still needs a price feed. `goals_repository` continues to value at cost. |
+| **SEBI compliance review** | Required before shipping advice or execution. Not a coding task. |
+| **Live routing check** | `route_request` has still never run against a real model — every test stubs it. |
+
+## What remains to build
+
+The **frontend only** — roughly 29 files:
+
+| Area | Files |
+|---|---|
+| Scaffold | ~6 — Next config, Tailwind, API client, types generated from the OpenAPI schema |
+| Chat | ~5 — page, message list, composer, SSE hook, evidence drawer |
+| Block registry | ~7 — `BlockRenderer` plus one component per block type |
+| Upload & reconcile | ~6 — dropzone, progress polling, staged-rows table, inline edit, commit |
+| Record forms | ~5 — income, expense, EMI, SIP, goal |
+
+Every backend endpoint the frontend needs already exists and is tested.
+
+
+---
+
+## Extraction pipeline — decided and built, 05 September 2026
+
+**A parser per template family, not per file.** Unknown layouts cost one confirmation, not one per month.
+
+```
+Upload → hash/duplicate check → fingerprint layout
+      ├── known template  → deterministic parser → staging
+      └── unknown         → AI proposes mapping → validate → user confirms
+                          → mapping saved as template → deterministic parser → staging
+      → reconcile totals → user accepts rows → commit → PostgreSQL
+```
+
+### Common holdings model
+
+`owner → account → instrument → ISIN → asset_type → quantity → average_cost → invested_value →
+current_value → source → as_of_date`, plus `identifier_type` and `import_batch_id`.
+
+`identifier_type` exists because **two of the three real formats carry no ISIN at all**. A holding
+keyed on a scheme name is weaker evidence than one keyed on an ISIN, and the row says which it is
+rather than treating them as equivalent.
+
+### The three built-in families
+
+| Template | Layout | What it taught |
+|---|---|---|
+| `consolidated_holdings.v1` | header row 1, sheet `Holdings Detail` | ends with a **formula total row** that must be skipped |
+| `broker_holdings.v1` | header row **23**, column **B**, two sheets | supplies **no value columns** — invested and current are computed from qty × price |
+| `mutual_fund_statement.v1` | header row 21, data from row 23 | **name / mobile / PAN sit above the table**; percentages stored as text |
+
+### Files
+
+`app/extraction/` — `workbook.py` (header detection + layout fingerprint), `values.py` (₹, %, date
+coercion), `holdings.py` (canonical model), `templates.py` (template-driven parser),
+`builtin_templates.py`, `mapping.py` (AI proposal + validation), `holdings_extractor.py`.
+Plus `app/repositories/templates_repository.py` and migration `0003`.
+
+### Rules enforced in code
+
+- Extraction **never** writes to a record table; rows stage, a person accepts, then commit.
+- A row whose first cell reads as a total is skipped, always.
+- Statement totals are read and compared against the sum of extracted rows; drift over 0.5% marks the
+  import unreconciled with a stated reason.
+- The model sees **only** sheet names, column headings and three **digit-masked** samples per column —
+  never the data, never rows above the header. `INE466L01038` becomes `INE###L########`.
+- A proposed mapping is validated (columns exist, no duplicates, instrument name present) before a
+  person is asked to confirm it.
+- Every staged row keeps its sheet, row number and original cells.
+- A table's header row is never read as a totals label — this caused a 4% phantom drift on a file that
+  in fact reconciled to the rupee.
+
+### Verified against the real files
+
+| File | Rows | Reconciled |
+|---|---|---|
+| Consolidated | 47 (total row skipped) | ✓ 0.0000% drift |
+| Broker | 80 (78 equity + 2 MF) | ✓ 0.0000% drift |
+| MF statement | 18 | ✓ 0.0000% drift |
+
+**145 holdings imported end to end through the HTTP API, 79 identified by ISIN.**
+
+### Not yet built
+
+PDF statements and CAS from CAMS/KFintech. Each is a new extractor registered in `EXTRACTORS` or a new
+entry in `BUILTIN_TEMPLATES` — no other file changes.
+
+**Password-protected files are explicitly out of scope** (decided 05 September 2026). A protected
+statement should be refused with a clear message asking for an unlocked export rather than prompting
+for a password we would then have to hold.

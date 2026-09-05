@@ -25,6 +25,7 @@ from pydantic import BaseModel, Field
 from app.calculations.cashflow.v1 import CashflowResult
 from app.calculations.goals.v1 import GoalProjection
 from app.repositories.goals_repository import GoalSnapshot
+from app.ui.blocks import Block
 
 
 class GoalPlanningState(BaseModel):
@@ -49,3 +50,4 @@ class GoalPlanningState(BaseModel):
 
     failure_reason: str | None = None
     answer: str | None = None
+    blocks: list[Block] = Field(default_factory=list)

@@ -17,6 +17,11 @@ default is missing from the result rather than present and None.
 The checkpointer is passed explicitly. ``build_planner_graph`` has no default because the
 application must never fall back to throwaway approval state; these tests choose an in
 memory saver deliberately, which is a different thing from getting one by omission.
+
+The routing tests at the end cover ``route_by_risk`` directly, because both of its conditions guard
+a different mistake and only one of them is visible from an end to end run. A refusal from a write
+capable skill must not pause for approval, and a result claiming to be a proposal without an
+approval row must not either.
 """
 
 import pytest
@@ -125,3 +130,87 @@ def test_registry_resolves_by_name_and_version():
 
     assert definition.read_only is True
     assert skill.name == "cashflow_summary"
+
+
+def test_a_refusal_from_a_write_capable_skill_does_not_pause_for_approval():
+
+    """A skill that could write but produced no proposal goes to the audit record, not to a human."""
+
+    from app.graphs.orchestrator.edges import route_by_risk
+    from app.graphs.orchestrator.state import PlannerState
+    from app.graphs.skills.contracts import SkillDefinition, SkillResult
+
+    definition = SkillDefinition(
+        name="sip_modification",
+        version="1.0",
+        description="",
+        risk_level="high",
+        read_only=False,
+        requires_approval=True,
+    )
+
+    state = PlannerState(
+        user_id=1,
+        conversation_id="conv",
+        user_message="raise my SIP 5000",
+        definition=definition,
+        result=SkillResult(status="refused", message="ambiguous"),
+    )
+
+    assert route_by_risk(state) == "write_audit_record"
+
+
+def test_a_proposal_without_a_stored_approval_does_not_pause_either():
+
+    """A result claiming to be a proposal with nothing durable behind it is not treated as one."""
+
+    from app.graphs.orchestrator.edges import route_by_risk
+    from app.graphs.orchestrator.state import PlannerState
+    from app.graphs.skills.contracts import SkillDefinition, SkillResult
+
+    definition = SkillDefinition(
+        name="sip_modification",
+        version="1.0",
+        description="",
+        risk_level="high",
+        read_only=False,
+        requires_approval=True,
+    )
+
+    state = PlannerState(
+        user_id=1,
+        conversation_id="conv",
+        user_message="raise it to 15000",
+        definition=definition,
+        result=SkillResult(status="proposed", message="change it", pending_approval_id=None),
+    )
+
+    assert route_by_risk(state) == "write_audit_record"
+
+
+def test_a_real_proposal_does_pause_for_approval():
+
+    """Both conditions met is the only combination that reaches a human."""
+
+    from app.graphs.orchestrator.edges import route_by_risk
+    from app.graphs.orchestrator.state import PlannerState
+    from app.graphs.skills.contracts import SkillDefinition, SkillResult
+
+    definition = SkillDefinition(
+        name="sip_modification",
+        version="1.0",
+        description="",
+        risk_level="high",
+        read_only=False,
+        requires_approval=True,
+    )
+
+    state = PlannerState(
+        user_id=1,
+        conversation_id="conv",
+        user_message="raise it to 15000",
+        definition=definition,
+        result=SkillResult(status="proposed", message="change it", pending_approval_id="appr_1"),
+    )
+
+    assert route_by_risk(state) == "request_approval"

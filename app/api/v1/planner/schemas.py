@@ -18,9 +18,20 @@ resumed - so a client that loses it cannot approve the change it was just shown.
 than keeping them server side. A user is entitled to see which records and which formula
 version produced the number they are reading, and an interface that cannot show that
 cannot honestly present the answer as verified.
+
+``blocks`` carries the typed UI the frontend renders, and ``response`` stays beside it as the
+plain text of the same answer. Neither is derived from the other at this layer - the skill built
+both from one set of figures - so a client may render blocks, text, or both without either being
+a lossy summary of the other.
+
+A paused run returns an ``approval_card`` block as well as the ``pending_approval`` object. The
+block is what gets rendered inline in the conversation; the object is what the client posts back.
+Keeping them separate means a client that renders no blocks can still complete an approval.
 """
 
 from pydantic import BaseModel, Field
+
+from app.ui.blocks import Block
 
 
 class MessageRequest(BaseModel):
@@ -52,6 +63,7 @@ class MessageResponse(BaseModel):
     skill: str | None = None
     status: str = "answered"
     response: str = ""
+    blocks: list[Block] = Field(default_factory=list)
     evidence_ids: list[str] = Field(default_factory=list)
     calculator_versions: list[str] = Field(default_factory=list)
     pending_approval: PendingApproval | None = None

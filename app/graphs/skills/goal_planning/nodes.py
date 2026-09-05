@@ -37,6 +37,8 @@ from app.core.config import settings
 from app.graphs.skills.goal_planning.schemas import GoalPlanningState
 from app.repositories import get_cashflow_repository
 from app.repositories.goals_repository import goals_repository
+from app.ui.blocks import Block
+from app.ui.builders import amount_chart, amount_table, kpi, note
 from app.utils.dates import today_in_timezone
 
 STOP_WORDS = frozenset({"my", "the", "a", "for", "to", "can", "i", "afford", "goal", "buy", "will", "reach"})
@@ -189,4 +191,65 @@ def compose_answer(state: GoalPlanningState) -> dict:
         for warning in state.cashflow.warnings:
             lines.append(f"Note: {warning}.")
 
-    return {"answer": " ".join(lines)}
+    return {"answer": " ".join(lines), "blocks": build_blocks(state)}
+
+
+def build_blocks(state: GoalPlanningState) -> list[Block]:
+
+    """Render the projection as blocks, citing the goal and the records behind each figure."""
+
+    snapshot = state.snapshot
+    projection = state.projection
+
+    if snapshot is None or projection is None:
+        return []
+
+    evidence = state.evidence_ids
+
+    blocks: list[Block] = [
+        kpi(
+            "Shortfall" if not projection.on_track else "Surplus to target",
+            projection.shortfall,
+            evidence,
+            caption=f"{projection.months_remaining} months to {snapshot.target_date.strftime('%b %Y')}",
+        ),
+        kpi("Needed each month", projection.required_monthly, evidence),
+    ]
+
+    if state.surplus_available is not None:
+        blocks.append(kpi("Investable surplus", state.surplus_available, evidence))
+
+    blocks.append(
+        amount_chart(
+            f"{snapshot.label}: projected against target",
+            [
+                ("Funding today", snapshot.funded_corpus),
+                ("Grows to", projection.projected_corpus),
+                ("Target then", projection.target_at_maturity),
+            ],
+            evidence,
+        )
+    )
+
+    blocks.append(
+        amount_table(
+            snapshot.label,
+            [
+                ("Target today", projection.target_today),
+                ("Target at maturity", projection.target_at_maturity),
+                ("Funded now", snapshot.funded_corpus),
+                ("Monthly contribution", snapshot.monthly_contribution),
+                ("Projected corpus", projection.projected_corpus),
+                ("Shortfall", projection.shortfall),
+            ],
+            evidence,
+        )
+    )
+
+    if snapshot.valued_at_cost and snapshot.funded_corpus > Decimal("0"):
+        blocks.append(note("Holdings are valued at cost, not at market price.", evidence=evidence))
+
+    for warning in projection.warnings:
+        blocks.append(note(warning, level="warning", evidence=evidence))
+
+    return blocks

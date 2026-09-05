@@ -30,26 +30,36 @@ definition rather than against itself. Its most important check is the one that 
 a skill claiming ``completed`` when its definition requires approval, because that is
 what an unapproved write looks like from the outside.
 
+It also checks the UI blocks, and that check is not cosmetic. A block citing a row the skill
+never read is a figure a user can tap and be shown evidence that does not support it, which is
+worse than showing no evidence at all. Every block's evidence must be a subset of the result's,
+so a block cannot introduce provenance from nowhere.
+
 ``request_approval`` is the only node that stops. ``interrupt`` persists the whole state
 to the checkpointer and returns control to the caller, so the pending change survives a
 closed browser, a restarted process and a deploy. It resumes with whatever the human
 sent back, and nothing after it runs until they answer.
 
-``controlled_write`` exists in Phase 1 so the graph has its final shape, but it performs
-no write: controlled write tools arrive in Phase 5. It still enforces the approval check,
-so the guard is real code from the first commit rather than something added later.
+``controlled_write`` executes the approved change through a named tool from
+``app.tools.controlled_write``. It re-authorises before doing so, because scopes can change
+while a proposal waits, and it records the outcome in state so the audit node sees what was
+actually applied rather than what was intended.
 """
 
 import asyncio
 
 from langgraph.types import interrupt
 
+from app.approvals.store import approval_store
 from app.audit.recorder import recorder
 from app.core.config import settings
+from app.models.finance import ApprovalStatus
+from app.tools.controlled_write.writes import WRITE_TOOLS
 from app.core.security import authorize, local_user, new_correlation_id
 from app.graphs.orchestrator.state import PlannerState
 from app.graphs.skills.contracts import SKILL_STATUSES, SkillContext, SkillRequest, SkillResult
 from app.graphs.skills.registry import SkillNotFoundError, registry
+from app.ui.blocks import BLOCK_TYPES
 
 
 def authenticate_context(state: PlannerState) -> dict:
@@ -151,7 +161,35 @@ def validate_skill_result(state: PlannerState) -> dict:
     if result.status in {"answered", "proposed"} and not result.evidence_ids:
         errors.append("a material conclusion was returned without evidence identifiers")
 
+    errors.extend(validate_blocks(result))
+
     return {"validation_errors": errors}
+
+
+def validate_blocks(result: SkillResult) -> list[str]:
+
+    """Check that no block shows a figure traced to evidence the skill did not actually read."""
+
+    if not result.blocks:
+        return []
+
+    known_evidence = set(result.evidence_ids)
+
+    errors: list[str] = []
+
+    for block in result.blocks:
+
+        if block.type not in BLOCK_TYPES:
+            errors.append(f"unknown block type {block.type!r}")
+
+        unsupported = sorted(set(block.evidence_ids) - known_evidence)
+
+        if unsupported:
+            errors.append(
+                f"block {block.type!r} cites evidence the skill did not read: {', '.join(unsupported)}"
+            )
+
+    return errors
 
 
 def request_approval(state: PlannerState) -> dict:
@@ -163,7 +201,10 @@ def request_approval(state: PlannerState) -> dict:
     decision = interrupt(
         {
             "skill": state.skill_name,
+            "title": result.message if result else "",
             "message": result.message if result else "",
+            "changes": result.proposed_changes if result else [],
+            "approval_id": result.pending_approval_id if result else None,
             "assumptions": result.assumptions if result else {},
             "evidence_ids": result.evidence_ids if result else [],
             "expires_in_seconds": settings.approval_expiry_seconds,
@@ -173,14 +214,41 @@ def request_approval(state: PlannerState) -> dict:
     return {"approval_decision": decision if isinstance(decision, str) else "reject"}
 
 
-def controlled_write(state: PlannerState) -> dict:
+async def controlled_write(state: PlannerState) -> dict:
 
-    """Perform the approved change, refusing without an approval and performing nothing until Phase 5."""
+    """Execute the approved change through a named write tool, re-checking permission before it runs."""
 
     if state.approval_decision != "approve":
+        await approval_store.decide(state.result.pending_approval_id, state.user_id, "reject") if (
+            state.result and state.result.pending_approval_id
+        ) else None
+
         return {"response": "Nothing was changed because the request was not approved."}
 
-    return {"response": "Approved. Controlled write tools arrive in Phase 5, so no record was changed yet."}
+    result = state.result
+
+    if result is None or not result.pending_approval_id or not result.write_tool:
+        return {"response": "There was nothing to apply."}
+
+    approval = await approval_store.decide(result.pending_approval_id, state.user_id, "approve")
+
+    if approval is None:
+        return {"response": "That proposal could not be found, so nothing was changed."}
+
+    if approval.status != ApprovalStatus.APPROVED:
+        return {"response": f"That proposal is {approval.status.value}, so nothing was changed."}
+
+    tool = WRITE_TOOLS.get(result.write_tool)
+
+    if tool is None:
+        return {"response": "That change cannot be applied by this system."}
+
+    outcome = await tool(state.user, approval)
+
+    return {
+        "write_outcome": outcome.model_dump(),
+        "response": outcome.detail if outcome.status == "completed" else f"No change was made: {outcome.detail}.",
+    }
 
 
 async def write_audit_record(state: PlannerState) -> dict:

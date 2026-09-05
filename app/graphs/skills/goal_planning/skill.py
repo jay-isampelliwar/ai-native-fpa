@@ -59,6 +59,7 @@ class GoalPlanningSkill:
         return SkillResult(
             status="answered",
             message=state["answer"],
+            blocks=state.get("blocks", []),
             evidence_ids=state.get("evidence_ids", []),
             calculator_versions=state.get("calculator_versions", []),
             assumptions=state.get("assumptions", {}),

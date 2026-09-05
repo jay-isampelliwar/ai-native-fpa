@@ -16,10 +16,13 @@ The ``enabled`` flag is the rollback switch. A version that turns out to be wron
 disabled rather than deleted: it stops being routable immediately, but old audit records
 still resolve against it and the previous version can be re-enabled without a deploy.
 
-Three skills are registered and all three are different shapes. The cash flow summary is
-deterministic end to end, the expense investigation runs an agent loop, and goal planning is a
-manual subgraph. They satisfy one contract and the orchestrator treats them identically, which
-is the claim the skill design makes and the reason to prove it with three rather than one.
+Four skills are registered in three different shapes. The cash flow summary is deterministic end
+to end, the expense investigation runs an agent loop, and goal planning and SIP modification are
+manual subgraphs. They satisfy one contract and the orchestrator treats them identically.
+
+Three are read only. ``sip_modification`` is the exception and the reason the approval machinery
+exists: it is the only registered skill whose result can reach a controlled write, and it reaches
+it by proposing rather than by writing.
 
 Call ``register_skills`` once during application startup, before the graph is compiled.
 Calling it twice is harmless, since registration is keyed by name and version.
@@ -31,6 +34,8 @@ from app.graphs.skills.expense_investigation.agent import ExpenseInvestigationSk
 from app.graphs.skills.expense_investigation.definition import DEFINITION as EXPENSE_INVESTIGATION
 from app.graphs.skills.goal_planning.definition import DEFINITION as GOAL_PLANNING
 from app.graphs.skills.goal_planning.skill import GoalPlanningSkill
+from app.graphs.skills.sip_modification.definition import DEFINITION as SIP_MODIFICATION
+from app.graphs.skills.sip_modification.skill import SipModificationSkill
 from app.graphs.skills.registry import SkillRegistry, registry
 
 
@@ -43,5 +48,6 @@ def register_skills(into: SkillRegistry | None = None) -> SkillRegistry:
     target.register(CASHFLOW_SUMMARY, CashflowSummarySkill(), enabled=True)
     target.register(EXPENSE_INVESTIGATION, ExpenseInvestigationSkill(), enabled=True)
     target.register(GOAL_PLANNING, GoalPlanningSkill(), enabled=True)
+    target.register(SIP_MODIFICATION, SipModificationSkill(), enabled=True)
 
     return target

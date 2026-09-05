@@ -8,6 +8,7 @@ that impossible to get wrong.
 
 from app.models.orm.cashflow import ExpenseRecordRow, ExpenseTransactionRow, IncomeRecordRow
 from app.models.orm.credit import EmiRecordRow, LiabilityRow, SipRecordRow
+from app.models.orm.imports import DocumentImportRow, ImportTemplateRow, StagedRowRow
 from app.models.orm.investments import (
     DepositRow,
     GoalFundingRow,
@@ -22,10 +23,12 @@ from app.models.orm.system import AuditRecordRow, PendingApprovalRow, UserRow
 __all__ = [
     "AuditRecordRow",
     "DepositRow",
+    "DocumentImportRow",
     "EmiRecordRow",
     "ExpenseRecordRow",
     "ExpenseTransactionRow",
     "GoalFundingRow",
+    "ImportTemplateRow",
     "GoalRow",
     "HoldingRow",
     "IncomeRecordRow",
@@ -35,5 +38,6 @@ __all__ = [
     "PendingApprovalRow",
     "RetirementAssetRow",
     "SipRecordRow",
+    "StagedRowRow",
     "UserRow",
 ]

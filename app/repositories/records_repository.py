@@ -295,9 +295,17 @@ class RecordsRepository:
         isin: str | None = None,
         scheme_code: str | None = None,
         folio_id: str | None = None,
+        asset_type: str | None = None,
+        identifier_type: str = "symbol",
+        invested_value: Decimal | None = None,
+        current_value: Decimal | None = None,
+        last_price: Decimal | None = None,
+        source: str | None = None,
+        account_label: str | None = None,
+        import_batch_id: str | None = None,
         ) -> HoldingRow:
 
-        """Add a position in one instrument, recording units and cost but never a current price."""
+        """Add a position in one instrument, recording what a statement stated and what was computed from it."""
 
         row = HoldingRow(
             id=new_id(HoldingRow),
@@ -310,6 +318,14 @@ class RecordsRepository:
             units=units,
             average_cost=average_cost,
             as_of=as_of,
+            asset_type=asset_type,
+            identifier_type=identifier_type,
+            invested_value=invested_value,
+            current_value=current_value,
+            last_price=last_price,
+            source=source,
+            account_label=account_label,
+            import_batch_id=import_batch_id,
         )
 
         session.add(row)

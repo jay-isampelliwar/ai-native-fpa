@@ -18,6 +18,10 @@ rather than silently write unencrypted state.
 Model budgets live here too. They are the ceiling a skill definition may not exceed, so
 a mistake in one skill's metadata cannot run up an unbounded bill.
 
+``upload_directory`` is where documents land in the local implementation. It is a setting rather
+than a constant because the same code runs against a mounted volume in a container, and
+``maximum_upload_bytes`` is enforced before a file is read into memory rather than after.
+
 ``repository_backend`` chooses between PostgreSQL and the seeded dictionaries. It exists so
 tests and local experiments can run offline, not so production has a fallback: a service
 that silently answers from fixture data when the database is unreachable would be worse
@@ -55,6 +59,9 @@ class Settings(BaseSettings):
     tracing_enabled: bool = False
 
     repository_backend: str = "sql"
+
+    upload_directory: str = "var/uploads"
+    maximum_upload_bytes: int = 20 * 1024 * 1024
 
     default_timezone: str = "Asia/Kolkata"
     default_currency: str = "INR"

@@ -19,6 +19,19 @@ budgets - a skill that exceeds them is stopped, not warned.
 Currency defaults to INR and timezone to Asia/Kolkata because every downstream
 calculator assumes an India resident; override them per tenant, never per request.
 
+``blocks`` is how a skill describes what should be shown rather than only what should be read.
+It is a list of typed UI blocks from ``app.ui.blocks``, and ``message`` remains the plain text
+fallback - a client that renders no blocks, a log line, or a future voice surface still gets a
+complete answer. The two must agree, because they are two renderings of one result.
+
+``write_tool`` names the controlled write a proposal should execute if approved. A skill names
+it; only the orchestrator calls it, and only after an approval. That indirection is what keeps a
+skill from being able to write even when it knows exactly what write it wants.
+
+``proposed_changes`` is the before and after the user is shown, in the shape the approval card
+renders. It travels with the result so the interrupt payload, the stored approval and the card a
+person reads are all the same description of the same change.
+
 ``calculator_versions`` is as load bearing as ``evidence_ids``. Evidence says which rows
 a conclusion came from; the calculator version says which arithmetic turned them into a
 number. A plan explained months later needs both, so any skill quoting a computed figure
@@ -35,6 +48,8 @@ the human, and the validator treats that as a failed run.
 from typing import Protocol
 
 from pydantic import BaseModel, Field
+
+from app.ui.blocks import Block
 
 SKILL_STATUSES = frozenset({"answered", "proposed", "completed", "refused", "failed"})
 
@@ -63,10 +78,13 @@ class SkillResult(BaseModel):
 
     status: str
     message: str
+    blocks: list[Block] = Field(default_factory=list)
     evidence_ids: list[str] = Field(default_factory=list)
     calculator_versions: list[str] = Field(default_factory=list)
     assumptions: dict[str, float] = Field(default_factory=dict)
     pending_approval_id: str | None = None
+    write_tool: str | None = None
+    proposed_changes: list[dict] = Field(default_factory=list)
 
 
 class SkillDefinition(BaseModel):

@@ -15,10 +15,11 @@ between a holding and a transaction. The holding is the running position - units
 cost as of a date. The transactions are what happened to produce it. Only one of them can be
 reconciled against a broker statement, and it is not the holding.
 
-No current price is stored on a holding. Value is derived at read time from a verified,
-timestamped feed, because a price written into a row becomes a stale number that looks
-authoritative. ``as_of`` records when the units were last confirmed, which is a different
-and more honest claim.
+``last_price`` and ``current_value`` are what a statement stated when it was exported, dated by
+``as_of``. They are a record of what the document said, not a live valuation - nothing refreshes them,
+and a caller wanting today's value needs a price feed. ``identifier_type`` says what the row was
+matched on, because two of the three real statement formats carry no ISIN and a holding keyed on a
+scheme name is weaker evidence than one keyed on an ISIN.
 
 ``DepositRow`` carries both FD and RD with a check constraint deciding which columns are
 required. They differ by exactly one field - a lump sum against a monthly contribution - and
@@ -137,6 +138,15 @@ class HoldingRow(Base, TimestampMixin):
     average_cost: Mapped[Decimal] = mapped_column(Numeric(14, 4), nullable=False)
     as_of: Mapped[date] = mapped_column(Date, nullable=False)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+    account_label: Mapped[str | None] = mapped_column(Text)
+    asset_type: Mapped[str | None] = mapped_column(Text)
+    identifier_type: Mapped[str] = mapped_column(Text, nullable=False, default="symbol")
+    invested_value: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    current_value: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    last_price: Mapped[Decimal | None] = mapped_column(Numeric(14, 4))
+    source: Mapped[str | None] = mapped_column(Text)
+    import_batch_id: Mapped[str | None] = mapped_column(Text)
 
     __table_args__ = (
         CheckConstraint("units >= 0", name="ck_holdings_units_non_negative"),

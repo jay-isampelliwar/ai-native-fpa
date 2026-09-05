@@ -20,6 +20,11 @@ would be technically accurate and practically useless.
 
 The repository is injected rather than imported at use time, so tests supply a fixture
 user and the same skill code runs unchanged against SQL later.
+
+Blocks and message are built from the same ``CashflowResult`` in the same call. They are two
+renderings of one set of figures, and deriving them separately - or letting the message come
+from somewhere the blocks did not - is how a headline number ends up disagreeing with the table
+beneath it.
 """
 
 from decimal import Decimal
@@ -27,8 +32,11 @@ from decimal import Decimal
 from app.calculations.cashflow.v1 import CALCULATOR_VERSION, CashflowInput, CashflowResult, run_cashflow
 from app.graphs.skills.cashflow_summary.definition import DEFINITION
 from app.graphs.skills.contracts import SkillContext, SkillRequest, SkillResult
+from app.models.finance import CashflowRecords
 from app.repositories import get_cashflow_repository
 from app.repositories.cashflow_repository import CashflowRepository
+from app.ui.blocks import Block
+from app.ui.builders import amount_chart, amount_table, kpi, note
 
 
 def format_rupees(amount: Decimal) -> str:
@@ -79,10 +87,48 @@ class CashflowSummarySkill:
         return SkillResult(
             status="answered",
             message=self.summarise(result),
+            blocks=self.build_blocks(result, records),
             evidence_ids=records.evidence_ids,
             calculator_versions=[CALCULATOR_VERSION],
             assumptions={"months_per_year": 12.0},
         )
+
+    def build_blocks(self, result: CashflowResult, records: CashflowRecords) -> list[Block]:
+
+        """Render the same computed figures as blocks, citing the records behind each one."""
+
+        income_ids = [record.id for record in records.income]
+        outflow_ids = [record.id for record in records.expenses] + [record.id for record in records.emis]
+        sip_ids = [record.id for record in records.sips]
+
+        blocks: list[Block] = [
+            kpi("Free surplus", result.free_surplus, records.evidence_ids,
+                caption=f"{result.savings_rate_percent}% savings rate"),
+            kpi("Income", result.total_income, income_ids),
+            kpi("Committed outflow", result.committed_outflow, outflow_ids),
+        ]
+
+        breakdown = [
+            ("Expenses", result.total_expenses),
+            ("EMIs", result.total_emis),
+            ("SIPs", result.total_sips),
+            ("Left over", result.free_surplus),
+        ]
+
+        blocks.append(amount_chart("Where this month goes", breakdown, records.evidence_ids, chart="donut"))
+
+        blocks.append(
+            amount_table(
+                "This month",
+                [("Income", result.total_income)] + breakdown,
+                records.evidence_ids,
+            )
+        )
+
+        for warning in result.warnings:
+            blocks.append(note(warning, level="warning", evidence=records.evidence_ids))
+
+        return blocks
 
     def summarise(self, result: CashflowResult) -> str:
 

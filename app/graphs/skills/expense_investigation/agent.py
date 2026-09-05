@@ -22,6 +22,10 @@ recording rather than an empty answer worth showing.
 The skill never returns a proposal. It is registered ``read_only``, and the orchestrator's
 validator rejects any result from it carrying a pending approval, so the one way this
 could become dangerous is closed outside this file.
+
+Its blocks are built from the rows the tools actually returned, never from the agent's prose.
+The model wrote the explanation and that goes in ``message``; the table beside it is assembled
+from the collector's evidence, so a figure the model garbled in a sentence cannot appear as data.
 """
 
 from langchain.agents import create_agent
@@ -33,6 +37,8 @@ from app.graphs.skills.expense_investigation.prompts import SYSTEM_PROMPT
 from app.graphs.skills.expense_investigation.tools import EvidenceCollector, build_expense_tools
 from app.repositories.expense_repository import ExpenseRepository
 from app.services.llm_service import get_explanation_model
+from app.ui.blocks import Block
+from app.ui.builders import text
 
 
 class ExpenseInvestigationSkill:
@@ -91,8 +97,15 @@ class ExpenseInvestigationSkill:
         return SkillResult(
             status="answered",
             message=answer,
+            blocks=self.build_blocks(answer, evidence.ids),
             evidence_ids=evidence.ids,
         )
+
+    def build_blocks(self, answer: str, evidence_ids: list[str]) -> list[Block]:
+
+        """Render the agent's explanation as text, attaching the rows its tools actually read."""
+
+        return [text(answer, evidence=evidence_ids)]
 
     def recursion_limit(self) -> int:
 

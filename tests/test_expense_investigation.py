@@ -137,21 +137,45 @@ def test_the_loop_ceiling_comes_from_the_definition():
 
 def test_every_skill_shape_registers_behind_the_same_contract():
 
-    """A deterministic skill, an agent skill and a manual subgraph all resolve through the registry identically."""
+    """Deterministic, agent and manual subgraph skills all resolve through the registry identically."""
 
     isolated = SkillRegistry()
 
     register_skills(into=isolated)
 
-    assert set(isolated.routable_names()) == {"cashflow_summary", "expense_investigation", "goal_planning"}
+    assert set(isolated.routable_names()) == {
+        "cashflow_summary",
+        "expense_investigation",
+        "goal_planning",
+        "sip_modification",
+    }
 
     for name in isolated.routable_names():
 
         definition, skill = isolated.resolve(name)
 
-        assert definition.read_only is True
         assert skill.name == name
         assert hasattr(skill, "execute")
+
+
+def test_only_the_write_capable_skill_requires_approval():
+
+    """Exactly one registered skill can reach a write, and it is the one that asks for approval."""
+
+    isolated = SkillRegistry()
+
+    register_skills(into=isolated)
+
+    writable = [
+        name for name in isolated.routable_names() if not isolated.resolve(name)[0].read_only
+    ]
+
+    assert writable == ["sip_modification"]
+
+    definition, _ = isolated.resolve("sip_modification")
+
+    assert definition.requires_approval is True
+    assert definition.risk_level == "high"
 
 
 @requires_model

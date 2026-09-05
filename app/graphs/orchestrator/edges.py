@@ -50,12 +50,17 @@ def after_permission_check(state: PlannerState) -> Literal["execute_skill", "wri
 
 def route_by_risk(state: PlannerState) -> Literal["request_approval", "write_audit_record"]:
 
-    """Send consequential results to a human, and read only results straight to the audit record."""
+    """Send an actual proposal to a human, and everything else straight to the audit record."""
 
     if state.validation_errors:
         return "write_audit_record"
 
-    if state.definition is not None and state.definition.requires_approval:
-        return "request_approval"
+    if state.definition is None or not state.definition.requires_approval:
+        return "write_audit_record"
 
-    return "write_audit_record"
+    result = state.result
+
+    if result is None or result.status != "proposed" or not result.pending_approval_id:
+        return "write_audit_record"
+
+    return "request_approval"
