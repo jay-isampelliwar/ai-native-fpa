@@ -14,20 +14,23 @@ convenience would silently remove the guarantee the whole design exists to provi
 paths, so a request cannot answer a user without leaving a trail. That ordering is also
 why refused runs still produce a record.
 
-``get_planner_graph`` is what the API calls. It compiles once per process, so every
-request shares one checkpointer and a run paused for approval can be resumed by a later
-request that lands on the same thread id.
+The checkpointer is a required argument with no default. ``request_approval`` calls
+``interrupt``, so a graph without one has nowhere to persist a pending change and it dies
+with the process. A default would make that failure silent and environment dependent -
+working in tests, quietly wrong in production - so callers must say which one they mean.
 
-The graph is compiled with a checkpointer because ``request_approval`` calls
-``interrupt``. Without one the pause has nowhere to persist and the pending change would
-die with the process. Phase 1 accepts an in memory saver for tests; production passes the
-PostgreSQL checkpointer described in the implementation guide.
+``set_planner_graph`` and ``get_planner_graph`` hold the compiled graph for the process.
+The application builds it during startup inside the PostgreSQL checkpointer's context and
+registers it here; the API reads it back. It cannot be an ``lru_cache`` factory, because
+the saver is an async context manager whose connection must stay open for the life of the
+application rather than for the life of one call.
+
+``get_planner_graph`` raises rather than building a fallback. A request that arrives before
+startup finished is a deployment problem, and answering it from a graph with throwaway
+state would hide that.
 """
 
-from functools import lru_cache
-
 from langgraph.checkpoint.base import BaseCheckpointSaver
-from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
 
 from app.graphs.orchestrator.edges import after_permission_check, after_routing, route_by_risk
@@ -47,9 +50,9 @@ from app.graphs.skills.bootstrap import register_skills
 from app.graphs.orchestrator.state import PlannerState
 
 
-def build_planner_graph(checkpointer: BaseCheckpointSaver | None = None):
+def build_planner_graph(checkpointer: BaseCheckpointSaver):
 
-    """Wire every node and edge of the top level graph and compile it against a checkpointer."""
+    """Wire every node and edge of the top level graph and compile it against the given checkpointer."""
 
     builder = StateGraph(PlannerState)
 
@@ -94,14 +97,26 @@ def build_planner_graph(checkpointer: BaseCheckpointSaver | None = None):
     builder.add_edge("write_audit_record", "respond")
     builder.add_edge("respond", END)
 
-    return builder.compile(checkpointer=checkpointer or InMemorySaver())
+    return builder.compile(checkpointer=checkpointer)
 
 
-@lru_cache
+_planner_graph = None
+
+
+def set_planner_graph(graph) -> None:
+
+    """Register the graph compiled during startup as the one this process serves requests with."""
+
+    global _planner_graph
+
+    _planner_graph = graph
+
+
 def get_planner_graph():
 
-    """Return the process wide compiled graph, built once so its checkpointer is shared across requests."""
+    """Return the graph registered at startup, refusing to invent one if startup has not run."""
 
-    register_skills()
+    if _planner_graph is None:
+        raise RuntimeError("the planner graph has not been built, application startup did not complete")
 
-    return build_planner_graph()
+    return _planner_graph

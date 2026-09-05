@@ -13,8 +13,13 @@ means a wiring mistake fails the deploy rather than the first user's message, an
 warms the checkpointer connection before it is needed.
 
 The PostgreSQL checkpointer is opened for the life of the application rather than per
-request. A run paused for approval is resumed by a later request, so the saver holding that
-state has to outlive the request that created it.
+request, and it is the only checkpointer this service uses. A run paused for approval is
+resumed by a later request - often minutes later, possibly after a deploy - so the saver
+holding that state has to outlive the request that created it and the process it started in.
+
+There is no in-memory fallback. If PostgreSQL is unreachable the application fails to start,
+which is the correct outcome: a planner serving requests with throwaway approval state would
+lose a pending instruction silently rather than loudly.
 
 Shutdown disposes the connection pool. Without it a reload during development leaks
 connections until PostgreSQL refuses new ones, which presents as an unrelated failure an
@@ -32,29 +37,32 @@ from fastapi import FastAPI
 from app.api.v1.router import api_router
 from app.core.config import settings
 from app.core.logging import configure_logging, get_logger
+from app.db.checkpointer import postgres_checkpointer
 from app.db.session import dispose_engine
-from app.graphs.orchestrator.graph import get_planner_graph
+from app.graphs.orchestrator.graph import build_planner_graph, set_planner_graph
 from app.graphs.skills.bootstrap import register_skills
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
 
-    """Configure logging, register skills and compile the graph before the first request is served."""
+    """Open the checkpointer, register skills and compile the graph before the first request is served."""
 
     configure_logging()
 
     register_skills()
 
-    get_planner_graph()
+    async with postgres_checkpointer() as checkpointer:
 
-    get_logger("startup").info(
-        "planner ready",
-        environment=settings.environment,
-        repository_backend=settings.repository_backend,
-    )
+        set_planner_graph(build_planner_graph(checkpointer))
 
-    yield
+        get_logger("startup").info(
+            "planner ready",
+            environment=settings.environment,
+            repository_backend=settings.repository_backend,
+        )
+
+        yield
 
     await dispose_engine()
 

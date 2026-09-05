@@ -13,9 +13,14 @@ and read records it should not have seen.
 Assertions on absent fields use ``state.get`` rather than indexing. LangGraph returns the
 state as a plain dict and omits keys no node ever wrote, so a field that stayed at its
 default is missing from the result rather than present and None.
+
+The checkpointer is passed explicitly. ``build_planner_graph`` has no default because the
+application must never fall back to throwaway approval state; these tests choose an in
+memory saver deliberately, which is a different thing from getting one by omission.
 """
 
 import pytest
+from langgraph.checkpoint.memory import InMemorySaver
 
 from app.core.security import AuthenticatedUser
 from app.graphs.orchestrator import nodes
@@ -56,7 +61,7 @@ async def run_graph(stub_router, monkeypatch, user=None):
     if user is not None:
         monkeypatch.setattr(nodes, "local_user", lambda user_id: user)
 
-    graph = build_planner_graph()
+    graph = build_planner_graph(InMemorySaver())
 
     return await graph.ainvoke(
         {"user_id": 1, "conversation_id": "conv_1", "user_message": "how much is left this month?"},
