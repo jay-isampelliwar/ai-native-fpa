@@ -13,9 +13,38 @@
  *
  * There is no default user. Guessing an id would show one person's portfolio to whoever opened the
  * app, and a blank state asking who you are is the honest alternative.
+ *
+ * Storage is exposed as something subscribable rather than as two bare functions, so a component can
+ * read it with `useSyncExternalStore` instead of copying it into state inside an effect. That is not
+ * a style preference: it is what keeps the server render and the hydration pass agreeing, and it also
+ * makes a second tab that switches user propagate here rather than leaving two tabs disagreeing about
+ * whose money is on screen.
  */
 
 const STORAGE_KEY = "fpa.user_id";
+
+const listeners = new Set<() => void>();
+
+/** Notify every reader that the stored id changed, including tabs other than the one that wrote. */
+function announce(): void {
+  for (const listener of listeners) listener();
+}
+
+export function subscribeToUserId(listener: () => void): () => void {
+  listeners.add(listener);
+
+  window.addEventListener("storage", listener);
+
+  return () => {
+    listeners.delete(listener);
+    window.removeEventListener("storage", listener);
+  };
+}
+
+/** What the server renders with: nobody, because storage does not exist there. */
+export function serverUserId(): number | null | undefined {
+  return undefined;
+}
 
 export function readUserId(): number | null {
   try {
@@ -37,6 +66,8 @@ export function writeUserId(userId: number): void {
   } catch {
     // A viewer who cannot persist their id simply enters it again next visit.
   }
+
+  announce();
 }
 
 export function clearUserId(): void {
@@ -45,4 +76,6 @@ export function clearUserId(): void {
   } catch {
     // Nothing to recover from; the id was never persisted.
   }
+
+  announce();
 }

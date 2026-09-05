@@ -1,29 +1,31 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { createContext, useContext, useState, useSyncExternalStore, type ReactNode } from 'react';
 
-import { alerts as alertsApi } from '@/lib/api';
-import { readUserId, writeUserId } from '@/lib/session';
+import { clearUserId, readUserId, serverUserId, subscribeToUserId, writeUserId } from '@/lib/session';
 
 /**
- * The frame every page sits in — brand, the four places this goes, and who you are.
+ * The frame the conversation sits in — brand, and who you are.
  *
  * Identity is resolved once here rather than per page. A user id present on one route and missing on
  * another would mean navigation could land somewhere that fetches with no identity, and that request
  * would either fail or, worse, succeed against a default and show someone else's money.
  *
- * Chat leads because it is what the product is. The other three exist because a conversation is the
- * wrong surface for typing in a salary, correcting an imported row, or scanning what needs attention
- * — that split is the product rule made navigable.
- *
- * Alerts is the only link that carries a count, because it is the only place the system speaks first.
- * Badging everything trains people to stop reading badges.
+ * There is no navigation, because there is nowhere else to go. Everything this product does — asking a
+ * question, reading a statement, deciding what to keep — happens in one thread, and a row of tabs above
+ * it would advertise surfaces that only fragment the same work across screens that cannot see each
+ * other. What is left is the mark, and the one control that is genuinely about the frame rather than
+ * the conversation: which person's records are on screen.
  *
  * The id reaches pages through context rather than a render prop. A function passed as `children`
  * cannot cross the server/client boundary - it is not serialisable into the RSC payload - so pages
  * stay server components and the client components inside them call `useUser`.
+ *
+ * Identity is subscribed to rather than copied into state on mount. Local storage does not exist on
+ * the server, so the first render has to be told there is no answer yet - `undefined`, distinct from
+ * `null`, which is a real answer meaning nobody is signed in. Rendering nothing for that one pass is
+ * what stops the sign-in card appearing for a frame in front of someone who is already signed in.
  */
 
 const UserContext = createContext<number | null>(null);
@@ -39,60 +41,27 @@ export function useUser(): number {
   return userId;
 }
 
-const LINKS = [
-  { href: '/', label: 'Chat' },
-  { href: '/portfolio', label: 'Portfolio' },
-  { href: '/import', label: 'Import' },
-  { href: '/alerts', label: 'Alerts' },
-] as const;
-
 export default function Shell({ children }: { children: ReactNode }) {
-  const [userId, setUserId] = useState<number | null>(null);
-  const [ready, setReady] = useState(false);
+  const userId = useSyncExternalStore(subscribeToUserId, readUserId, serverUserId);
 
-  useEffect(() => {
-    setUserId(readUserId());
-    setReady(true);
-  }, []);
+  if (userId === undefined) return null;
 
-  if (!ready) return null;
-
-  if (userId === null) return <Gate onChoose={setUserId} />;
+  if (userId === null) return <Gate />;
 
   return (
     <UserContext.Provider value={userId}>
       <div className="ambient-grid" aria-hidden="true" />
-      <Nav userId={userId} onSwitch={() => setUserId(null)} />
+      <Nav userId={userId} onSwitch={clearUserId} />
       <main className="relative z-10 flex min-h-0 w-full flex-1 flex-col">{children}</main>
     </UserContext.Provider>
   );
 }
 
 function Nav({ userId, onSwitch }: { userId: number; onSwitch: () => void }) {
-  const pathname = usePathname();
-  const [actionCount, setActionCount] = useState(0);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    alertsApi
-      .list(userId)
-      .then((response) => {
-        if (!cancelled) setActionCount(response.action_required);
-      })
-      .catch(() => {
-        if (!cancelled) setActionCount(0);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [userId, pathname]);
-
   return (
     <header className="relative z-20 border-b border-[#18312f]/8 bg-[#f5f2e8]/85 backdrop-blur">
-      <nav className="mx-auto flex w-full max-w-[1180px] items-center gap-1 px-5 py-3">
-        <Link href="/" className="mr-4 flex items-center gap-2.5">
+      <nav className="mx-auto flex w-full max-w-[1180px] items-center px-5 py-3">
+        <Link href="/" className="flex items-center gap-2.5">
           <span className="brand-mark" aria-hidden="true">
             <span />
           </span>
@@ -101,33 +70,11 @@ function Nav({ userId, onSwitch }: { userId: number; onSwitch: () => void }) {
           </span>
         </Link>
 
-        {LINKS.map((link) => {
-          const active = link.href === '/' ? pathname === '/' : pathname.startsWith(link.href);
-
-          return (
-            <Link
-              key={link.href}
-              href={link.href}
-              className={`rounded-full px-3 py-1.5 text-[13px] transition ${
-                active
-                  ? 'bg-white/80 font-semibold text-[#18312f] shadow-[0_1px_3px_rgba(16,59,54,0.05)]'
-                  : 'text-[#5d7470] hover:bg-white/50 hover:text-[#18312f]'
-              }`}
-            >
-              {link.label}
-              {link.href === '/alerts' && actionCount > 0 && (
-                <span className="ml-1.5 rounded-full bg-[#b83f28] px-1.5 py-0.5 text-[10.5px] font-semibold text-white">
-                  {actionCount}
-                </span>
-              )}
-            </Link>
-          );
-        })}
-
         <button
           type="button"
           onClick={onSwitch}
-          className="ml-auto flex items-center gap-2 text-[11.5px] text-[#8ba09c] transition hover:text-[#18312f]"
+          title="Switch to another user id"
+          className="ml-auto flex items-center gap-2 rounded-full px-2.5 py-1.5 text-[11.5px] text-[#8ba09c] transition hover:bg-white/60 hover:text-[#18312f]"
         >
           <span className="trust-dot" aria-hidden="true" />
           user {userId}
@@ -143,8 +90,11 @@ function Nav({ userId, onSwitch }: { userId: number; onSwitch: () => void }) {
  * This build identifies a caller by an integer with no credential behind it — a deliberate backend
  * decision while the planner itself is being proven. The honest interface for that is a field that
  * asks rather than a default that assumes.
+ *
+ * Writing the id is the whole of submitting. The store announces the change and `Shell` re-reads it,
+ * so there is no second copy of the answer to keep in step with the one in storage.
  */
-function Gate({ onChoose }: { onChoose: (userId: number) => void }) {
+function Gate() {
   const [draft, setDraft] = useState('');
 
   return (
@@ -156,10 +106,7 @@ function Gate({ onChoose }: { onChoose: (userId: number) => void }) {
           onSubmit={(event) => {
             event.preventDefault();
             const parsed = Number(draft);
-            if (Number.isInteger(parsed) && parsed > 0) {
-              writeUserId(parsed);
-              onChoose(parsed);
-            }
+            if (Number.isInteger(parsed) && parsed > 0) writeUserId(parsed);
           }}
           className="w-full max-w-[380px] rounded-2xl border border-[#18312f]/9 bg-white/80 p-7 shadow-[0_1px_3px_rgba(16,59,54,0.04)] backdrop-blur"
         >

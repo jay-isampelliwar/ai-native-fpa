@@ -1,37 +1,30 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 
 import { Card } from '@/components/blocks';
-import { useUser } from '@/components/Shell';
-import UploadDrop from '@/components/UploadDrop';
 import { documents } from '@/lib/api';
 import { rupees, toNumber } from '@/lib/format';
 import type { ImportRead, MappingSheet, StagedRow, StagedRowsPage } from '@/lib/types';
 
 /**
- * Upload a statement, see what was read, correct it, and only then commit.
+ * The pieces one import is drawn from, owned by nothing and rendered wherever the import is.
  *
- * The whole screen exists to make one rule visible: nothing extracted reaches a record until a person
- * accepts it. Rows sit in a staging table with the least confident first, and the Commit button writes
- * only what was accepted — so a parser that misread a column produces a rejected row rather than a
- * wrong holding nobody can distinguish from one you typed.
+ * These were the body of a dedicated screen. They live apart from it now because the import happens
+ * in the conversation, and a card that only compiles inside a page route cannot appear in a turn.
+ * Nothing here fetches on mount or holds a status — the caller drives the flow and passes down what
+ * it has, so the same summary renders identically whether it is polling or finished.
  *
- * Reconciliation is shown before the rows, not after. Individual lines can each look plausible while
- * the total is wrong by exactly one — which is what a statement's own total row imported as a holding
- * looks like — and that is only visible by comparing against what the document says about itself.
+ * `Mapping` is the exception and calls the backend itself. Proposing a mapping is a request a person
+ * makes by pressing a button, not state the import arrives with, and threading two more callbacks up
+ * to the caller would buy nothing but indirection.
  *
- * An unrecognised layout is not guessed at. It comes back asking to be mapped: a model proposes what
- * each column means from the headings alone, a person confirms it, and the mapping is stored so the
- * next file of that shape parses with no model involved at all.
- *
- * Extraction runs as a background job because it outlives a request, so this polls the import's status
- * rather than holding a connection open.
+ * Widths are set for a 760px conversation column rather than a page. The staged table scrolls
+ * sideways inside its own box: a row that wraps onto three lines is unreadable, and a chat that
+ * scrolls sideways as a whole is worse.
  */
 
-const POLL_MS = 700;
-
-const CANONICAL_FIELDS = [
+export const CANONICAL_FIELDS = [
   'instrument_name',
   'isin',
   'symbol',
@@ -45,164 +38,7 @@ const CANONICAL_FIELDS = [
   'asset_type',
 ] as const;
 
-export default function Import() {
-  const userId = useUser();
-
-  const [record, setRecord] = useState<ImportRead | null>(null);
-  const [rows, setRows] = useState<StagedRowsPage | null>(null);
-  const [progress, setProgress] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [committed, setCommitted] = useState<string | null>(null);
-
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const loadRows = useCallback(
-    async (importId: string) => {
-      setRows(await documents.rows(userId, importId));
-    },
-    [userId],
-  );
-
-  // Extraction is a background job, so the import's own status is the source of truth for progress.
-  const poll = useCallback(
-    async (importId: string) => {
-      const next = await documents.read(userId, importId);
-
-      setRecord(next);
-
-      if (next.status === 'uploaded' || next.status === 'extracting') {
-        timer.current = setTimeout(() => void poll(importId), POLL_MS);
-        return;
-      }
-
-      setProgress(null);
-
-      if (next.status === 'extracted') await loadRows(importId);
-    },
-    [userId, loadRows],
-  );
-
-  useEffect(() => {
-    return () => {
-      if (timer.current) clearTimeout(timer.current);
-    };
-  }, []);
-
-  async function upload(file: File) {
-    setError(null);
-    setCommitted(null);
-    setRows(null);
-    setBusy(true);
-    setProgress(`Reading ${file.name}`);
-
-    try {
-      const created = await documents.upload(userId, file);
-
-      setRecord(created);
-
-      if (created.duplicate_of_existing_upload) {
-        setProgress(null);
-        if (created.status === 'extracted') await loadRows(created.id);
-      } else {
-        await poll(created.id);
-      }
-    } catch {
-      setError('That file could not be uploaded.');
-      setProgress(null);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function decideAll(status: 'accepted' | 'rejected') {
-    if (!record) return;
-
-    setRows(await documents.decideAll(userId, record.id, status, true));
-  }
-
-  async function decideRow(row: StagedRow, status: 'accepted' | 'rejected') {
-    if (!record) return;
-
-    await documents.decideRow(userId, record.id, row.id, status);
-    await loadRows(record.id);
-  }
-
-  async function commit() {
-    if (!record) return;
-
-    setBusy(true);
-
-    try {
-      const outcome = await documents.commit(userId, record.id);
-
-      if (outcome.status === 'committed') {
-        setCommitted(`${outcome.rows_written} records added as ${outcome.import_batch_id}`);
-        setRecord(await documents.read(userId, record.id));
-      } else {
-        setError(outcome.detail ?? `Nothing was committed (${outcome.status}).`);
-      }
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto w-full max-w-[900px] space-y-5 px-5 py-7">
-        <header>
-          <h1 className="font-serif text-[28px] leading-[1.15] tracking-[-0.015em] text-[#18312f]">
-            Import a statement
-          </h1>
-
-          <p className="mt-1.5 max-w-[56ch] text-[13px] leading-5 text-[#4d6560]">
-            Holdings exports and bank statements. Everything read is shown to you first — nothing is
-            added to your records until you accept it.
-          </p>
-        </header>
-
-        <UploadDrop onFile={upload} busy={busy} progress={progress} />
-
-        {error && (
-          <div className="rounded-xl border border-[#c2603f]/25 bg-[#c2603f]/8 px-3.5 py-2.5 text-[12.5px] leading-5 text-[#8f4227]">
-            {error}
-          </div>
-        )}
-
-        {committed && (
-          <div className="rounded-xl border border-[#00947a]/30 bg-[#00947a]/10 px-3.5 py-2.5 text-[12.5px] leading-5 text-[#0f5f50]">
-            {committed}
-          </div>
-        )}
-
-        {record && <Summary record={record} />}
-
-        {record?.status === 'needs_mapping' && (
-          <Mapping
-            userId={userId}
-            importId={record.id}
-            onConfirmed={async (updated) => {
-              setRecord(updated);
-              if (updated.status === 'extracted') await loadRows(updated.id);
-            }}
-          />
-        )}
-
-        {record?.status === 'extracted' && rows && (
-          <Reconcile
-            rows={rows}
-            busy={busy}
-            onDecideAll={decideAll}
-            onDecideRow={decideRow}
-            onCommit={commit}
-          />
-        )}
-      </div>
-    </div>
-  );
-}
-
-function Summary({ record }: { record: ImportRead }) {
+export function ImportSummary({ record }: { record: ImportRead }) {
   const stated = record.statement_totals ?? {};
   const computed = record.computed_totals ?? {};
 
@@ -279,7 +115,7 @@ function Summary({ record }: { record: ImportRead }) {
   );
 }
 
-function StatusChip({ status }: { status: ImportRead['status'] }) {
+export function StatusChip({ status }: { status: ImportRead['status'] }) {
   const tone =
     status === 'failed'
       ? 'border-[#b83f28]/28 bg-[#b83f28]/8 text-[#8f4227]'
@@ -303,7 +139,7 @@ function StatusChip({ status }: { status: ImportRead['status'] }) {
  * person's attention is worth spending, and a table sorted by anything else buries it among ninety
  * rows that are fine.
  */
-function Reconcile({
+export function Reconcile({
   rows,
   busy,
   onDecideAll,
@@ -418,7 +254,7 @@ function Reconcile({
   );
 }
 
-function describe(row: StagedRow): string {
+export function describe(row: StagedRow): string {
   const payload = row.payload as Record<string, string | null>;
 
   if (row.target_table === 'holdings') {
@@ -439,7 +275,7 @@ function describe(row: StagedRow): string {
  * It is validated before it is shown, so a person is judging a plausible mapping rather than catching
  * a broken one, and their confirmation is what turns it into a template.
  */
-function Mapping({
+export function Mapping({
   userId,
   importId,
   onConfirmed,
