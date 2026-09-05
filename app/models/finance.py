@@ -21,6 +21,12 @@ any model in this package performs.
 Nothing here has a ``user_id`` accessor used for filtering by callers. Ownership is
 enforced in the repository layer, so a skill holding a record can never widen its own
 access by asking for a different user.
+
+``ExpenseTransaction`` is the one type that is not a recurring arrangement. An
+``ExpenseRecord`` is a standing monthly cost; a transaction is a single thing that
+happened on a date, which is what a spending investigation actually reads. Its
+``description`` is text that arrived from a bank statement rather than from us, so it is
+untrusted input everywhere it is used and must never be treated as instruction by a model.
 """
 
 from datetime import date
@@ -102,6 +108,21 @@ class SipRecord(FinancialRecord):
     folio_id: str | None = None
     next_debit_on: date | None = None
     linked_goal_id: str | None = None
+
+
+class ExpenseTransaction(BaseModel):
+
+    """One dated spend, the unit a spending investigation reads rather than a recurring arrangement."""
+
+    model_config = {"arbitrary_types_allowed": True}
+
+    id: str
+    user_id: int
+    occurred_on: date
+    amount: Decimal
+    category: str
+    merchant: str
+    description: str = ""
 
 
 class CashflowRecords(BaseModel):

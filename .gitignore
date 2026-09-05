@@ -1,33 +1,6 @@
-# Python bytecode
-__pycache__/
-*.py[cod]
-*$py.class
-
-# Virtual environments
+.env
 .venv/
-venv/
-env/
-
-# Packaging / build
-*.egg-info/
-build/
-dist/
-
-# Test & coverage
+__pycache__/
+*.pyc
 .pytest_cache/
 .coverage
-.coverage.*
-htmlcov/
-.hypothesis/
-.mypy_cache/
-.ruff_cache/
-
-# Environment files
-.env
-.env.*
-!.env.example
-
-# OS / editor
-.DS_Store
-.idea/
-*.swp
