@@ -20,7 +20,7 @@ dependencies = [
     "structlog",
     "orjson",
     "langsmith",
-    "fastapi",
+    "fastapi[standard]",
     "uvicorn[standard]",
     "sqlalchemy[asyncio]>=2.0",
     "alembic>=1.19.2",
