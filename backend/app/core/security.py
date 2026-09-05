@@ -32,7 +32,9 @@ from pydantic import BaseModel, Field
 ALL_SCOPES = frozenset(
     {
         "income:read",
+        "income:write",
         "expenses:read",
+        "expenses:write",
         "goals:read",
         "goals:write",
         "investments:read",
@@ -40,6 +42,7 @@ ALL_SCOPES = frozenset(
         "sip:write",
         "deposits:read",
         "liabilities:read",
+        "liabilities:write",
         "insurance:read",
         "retirement:read",
         "retirement:write",

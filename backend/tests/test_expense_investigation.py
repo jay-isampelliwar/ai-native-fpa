@@ -145,6 +145,7 @@ def test_every_skill_shape_registers_behind_the_same_contract():
 
     assert set(isolated.routable_names()) == {
         "orientation",
+        "record_capture",
         "cashflow_summary",
         "expense_investigation",
         "goal_planning",
@@ -161,17 +162,25 @@ def test_every_skill_shape_registers_behind_the_same_contract():
 
 def test_only_the_write_capable_skill_requires_approval():
 
-    """Exactly one registered skill can reach a write, and it is the one that asks for approval."""
+    """Every skill that can reach a write asks for approval first, and the read only ones cannot."""
 
     isolated = SkillRegistry()
 
     register_skills(into=isolated)
 
-    writable = [
-        name for name in isolated.routable_names() if not isolated.resolve(name)[0].read_only
-    ]
+    definitions = {name: isolated.resolve(name)[0] for name in isolated.routable_names()}
 
-    assert writable == ["sip_modification"]
+    writable = sorted(name for name, definition in definitions.items() if not definition.read_only)
+
+    assert writable == ["record_capture", "sip_modification"]
+
+    assert all(definitions[name].requires_approval for name in writable)
+
+    assert all(
+        not definition.requires_approval
+        for name, definition in definitions.items()
+        if definition.read_only
+    )
 
     definition, _ = isolated.resolve("sip_modification")
 

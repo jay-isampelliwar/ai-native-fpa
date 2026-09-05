@@ -20,6 +20,17 @@ call graph rather than a promise in a prompt.
 
 Each function returns a ``WriteOutcome`` rather than raising. A failed write still has to reach
 the audit node, and an exception thrown mid graph would skip it.
+
+``create_records`` is what lets a person give the planner a figure in conversation and have it kept.
+It carries several records in one approval rather than one each, because someone answering "what do
+you need from me" says three things in a sentence and being asked to confirm each separately is worse
+than being shown all three and asked once. They are written in one transaction: a set of records a
+person accepted as a group should not land as a partial group.
+
+It has no freshness check, and that is not an omission. The other write here changes a row that
+existed when the proposal was shown, so the row moving underneath it matters; these rows do not exist
+yet, so there is nothing that could have moved. What replaces it is the approval status check, which
+is what stops the same confirmation being applied twice.
 """
 
 from decimal import Decimal
@@ -29,9 +40,17 @@ from sqlalchemy import select
 
 from app.core.security import AuthenticatedUser, authorize
 from app.db.session import session_scope
-from app.models.finance import ApprovalStatus, SipStatus
+from app.models.finance import ApprovalStatus, Frequency, SipStatus
 from app.models.orm.credit import SipRecordRow
 from app.models.orm.system import PendingApprovalRow
+from app.repositories.records_repository import records_repository
+
+RECORD_SCOPES = {
+    "income": "income:write",
+    "expense": "expenses:write",
+    "emi": "liabilities:write",
+    "sip": "sip:write",
+}
 
 
 class WriteOutcome(BaseModel):
@@ -104,6 +123,121 @@ async def update_sip_instruction(
         )
 
 
+async def create_records(
+    user: AuthenticatedUser,
+    approval: PendingApprovalRow,
+    ) -> WriteOutcome:
+
+    """Write every record a person confirmed in conversation, together in one transaction or not at all."""
+
+    if approval.status != ApprovalStatus.APPROVED:
+        return refuse("these records have not been approved")
+
+    proposed = (approval.after_state or {}).get("records") or []
+
+    if not proposed:
+        return refuse("the approval names no records to create")
+
+    required = sorted({RECORD_SCOPES[record["kind"]] for record in proposed if record["kind"] in RECORD_SCOPES})
+
+    decision = authorize(user, required)
+
+    if not decision.granted:
+        return refuse(decision.reason or "not permitted to add these records")
+
+    written: list[str] = []
+
+    async with session_scope() as session:
+
+        for record in proposed:
+
+            row = await write_one(session, user.user_id, record)
+
+            if row is None:
+                return refuse(f"I do not know how to store a {record.get('kind')!r} record")
+
+            written.append(row.id)
+
+    return WriteOutcome(
+        status="completed",
+        detail=f"added {len(written)} record{'' if len(written) == 1 else 's'}",
+        target_table="records",
+        target_id=",".join(written),
+        idempotency_key=approval.idempotency_key,
+    )
+
+
+async def write_one(session, user_id: int, record: dict):
+
+    """Create one record of whichever kind was confirmed, returning None for a kind nothing handles."""
+
+    kind = record.get("kind")
+
+    fields = record.get("fields") or {}
+
+    amount = Decimal(str(fields["amount"]))
+
+    frequency = Frequency(fields.get("frequency", "monthly"))
+
+    if kind == "income":
+        return await records_repository.create_income(
+            session,
+            user_id=user_id,
+            label=fields["label"],
+            amount=amount,
+            frequency=frequency,
+            source=fields.get("source", "salary"),
+        )
+
+    if kind == "expense":
+        return await records_repository.create_expense(
+            session,
+            user_id=user_id,
+            label=fields["label"],
+            amount=amount,
+            frequency=frequency,
+            category=fields.get("category", "general"),
+        )
+
+    if kind == "emi":
+
+        months = int(fields.get("remaining_months") or 0)
+
+        rate = Decimal(str(fields.get("interest_rate_percent") or "0"))
+
+        liability = await records_repository.create_liability(
+            session,
+            user_id=user_id,
+            label=fields["label"],
+            principal_outstanding=Decimal(str(fields.get("principal_outstanding") or amount * months)),
+            interest_rate_percent=rate,
+            tenure_months=months,
+            lender=fields.get("lender") or "",
+        )
+
+        return await records_repository.create_emi(
+            session,
+            user_id=user_id,
+            liability_id=liability.id,
+            label=fields["label"],
+            amount=amount,
+            interest_rate_percent=rate,
+            remaining_months=months,
+        )
+
+    if kind == "sip":
+        return await records_repository.create_sip(
+            session,
+            user_id=user_id,
+            scheme_name=fields["label"],
+            amount=amount,
+            frequency=frequency,
+        )
+
+    return None
+
+
 WRITE_TOOLS = {
     "update_sip_instruction": update_sip_instruction,
+    "create_records": create_records,
 }

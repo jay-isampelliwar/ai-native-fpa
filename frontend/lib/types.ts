@@ -116,6 +116,27 @@ export interface MessageResponse {
   pending_approval: PendingApproval | null;
 }
 
+export interface WorkspaceReadiness {
+  held: Record<string, number>;
+  missing: string[];
+  labels: Record<string, string>;
+  can_compute_cashflow: boolean;
+  has_any_records: boolean;
+}
+
+export interface WorkspaceSection {
+  key: string;
+  title: string;
+  subtitle: string | null;
+  blocks: Block[];
+}
+
+export interface Workspace {
+  user_id: number;
+  readiness: WorkspaceReadiness;
+  sections: WorkspaceSection[];
+}
+
 export interface ConversationMessage {
   id: string;
   position: number;

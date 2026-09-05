@@ -10,7 +10,10 @@ and a mobile app in a user's pocket may lag the server by months, so ``/api/v1``
 frozen while ``/api/v2`` is developed is cheaper than negotiating a version on every
 request.
 
-Six surfaces are mounted and they split along one line. ``/alerts`` sits with the readers: it
+Seven surfaces are mounted and they split along one line. ``/workspace`` sits with the readers and
+is the standing view rather than an answer to a question: it reports what the planner currently knows
+about a person and what it still needs, which is what the panel beside the conversation renders.
+ ``/alerts`` sits with the readers: it
 observes and never acts, so a finding it raises is dealt with through the ordinary approval path
 like any other change.
 
@@ -29,6 +32,7 @@ from app.api.v1.documents.router import router as documents_router
 from app.api.v1.goals.router import assets_router, router as goals_router
 from app.api.v1.planner.router import router as planner_router
 from app.api.v1.records.router import router as records_router
+from app.api.v1.workspace.router import router as workspace_router
 
 api_router = APIRouter(prefix="/api/v1")
 
@@ -38,3 +42,4 @@ api_router.include_router(goals_router)
 api_router.include_router(assets_router)
 api_router.include_router(documents_router)
 api_router.include_router(alerts_router)
+api_router.include_router(workspace_router)

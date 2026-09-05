@@ -21,6 +21,11 @@ import type { Block, Conversation, MessageResponse } from '@/lib/types';
  * starting a fresh one that would re-propose against newer records. Starting a new session drops it,
  * which is the entire mechanism: a new thread id is a new memory.
  *
+ * A turn that changes the records tells the console rather than reloading anything itself. Approving
+ * a capture card writes rows, and so does committing an import, and the panel beside this needs to
+ * know - but this component has no business knowing what that panel renders. It reports that
+ * something changed and stops there.
+ *
  * Past chats are read back from the backend rather than kept here. The turns on screen are a view of
  * rows the server wrote as they happened, so a reload, a second tab or another device all show the
  * same conversation — which is the point of storing it at all. Reopening one restores the blocks the
@@ -60,7 +65,7 @@ const ACCEPTS = '.xlsx,.xlsm,.xls,.csv';
 
 const newId = () => Math.random().toString(36).slice(2, 10);
 
-export default function ChatPanel() {
+export default function ChatPanel({ onRecordsChanged }: { onRecordsChanged?: () => void }) {
   const userId = useUser();
 
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -192,6 +197,8 @@ export default function ChatPanel() {
     if (!turn?.conversationId) return;
 
     const outcome = await planner.decide(userId, turn.conversationId, decision);
+
+    if (decision === 'approve') onRecordsChanged?.();
 
     setTurns((current) =>
       current.map((candidate) =>
@@ -339,7 +346,15 @@ export default function ChatPanel() {
                     </span>
                   </div>
 
-                  {turn.file && <ImportTurn file={turn.file} onCommitted={say} />}
+                  {turn.file && (
+                    <ImportTurn
+                      file={turn.file}
+                      onCommitted={(summary) => {
+                        say(summary);
+                        onRecordsChanged?.();
+                      }}
+                    />
+                  )}
                 </div>
               );
             }

@@ -1,10 +1,10 @@
-import ChatPanel from '@/components/ChatPanel';
+import Console from '@/components/Console';
 import Shell from '@/components/Shell';
 
 export default function Page() {
   return (
     <Shell>
-      <ChatPanel />
+      <Console />
     </Shell>
   );
 }

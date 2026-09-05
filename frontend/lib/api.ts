@@ -32,6 +32,7 @@ import type {
   RecordCreated,
   StagedRow,
   StagedRowsPage,
+  Workspace,
 } from "@/lib/types";
 
 export class ApiError extends Error {
@@ -214,6 +215,12 @@ export const documents = {
 export const assets = {
   holdings(userId: number) {
     return request<HoldingsSummary>(`/api/v1/assets/holdings?user_id=${userId}`);
+  },
+};
+
+export const workspace = {
+  read(userId: number) {
+    return request<Workspace>(`/api/v1/workspace?user_id=${userId}`);
   },
 };
 

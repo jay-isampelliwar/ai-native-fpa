@@ -120,6 +120,9 @@ def low_savings_rate(context: AlertContext) -> list[Alert]:
 
     """Raise when a positive month still saves almost nothing, which a surplus figure alone hides."""
 
+    if context.cashflow.total_income <= Decimal("0"):
+        return []
+
     if context.cashflow.free_surplus < Decimal("0"):
         return []
 
