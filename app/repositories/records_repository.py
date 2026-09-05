@@ -33,7 +33,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.finance import Frequency, SipStatus
 from app.models.orm.cashflow import ExpenseRecordRow, ExpenseTransactionRow, IncomeRecordRow
+from app.models.finance import DepositKind, HoldingKind
 from app.models.orm.credit import EmiRecordRow, LiabilityRow, SipRecordRow
+from app.models.orm.investments import DepositRow, HoldingRow, RetirementAssetRow
 
 PREFIXES = {
     IncomeRecordRow: "inc",
@@ -42,6 +44,9 @@ PREFIXES = {
     LiabilityRow: "liab",
     EmiRecordRow: "emi",
     SipRecordRow: "sip",
+    DepositRow: "dep",
+    HoldingRow: "hold",
+    RetirementAssetRow: "ret",
 }
 
 
@@ -235,6 +240,109 @@ class RecordsRepository:
             merchant=merchant,
             description=description,
             import_batch_id=import_batch_id,
+        )
+
+        session.add(row)
+
+        await session.flush()
+
+        return row
+
+    async def create_deposit(
+        self,
+        session: AsyncSession,
+        user_id: int,
+        kind: DepositKind,
+        institution: str,
+        interest_rate_percent: Decimal,
+        opened_on: date,
+        matures_on: date,
+        principal: Decimal | None = None,
+        monthly_contribution: Decimal | None = None,
+        compounding: str = "quarterly",
+        ) -> DepositRow:
+
+        """Add a term or recurring deposit, whose kind decides which amount column is required."""
+
+        row = DepositRow(
+            id=new_id(DepositRow),
+            user_id=user_id,
+            kind=kind,
+            institution=institution,
+            principal=principal,
+            monthly_contribution=monthly_contribution,
+            interest_rate_percent=interest_rate_percent,
+            compounding=compounding,
+            opened_on=opened_on,
+            matures_on=matures_on,
+        )
+
+        session.add(row)
+
+        await session.flush()
+
+        return row
+
+    async def create_holding(
+        self,
+        session: AsyncSession,
+        user_id: int,
+        kind: HoldingKind,
+        instrument_name: str,
+        units: Decimal,
+        average_cost: Decimal,
+        as_of: date,
+        isin: str | None = None,
+        scheme_code: str | None = None,
+        folio_id: str | None = None,
+        ) -> HoldingRow:
+
+        """Add a position in one instrument, recording units and cost but never a current price."""
+
+        row = HoldingRow(
+            id=new_id(HoldingRow),
+            user_id=user_id,
+            kind=kind,
+            instrument_name=instrument_name,
+            isin=isin,
+            scheme_code=scheme_code,
+            folio_id=folio_id,
+            units=units,
+            average_cost=average_cost,
+            as_of=as_of,
+        )
+
+        session.add(row)
+
+        await session.flush()
+
+        return row
+
+    async def create_retirement_asset(
+        self,
+        session: AsyncSession,
+        user_id: int,
+        scheme: str,
+        balance: Decimal,
+        as_of: date,
+        monthly_contribution: Decimal = Decimal("0"),
+        employer_contribution: Decimal = Decimal("0"),
+        interest_rate_percent: Decimal | None = None,
+        account_reference: str | None = None,
+        ) -> RetirementAssetRow:
+
+        """Add an accumulation scheme such as EPF, PPF or NPS, with the balance as of a stated date."""
+
+        row = RetirementAssetRow(
+            id=new_id(RetirementAssetRow),
+            user_id=user_id,
+            scheme=scheme,
+            account_reference=account_reference,
+            balance=balance,
+            monthly_contribution=monthly_contribution,
+            employer_contribution=employer_contribution,
+            interest_rate_percent=interest_rate_percent,
+            as_of=as_of,
         )
 
         session.add(row)

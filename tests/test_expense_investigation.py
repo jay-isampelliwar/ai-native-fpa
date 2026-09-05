@@ -135,15 +135,15 @@ def test_the_loop_ceiling_comes_from_the_definition():
     assert skill.recursion_limit() == DEFINITION.maximum_model_calls + DEFINITION.maximum_tool_calls
 
 
-def test_both_skill_shapes_register_behind_the_same_contract():
+def test_every_skill_shape_registers_behind_the_same_contract():
 
-    """A deterministic skill and an agent skill both resolve through the registry identically."""
+    """A deterministic skill, an agent skill and a manual subgraph all resolve through the registry identically."""
 
     isolated = SkillRegistry()
 
     register_skills(into=isolated)
 
-    assert set(isolated.routable_names()) == {"cashflow_summary", "expense_investigation"}
+    assert set(isolated.routable_names()) == {"cashflow_summary", "expense_investigation", "goal_planning"}
 
     for name in isolated.routable_names():
 

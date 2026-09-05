@@ -16,10 +16,10 @@ The ``enabled`` flag is the rollback switch. A version that turns out to be wron
 disabled rather than deleted: it stops being routable immediately, but old audit records
 still resolve against it and the previous version can be re-enabled without a deploy.
 
-Two skills are registered in Phase 1 and they are deliberately different shapes. The cash
-flow summary is deterministic end to end; the expense investigation runs an agent loop.
-Both satisfy the same contract and the orchestrator treats them identically, which is the
-claim the skill design makes and the reason to prove it with two rather than one.
+Three skills are registered and all three are different shapes. The cash flow summary is
+deterministic end to end, the expense investigation runs an agent loop, and goal planning is a
+manual subgraph. They satisfy one contract and the orchestrator treats them identically, which
+is the claim the skill design makes and the reason to prove it with three rather than one.
 
 Call ``register_skills`` once during application startup, before the graph is compiled.
 Calling it twice is harmless, since registration is keyed by name and version.
@@ -29,6 +29,8 @@ from app.graphs.skills.cashflow_summary.definition import DEFINITION as CASHFLOW
 from app.graphs.skills.cashflow_summary.skill import CashflowSummarySkill
 from app.graphs.skills.expense_investigation.agent import ExpenseInvestigationSkill
 from app.graphs.skills.expense_investigation.definition import DEFINITION as EXPENSE_INVESTIGATION
+from app.graphs.skills.goal_planning.definition import DEFINITION as GOAL_PLANNING
+from app.graphs.skills.goal_planning.skill import GoalPlanningSkill
 from app.graphs.skills.registry import SkillRegistry, registry
 
 
@@ -40,5 +42,6 @@ def register_skills(into: SkillRegistry | None = None) -> SkillRegistry:
 
     target.register(CASHFLOW_SUMMARY, CashflowSummarySkill(), enabled=True)
     target.register(EXPENSE_INVESTIGATION, ExpenseInvestigationSkill(), enabled=True)
+    target.register(GOAL_PLANNING, GoalPlanningSkill(), enabled=True)
 
     return target
