@@ -1,0 +1,328 @@
+@import 'tailwindcss';
+
+:root {
+  --background: #f5f2e8;
+  --foreground: #18312f;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-manrope);
+  --font-serif: var(--font-newsreader);
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-manrope), Arial, Helvetica, sans-serif;
+}
+
+.font-serif { font-family: var(--font-newsreader), Georgia, 'Times New Roman', serif; }
+
+::selection { background: rgba(231, 161, 77, 0.32); color: #18312f; }
+
+:where(a, button, input, textarea):focus-visible {
+  outline: 3px solid rgba(231, 161, 77, 0.8);
+  outline-offset: 3px;
+}
+
+button, a { -webkit-tap-highlight-color: transparent; }
+
+/* Scroll without the bar.
+   The content still scrolls by wheel, trackpad, keyboard and touch — only the
+   chrome is hidden. Applied to the app's own panes, never to the document, so a
+   page that overflows the window keeps its native affordance. */
+.no-scrollbar {
+  scrollbar-width: none;          /* Firefox */
+  -ms-overflow-style: none;       /* legacy Edge */
+}
+.no-scrollbar::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;                  /* WebKit / Blink */
+}
+
+.ambient-grid {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 74% 42%, rgba(94, 170, 151, 0.2), transparent 28%),
+    radial-gradient(circle at 15% 84%, rgba(231, 161, 77, 0.13), transparent 27%),
+    linear-gradient(rgba(30, 67, 61, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(30, 67, 61, 0.035) 1px, transparent 1px);
+  background-size: auto, auto, 56px 56px, 56px 56px;
+  mask-image: linear-gradient(to bottom, black, rgba(0, 0, 0, 0.24));
+}
+
+.brand-mark {
+  position: relative;
+  display: inline-grid;
+  height: 30px;
+  width: 30px;
+  place-items: center;
+  border: 1px solid rgba(24, 49, 47, 0.28);
+  border-radius: 50%;
+}
+.brand-mark::before {
+  content: '';
+  position: absolute;
+  left: 6px;
+  top: 15px;
+  height: 1.5px;
+  width: 17px;
+  background: #183f3a;
+  transform: rotate(-34deg);
+}
+.brand-mark span,
+.brand-mark::after {
+  content: '';
+  position: absolute;
+  height: 5px;
+  width: 5px;
+  border: 1.5px solid #183f3a;
+  border-radius: 50%;
+  background: #f5f2e8;
+}
+.brand-mark span { left: 5px; top: 17px; }
+.brand-mark::after {
+  right: 5px;
+  top: 7px;
+  background: #e7a14d;
+  border-color: #e7a14d;
+}
+
+.trust-dot {
+  display: inline-block;
+  height: 5px;
+  width: 5px;
+  border-radius: 50%;
+  background: #4f8f79;
+  box-shadow: 0 0 0 3px rgba(79, 143, 121, 0.12);
+}
+
+.life-chart {
+  position: relative;
+  min-height: 300px;
+  overflow: hidden;
+  border: 1px solid rgba(24, 49, 47, 0.09);
+  border-radius: 22px;
+  background: linear-gradient(180deg, rgba(223, 237, 229, 0.72), rgba(252, 249, 241, 0.8));
+}
+.life-chart__grid {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(rgba(23, 61, 57, 0.055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(23, 61, 57, 0.045) 1px, transparent 1px);
+  background-size: 100% 60px, 16.666% 100%;
+  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.78), transparent);
+}
+.life-chart__range {
+  position: absolute;
+  inset: 12% 2% 18%;
+  background: linear-gradient(120deg, rgba(66, 144, 119, 0.04), rgba(66, 144, 119, 0.22));
+  clip-path: polygon(0 82%, 25% 66%, 52% 48%, 76% 24%, 100% 0, 100% 30%, 76% 44%, 52% 65%, 25% 80%, 0 94%);
+}
+.path-segment {
+  position: absolute;
+  z-index: 4;
+  height: 2px;
+  transform-origin: left center;
+  border-radius: 999px;
+  background: #1c6b5a;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.85);
+}
+.path-segment--one { left: 5%; top: 72%; width: 28%; transform: rotate(-19deg); }
+.path-segment--two { left: 31%; top: 58%; width: 30%; transform: rotate(-18deg); }
+.path-segment--three { left: 58%; top: 43%; width: 32%; transform: rotate(-27deg); }
+.milestone-dot {
+  display: block;
+  height: 13px;
+  width: 13px;
+  border: 3px solid #fffdf8;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(20, 55, 50, 0.18), 0 4px 12px rgba(20, 55, 50, 0.16);
+}
+.milestone-dot--ink { background: #183f3a; }
+.milestone-dot--teal { background: #419b7f; }
+.milestone-dot--coral { background: #b7604c; }
+.milestone-dot--gold { background: #e7a14d; }
+
+.section-shell {
+  width: min(100% - 40px, 1344px);
+  margin-inline: auto;
+}
+
+.eyebrow {
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.13em;
+  line-height: 1.4;
+  text-transform: uppercase;
+  color: #667b76;
+}
+
+.eyebrow--light { color: rgba(255, 255, 255, 0.48); }
+
+.life-decision {
+  position: relative;
+  overflow: hidden;
+  min-height: 340px;
+  padding: 24px;
+  border: 1px solid rgba(24, 49, 47, 0.1);
+  border-radius: 24px;
+  background: #f8f5ed;
+}
+
+.life-decision::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.55;
+  background:
+    radial-gradient(circle at 90% 10%, var(--decision-mist), transparent 35%),
+    repeating-radial-gradient(ellipse at 110% -10%, transparent 0 17px, rgba(24, 49, 47, 0.045) 18px 19px);
+}
+
+.life-decision > * { position: relative; }
+.life-decision--teal { --decision-mist: rgba(89, 161, 143, 0.34); }
+.life-decision--amber { --decision-mist: rgba(231, 161, 77, 0.32); }
+.life-decision--plum { --decision-mist: rgba(117, 109, 145, 0.28); }
+
+.decision-node {
+  height: 11px;
+  width: 11px;
+  border: 3px solid #f8f5ed;
+  border-radius: 50%;
+  background: #2d746b;
+  box-shadow: 0 0 0 1px rgba(24, 49, 47, 0.18), 0 0 0 7px rgba(45, 116, 107, 0.08);
+}
+
+.life-decision--amber .decision-node { background: #e7a14d; box-shadow: 0 0 0 1px rgba(24,49,47,.16), 0 0 0 7px rgba(231,161,77,.1); }
+.life-decision--plum .decision-node { background: #756d91; box-shadow: 0 0 0 1px rgba(24,49,47,.16), 0 0 0 7px rgba(117,109,145,.1); }
+
+.guide-light {
+  display: inline-block;
+  height: 12px;
+  width: 12px;
+  border: 2px solid #fff7e8;
+  border-radius: 50%;
+  background: #e7a14d;
+  box-shadow: 0 0 0 1px rgba(153, 97, 31, 0.2), 0 0 0 7px rgba(231, 161, 77, 0.13);
+}
+
+.dark-contours {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.65;
+  background:
+    radial-gradient(circle at 85% 25%, rgba(83, 155, 139, 0.18), transparent 30%),
+    repeating-radial-gradient(ellipse at 100% 50%, transparent 0 34px, rgba(255,255,255,.028) 35px 36px);
+}
+
+.step-line {
+  position: absolute;
+  left: 7%;
+  right: 7%;
+  top: 37px;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(45,116,107,.15), rgba(45,116,107,.6), rgba(231,161,77,.45));
+}
+
+.app-brand-mark {
+  position: relative;
+  display: inline-grid;
+  height: 34px;
+  width: 34px;
+  place-items: center;
+  border: 1px solid rgba(255,255,255,.22);
+  border-radius: 50%;
+}
+
+.app-brand-mark::before {
+  content: '';
+  position: absolute;
+  left: 7px;
+  top: 17px;
+  height: 1.5px;
+  width: 19px;
+  background: rgba(255,255,255,.8);
+  transform: rotate(-34deg);
+}
+
+.app-brand-mark span,
+.app-brand-mark::after {
+  content: '';
+  position: absolute;
+  height: 5px;
+  width: 5px;
+  border-radius: 50%;
+}
+
+.app-brand-mark span { left: 6px; top: 20px; background: #f7f3e9; }
+.app-brand-mark::after { right: 6px; top: 8px; background: #e7a14d; }
+
+.progress-ring {
+  --progress: 0deg;
+  --ring: #2d746b;
+  position: relative;
+  display: grid;
+  height: 44px;
+  width: 44px;
+  place-items: center;
+  border-radius: 50%;
+  background: conic-gradient(var(--ring) var(--progress), rgba(24,49,47,.1) 0);
+}
+
+.progress-ring::before {
+  content: '';
+  position: absolute;
+  inset: 5px;
+  border-radius: 50%;
+  background: #f9f7ef;
+}
+
+.progress-ring span {
+  position: relative;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.planner-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(24,49,47,.18) transparent;
+  scroll-behavior: smooth;
+}
+
+.tabular-nums { font-variant-numeric: tabular-nums; }
+
+@media (max-width: 639px) {
+  .life-chart { min-height: 280px; }
+  .milestone--teal { display: none; }
+  .section-shell { width: min(100% - 32px, 1344px); }
+  .metric-card:last-child { grid-column: 1 / -1; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .life-chart__range { animation: breathe 5s ease-in-out infinite; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+@keyframes breathe {
+  0%, 100% { opacity: 0.72; }
+  50% { opacity: 1; }
+}
