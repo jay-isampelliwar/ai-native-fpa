@@ -16,22 +16,33 @@ approval interrupt sees the same proposal it paused on.
 ``approval_decision`` stays None until a human answers. ``write_outcome`` stays None
 unless a controlled write actually executed, which makes "did anything change?" a field
 check rather than an inference.
+
+The three fields at the top - ``user_id``, ``conversation_id`` and ``user_message`` - are
+the only ones the caller supplies. Everything below them is filled in by a node, so a
+request always enters the graph the same shape no matter which skill it ends up in.
 """
 
 from typing import Any
 
 from pydantic import BaseModel, Field
 
-from backend.agent_runtime.contracts import SkillContext, SkillDefinition, SkillResult
+from app.core.security import AuthenticatedUser
+from app.graphs.skills.contracts import SkillContext, SkillDefinition, SkillResult
 
 
 class PlannerState(BaseModel):
 
     """Accumulating state for one request as it moves through authenticate, route, execute, approve and audit."""
 
+    user_id: int
+    conversation_id: str
     user_message: str
+
+    user: AuthenticatedUser | None = None
     context: SkillContext | None = None
     skill_name: str | None = None
+    route_confidence: float | None = None
+    route_reason: str | None = None
     definition: SkillDefinition | None = None
     permission_granted: bool = False
     denial_reason: str | None = None

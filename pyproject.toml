@@ -1,17 +1,46 @@
 [project]
-name = "backend"
+name = "ai-native-fpa-backend"
 version = "0.1.0"
-description = "Add your description here"
+description = "AI native financial planner - skill based LangGraph backend"
 readme = "README.md"
 authors = [
     { name = "Jay Isampelliwar", email = "isampelliwar79@gmail.com" }
 ]
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "langgraph",
+    "langchain",
+    "langchain-openai",
+    "langgraph-checkpoint-postgres",
+    "psycopg[binary,pool]",
+    "pydantic",
+    "pydantic-settings",
+    "pycryptodome",
+    "tenacity",
+    "structlog",
+    "orjson",
+    "langsmith",
+    "fastapi",
+    "uvicorn[standard]",
+]
 
-[project.scripts]
-backend = "backend:main"
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "pytest-cov",
+    "respx",
+    "hypothesis",
+    "freezegun",
+]
 
 [build-system]
-requires = ["uv_build>=0.12.0,<0.13.0"]
-build-backend = "uv_build"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
