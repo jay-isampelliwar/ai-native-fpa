@@ -16,9 +16,14 @@ The ``enabled`` flag is the rollback switch. A version that turns out to be wron
 disabled rather than deleted: it stops being routable immediately, but old audit records
 still resolve against it and the previous version can be re-enabled without a deploy.
 
-Four skills are registered in three different shapes. The cash flow summary is deterministic end
+Five skills are registered in three different shapes. The cash flow summary is deterministic end
 to end, the expense investigation runs an agent loop, and goal planning and SIP modification are
 manual subgraphs. They satisfy one contract and the orchestrator treats them identically.
+
+``orientation`` is the odd one and is registered first because everything else assumes it. It answers
+about the planner rather than about the records, and it is what the router falls back to when its
+confidence is below the floor - so a request that fits no financial skill gets an answer describing
+what the planner can do, rather than the closest skill's refusal.
 
 Three are read only. ``sip_modification`` is the exception and the reason the approval machinery
 exists: it is the only registered skill whose result can reach a controlled write, and it reaches
@@ -34,6 +39,8 @@ from app.graphs.skills.expense_investigation.agent import ExpenseInvestigationSk
 from app.graphs.skills.expense_investigation.definition import DEFINITION as EXPENSE_INVESTIGATION
 from app.graphs.skills.goal_planning.definition import DEFINITION as GOAL_PLANNING
 from app.graphs.skills.goal_planning.skill import GoalPlanningSkill
+from app.graphs.skills.orientation.definition import DEFINITION as ORIENTATION
+from app.graphs.skills.orientation.skill import OrientationSkill
 from app.graphs.skills.sip_modification.definition import DEFINITION as SIP_MODIFICATION
 from app.graphs.skills.sip_modification.skill import SipModificationSkill
 from app.graphs.skills.registry import SkillRegistry, registry
@@ -45,6 +52,7 @@ def register_skills(into: SkillRegistry | None = None) -> SkillRegistry:
 
     target = into or registry
 
+    target.register(ORIENTATION, OrientationSkill(), enabled=True)
     target.register(CASHFLOW_SUMMARY, CashflowSummarySkill(), enabled=True)
     target.register(EXPENSE_INVESTIGATION, ExpenseInvestigationSkill(), enabled=True)
     target.register(GOAL_PLANNING, GoalPlanningSkill(), enabled=True)

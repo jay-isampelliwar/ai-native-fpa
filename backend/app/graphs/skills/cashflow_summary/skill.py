@@ -72,7 +72,11 @@ class CashflowSummarySkill:
         if not records.evidence_ids:
             return SkillResult(
                 status="refused",
-                message="I have no income or expense records for you yet, so I cannot summarise your cash flow.",
+                message=(
+                    "I have no income or expense records for you yet, so there is no cash flow to "
+                    "summarise. Attach a bank or holdings statement here and I will read it, or tell "
+                    "me your salary and regular outgoings and I will start from those."
+                ),
             )
 
         inputs = CashflowInput(

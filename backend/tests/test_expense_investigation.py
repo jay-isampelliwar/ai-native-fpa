@@ -69,7 +69,7 @@ def test_no_tool_lets_the_model_name_a_user(context, evidence):
         assert "user_id" not in tool.args
 
 
-async def test_a_skill_cannot_read_another_users_rows(evidence):
+async def test_a_skill_cannot_read_another_users_rows(evidence, seeded_records):
 
     """Tools built for one user return that user's transactions and no one else's."""
 
@@ -144,6 +144,7 @@ def test_every_skill_shape_registers_behind_the_same_contract():
     register_skills(into=isolated)
 
     assert set(isolated.routable_names()) == {
+        "orientation",
         "cashflow_summary",
         "expense_investigation",
         "goal_planning",

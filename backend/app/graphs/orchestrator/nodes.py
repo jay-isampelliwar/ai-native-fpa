@@ -158,7 +158,7 @@ def validate_skill_result(state: PlannerState) -> dict:
     if definition.read_only and result.pending_approval_id is not None:
         errors.append("a read only skill proposed an action requiring approval")
 
-    if result.status in {"answered", "proposed"} and not result.evidence_ids:
+    if definition.quotes_figures and result.status in {"answered", "proposed"} and not result.evidence_ids:
         errors.append("a material conclusion was returned without evidence identifiers")
 
     errors.extend(validate_blocks(result))

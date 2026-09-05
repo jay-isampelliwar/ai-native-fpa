@@ -37,6 +37,13 @@ a conclusion came from; the calculator version says which arithmetic turned them
 number. A plan explained months later needs both, so any skill quoting a computed figure
 records the version that produced it.
 
+``quotes_figures`` exists for the one skill that answers about the service rather than about the
+records. The validator requires evidence identifiers behind any answered result, because a figure
+nobody can trace is the failure this whole design prevents. A skill that quotes no figure - one that
+describes what the planner can do - would be rejected for lacking evidence it never claimed to have.
+The flag defaults to True, so a skill has to say so explicitly and a reviewer sees it in the
+definition rather than discovering it in a validator exemption.
+
 ``SkillResult.status`` is drawn from ``SKILL_STATUSES`` and each value is a claim the
 validator checks rather than trusts. ``proposed`` means a change was described but not
 made and is the only status a skill requiring approval may return. ``completed`` asserts
@@ -99,6 +106,7 @@ class SkillDefinition(BaseModel):
     allowed_tools: list[str] = Field(default_factory=list)
     read_only: bool = True
     requires_approval: bool = False
+    quotes_figures: bool = True
     maximum_model_calls: int = 4
     maximum_tool_calls: int = 8
     timeout_seconds: int = 30

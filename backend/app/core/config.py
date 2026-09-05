@@ -60,6 +60,8 @@ class Settings(BaseSettings):
 
     repository_backend: str = "sql"
 
+    route_confidence_floor: float = 0.55
+
     upload_directory: str = "var/uploads"
     maximum_upload_bytes: int = 20 * 1024 * 1024
 
