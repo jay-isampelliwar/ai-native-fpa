@@ -12,6 +12,14 @@ The graph is compiled during startup too, not on first request. Compiling it eag
 means a wiring mistake fails the deploy rather than the first user's message, and it also
 warms the checkpointer connection before it is needed.
 
+The PostgreSQL checkpointer is opened for the life of the application rather than per
+request. A run paused for approval is resumed by a later request, so the saver holding that
+state has to outlive the request that created it.
+
+Shutdown disposes the connection pool. Without it a reload during development leaks
+connections until PostgreSQL refuses new ones, which presents as an unrelated failure an
+hour later.
+
 ``/health`` is intentionally trivial and does not touch the database or a model. It
 answers whether this process is alive, which is what a load balancer is asking; a probe
 that calls a paid API turns an outage into a bill.
@@ -23,6 +31,8 @@ from fastapi import FastAPI
 
 from app.api.v1.router import api_router
 from app.core.config import settings
+from app.core.logging import configure_logging, get_logger
+from app.db.session import dispose_engine
 from app.graphs.orchestrator.graph import get_planner_graph
 from app.graphs.skills.bootstrap import register_skills
 
@@ -30,13 +40,23 @@ from app.graphs.skills.bootstrap import register_skills
 @asynccontextmanager
 async def lifespan(app: FastAPI):
 
-    """Register every approved skill and compile the graph before the first request is served."""
+    """Configure logging, register skills and compile the graph before the first request is served."""
+
+    configure_logging()
 
     register_skills()
 
     get_planner_graph()
 
+    get_logger("startup").info(
+        "planner ready",
+        environment=settings.environment,
+        repository_backend=settings.repository_backend,
+    )
+
     yield
+
+    await dispose_engine()
 
 
 app = FastAPI(

@@ -27,7 +27,8 @@ from decimal import Decimal
 from app.calculations.cashflow.v1 import CALCULATOR_VERSION, CashflowInput, CashflowResult, run_cashflow
 from app.graphs.skills.cashflow_summary.definition import DEFINITION
 from app.graphs.skills.contracts import SkillContext, SkillRequest, SkillResult
-from app.repositories.cashflow_repository import CashflowRepository, cashflow_repository
+from app.repositories import get_cashflow_repository
+from app.repositories.cashflow_repository import CashflowRepository
 
 
 def format_rupees(amount: Decimal) -> str:
@@ -48,7 +49,7 @@ class CashflowSummarySkill:
 
         """Take the repository to read from, defaulting to the configured one and injectable in tests."""
 
-        self._repository = repository or cashflow_repository
+        self._repository = repository or get_cashflow_repository()
 
     async def execute(
         self,

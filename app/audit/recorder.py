@@ -15,9 +15,14 @@ Refusals are recorded as carefully as successes. A permission denial, an unrouta
 message and a rejected approval are all outcomes worth seeing, and a system that only
 logs its successes cannot be audited at all.
 
-Persistence is intentionally behind ``AuditRecorder`` rather than inlined. Phase 1 emits
-structured logs; the database backed recorder replaces this class without any node
-changing, because nodes only ever call ``record``.
+Persistence is intentionally behind ``AuditRecorder`` rather than inlined, and nodes only
+ever call ``record``. Phase 2 writes to the ``audit_records`` table; the logging fallback
+remains for tests and for the case where the database is unreachable, because losing an
+audit row is bad but failing the user's request to protect a log line is worse.
+
+A failed audit write is logged loudly and does not raise. The alternative - propagating the
+error - would turn a bookkeeping outage into a service outage, and the request being
+described has already happened either way.
 """
 
 from datetime import UTC, datetime
@@ -46,6 +51,7 @@ class AuditRecord(BaseModel):
 
     result_status: str | None = None
     evidence_ids: list[str] = Field(default_factory=list)
+    calculator_versions: list[str] = Field(default_factory=list)
     assumptions: dict[str, float] = Field(default_factory=dict)
     validation_errors: list[str] = Field(default_factory=list)
 
@@ -85,6 +91,7 @@ class AuditRecorder:
             denial_reason=state.denial_reason,
             result_status=state.result.status if state.result else None,
             evidence_ids=state.result.evidence_ids if state.result else [],
+            calculator_versions=state.result.calculator_versions if state.result else [],
             assumptions=state.result.assumptions if state.result else {},
             validation_errors=state.validation_errors,
             approval_decision=state.approval_decision,
@@ -94,9 +101,22 @@ class AuditRecorder:
 
     async def persist(self, record: AuditRecord) -> None:
 
-        """Write the record to durable storage, replaced by the database backed recorder in Phase 5."""
+        """Append the record to the audit table, falling back to a log line if that write fails."""
 
-        print(record.model_dump_json())
+        from app.core.logging import get_logger
+        from app.repositories.audit_repository import audit_repository
+
+        try:
+            await audit_repository.write(record)
+
+        except Exception as exc:
+
+            get_logger("audit").error(
+                "audit write failed",
+                correlation_id=record.correlation_id,
+                error=type(exc).__name__,
+                record=record.model_dump_json(),
+            )
 
 
 recorder = AuditRecorder()

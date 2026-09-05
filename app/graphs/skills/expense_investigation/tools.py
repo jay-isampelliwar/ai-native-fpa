@@ -30,7 +30,8 @@ from decimal import Decimal
 from langchain_core.tools import BaseTool, tool
 
 from app.graphs.skills.contracts import SkillContext
-from app.repositories.expense_repository import ExpenseRepository, expense_repository
+from app.repositories import get_expense_repository
+from app.repositories.expense_repository import ExpenseRepository
 
 DESCRIPTION_LIMIT = 120
 
@@ -68,7 +69,7 @@ def build_expense_tools(
 
     """Build the agent's tools bound to one authenticated user, leaving the model no way to name another."""
 
-    source = repository or expense_repository
+    source = repository or get_expense_repository()
 
     @tool("spending_by_category")
     async def spending_by_category(year: int, month: int) -> dict:

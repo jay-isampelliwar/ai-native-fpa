@@ -17,6 +17,11 @@ rather than silently write unencrypted state.
 
 Model budgets live here too. They are the ceiling a skill definition may not exceed, so
 a mistake in one skill's metadata cannot run up an unbounded bill.
+
+``repository_backend`` chooses between PostgreSQL and the seeded dictionaries. It exists so
+tests and local experiments can run offline, not so production has a fallback: a service
+that silently answers from fixture data when the database is unreachable would be worse
+than one that fails.
 """
 
 from functools import lru_cache
@@ -48,6 +53,8 @@ class Settings(BaseSettings):
     langsmith_api_key: SecretStr | None = None
     langsmith_project: str = "ai-native-fpa"
     tracing_enabled: bool = False
+
+    repository_backend: str = "sql"
 
     default_timezone: str = "Asia/Kolkata"
     default_currency: str = "INR"

@@ -38,6 +38,41 @@ from pydantic import BaseModel, Field
 from app.calculations.money import quantise
 
 
+class SipStatus(StrEnum):
+
+    """Whether a standing instruction is running, temporarily halted or ended."""
+
+    ACTIVE = "active"
+    PAUSED = "paused"
+    STOPPED = "stopped"
+
+
+class DepositKind(StrEnum):
+
+    """A single term deposit or a recurring contribution contract, which behave differently."""
+
+    FD = "fd"
+    RD = "rd"
+
+
+class HoldingKind(StrEnum):
+
+    """The two instrument families the planner tracks units of."""
+
+    STOCK = "stock"
+    MUTUAL_FUND = "mutual_fund"
+
+
+class ApprovalStatus(StrEnum):
+
+    """Where a proposed change stands between being described and being executed."""
+
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    EXPIRED = "expired"
+
+
 class Frequency(StrEnum):
 
     """How often a recorded amount actually occurs, before it is normalised to a month."""
