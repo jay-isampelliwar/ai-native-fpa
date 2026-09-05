@@ -1,13 +1,13 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { BlockRenderer } from '@/components/blocks';
 import ImportTurn from '@/components/ImportTurn';
 import { useUser } from '@/components/Shell';
 import { planner } from '@/lib/api';
 import { streamMessage } from '@/lib/stream';
-import type { Block, MessageResponse } from '@/lib/types';
+import type { Block, Conversation, MessageResponse } from '@/lib/types';
 
 /**
  * The conversation — one graph run per message, streamed, with approvals and imports answered inline.
@@ -20,6 +20,11 @@ import type { Block, MessageResponse } from '@/lib/types';
  * the graph's thread id, so it is also what makes an approval resume the exact paused run rather than
  * starting a fresh one that would re-propose against newer records. Starting a new session drops it,
  * which is the entire mechanism: a new thread id is a new memory.
+ *
+ * Past chats are read back from the backend rather than kept here. The turns on screen are a view of
+ * rows the server wrote as they happened, so a reload, a second tab or another device all show the
+ * same conversation — which is the point of storing it at all. Reopening one restores the blocks the
+ * skill built at the time rather than asking the planner to answer the old question again.
  *
  * A file is attached in the composer rather than uploaded on a page of its own. Sending a statement is
  * the same act as asking a question — both are a person handing over something to be read — and the
@@ -64,6 +69,8 @@ export default function ChatPanel() {
   const [busy, setBusy] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [conversationId, setConversationId] = useState<string | undefined>();
+  const [sessions, setSessions] = useState<Conversation[]>([]);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   const scroller = useRef<HTMLDivElement>(null);
   const picker = useRef<HTMLInputElement>(null);
@@ -95,6 +102,10 @@ export default function ChatPanel() {
     setTurns((current) => [...current, { id: newId(), role: 'planner', text, blocks: [] }]);
   }
 
+  const loadSessions = useCallback(async () => {
+    setSessions(await planner.conversations(userId).catch(() => []));
+  }, [userId]);
+
   /** Drop the thread id as well as the turns — the same screen against a different memory. */
   function newSession() {
     if (busy) return;
@@ -103,6 +114,42 @@ export default function ChatPanel() {
     setConversationId(undefined);
     setDraft('');
     setProgress(null);
+    setHistoryOpen(false);
+  }
+
+  /** Reopen a stored conversation, showing the blocks it was answered with rather than re-asking. */
+  async function openSession(id: string) {
+    if (busy) return;
+
+    setHistoryOpen(false);
+
+    try {
+      const detail = await planner.conversation(userId, id);
+
+      setTurns(
+        detail.messages.map((message) => ({
+          id: message.id,
+          role: message.role,
+          text: message.text,
+          blocks: message.blocks,
+          skill: message.skill,
+          calculators: message.calculator_versions,
+          conversationId: detail.id,
+        })),
+      );
+
+      setConversationId(detail.id);
+    } catch {
+      say('That conversation could not be opened.');
+    }
+  }
+
+  async function discardSession(id: string) {
+    await planner.discardConversation(userId, id).catch(() => undefined);
+
+    if (id === conversationId) newSession();
+
+    await loadSessions();
   }
 
   function attach(files: FileList | null) {
@@ -176,18 +223,70 @@ export default function ChatPanel() {
         attach(event.dataTransfer.files);
       }}
     >
-      {turns.length > 0 && (
-        <div className="flex justify-end border-b border-[#18312f]/6 px-5 py-2">
-          <button
-            type="button"
-            onClick={newSession}
-            disabled={busy}
-            className="rounded-full border border-[#18312f]/12 bg-white/70 px-3 py-1.5 text-[11.5px] font-medium text-[#5d7470] transition hover:border-[#00947a] hover:text-[#18312f] disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            New chat
-          </button>
-        </div>
-      )}
+      <div className="relative z-20 flex items-center justify-end gap-2 border-b border-[#18312f]/6 px-5 py-2">
+        <button
+          type="button"
+          onClick={() => {
+            setHistoryOpen((open) => !open);
+            if (!historyOpen) void loadSessions();
+          }}
+          aria-expanded={historyOpen}
+          className="rounded-full border border-[#18312f]/12 bg-white/70 px-3 py-1.5 text-[11.5px] font-medium text-[#5d7470] transition hover:border-[#00947a] hover:text-[#18312f]"
+        >
+          Past chats
+        </button>
+
+        <button
+          type="button"
+          onClick={newSession}
+          disabled={busy || (turns.length === 0 && !conversationId)}
+          className="rounded-full border border-[#18312f]/12 bg-white/70 px-3 py-1.5 text-[11.5px] font-medium text-[#5d7470] transition hover:border-[#00947a] hover:text-[#18312f] disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          New chat
+        </button>
+
+        {historyOpen && (
+          <div className="absolute right-5 top-full z-30 mt-1 max-h-[22rem] w-[min(24rem,calc(100vw-2.5rem))] overflow-y-auto rounded-xl border border-[#18312f]/10 bg-white p-1.5 shadow-[0_8px_24px_rgba(16,59,54,0.12)]">
+            {sessions.length === 0 ? (
+              <p className="px-2.5 py-3 text-[12px] leading-5 text-[#8ba09c]">
+                Nothing here yet. Every conversation you have is kept and listed here.
+              </p>
+            ) : (
+              sessions.map((session) => (
+                <div
+                  key={session.id}
+                  className={`group flex items-center gap-1 rounded-lg px-1 ${
+                    session.id === conversationId ? 'bg-[#00947a]/8' : 'hover:bg-[#f5f2e8]'
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => void openSession(session.id)}
+                    className="min-w-0 flex-1 px-1.5 py-2 text-left"
+                  >
+                    <span className="block truncate text-[12.5px] leading-4 text-[#18312f]">
+                      {session.title ?? 'Untitled conversation'}
+                    </span>
+                    <span className="mt-0.5 block text-[10.5px] leading-4 text-[#8ba09c]">
+                      {session.message_count} message{session.message_count === 1 ? '' : 's'} ·{' '}
+                      {when(session.last_message_at)}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => void discardSession(session.id)}
+                    aria-label="Delete this conversation"
+                    className="shrink-0 rounded-md px-1.5 py-1 text-[11px] text-[#a8b8b4] opacity-0 transition hover:text-[#8f4227] focus:opacity-100 group-hover:opacity-100"
+                  >
+                    Delete
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+        )}
+      </div>
 
       {/* min-h-0 is load-bearing: without it a flex child will not shrink below its content, so this
           never scrolls and the column grows past the viewport. */}
@@ -346,6 +445,23 @@ export default function ChatPanel() {
       )}
     </div>
   );
+}
+
+/** A date a person can place without doing arithmetic, which is all a chat list needs. */
+function when(timestamp: string): string {
+  const at = new Date(timestamp);
+
+  if (Number.isNaN(at.getTime())) return '';
+
+  const days = Math.floor((Date.now() - at.getTime()) / 86_400_000);
+
+  if (days === 0) return at.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+
+  if (days === 1) return 'yesterday';
+
+  if (days < 7) return `${days} days ago`;
+
+  return at.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
 }
 
 function ClipIcon() {

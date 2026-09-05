@@ -116,6 +116,32 @@ export interface MessageResponse {
   pending_approval: PendingApproval | null;
 }
 
+export interface ConversationMessage {
+  id: string;
+  position: number;
+  role: "user" | "planner";
+  text: string;
+  blocks: Block[];
+  skill: string | null;
+  status: string | null;
+  correlation_id: string | null;
+  evidence_ids: string[];
+  calculator_versions: string[];
+  created_at: string;
+}
+
+export interface Conversation {
+  id: string;
+  title: string | null;
+  message_count: number;
+  created_at: string;
+  last_message_at: string;
+}
+
+export interface ConversationDetail extends Conversation {
+  messages: ConversationMessage[];
+}
+
 export interface ProgressEvent {
   node: string;
   label: string;

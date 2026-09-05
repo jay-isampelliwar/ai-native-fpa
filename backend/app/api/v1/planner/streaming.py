@@ -18,6 +18,11 @@ the streaming path from becoming a second source of truth about what the answer 
 
 Errors are emitted as an ``error`` event and then the stream closes normally. An SSE connection
 that drops without a terminal event leaves a client unable to tell a failure from a slow answer.
+
+The answer is written to the transcript here rather than in the endpoint, because on this path the
+endpoint has already returned by the time there is an answer to record. The question was recorded
+before the response was constructed, so the two halves of a turn are written from two places - which
+is the cost of streaming, and cheaper than a second code path that recomputes the body.
 """
 
 import json
@@ -48,7 +53,13 @@ def event(name: str, payload: dict) -> str:
     return f"event: {name}\ndata: {json.dumps(payload)}\n\n"
 
 
-async def stream_planner_run(graph, state: dict, config: dict, conversation_id: str) -> AsyncIterator[str]:
+async def stream_planner_run(
+    graph,
+    state: dict,
+    config: dict,
+    conversation_id: str,
+    user_id: int,
+    ) -> AsyncIterator[str]:
 
     """Run the graph, emitting one progress event per completed node and one final result."""
 
@@ -77,11 +88,22 @@ async def stream_planner_run(graph, state: dict, config: dict, conversation_id: 
 
         body = build_body(conversation_id, snapshot)
 
+        await remember_answer(user_id, body)
+
         yield event("done", orjson.loads(body.model_dump_json()))
 
     except Exception as exc:
 
         yield event("error", {"error": type(exc).__name__, "message": "the request could not be completed"})
+
+
+async def remember_answer(user_id: int, body: MessageResponse) -> None:
+
+    """Record the streamed answer through the same helper the non streaming path uses."""
+
+    from app.api.v1.planner.router import remember_answer as record
+
+    await record(user_id, body)
 
 
 def build_body(conversation_id: str, snapshot) -> MessageResponse:

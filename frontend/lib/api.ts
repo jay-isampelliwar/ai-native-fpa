@@ -21,6 +21,8 @@
 import type {
   AlertsResponse,
   CommitResponse,
+  Conversation,
+  ConversationDetail,
   GoalRead,
   HoldingsSummary,
   ImportRead,
@@ -95,6 +97,25 @@ export const planner = {
         decision,
       }),
     });
+  },
+
+  conversations(userId: number) {
+    return request<Conversation[]>(
+      `/api/v1/planner/conversations?user_id=${userId}`,
+    );
+  },
+
+  conversation(userId: number, conversationId: string) {
+    return request<ConversationDetail>(
+      `/api/v1/planner/conversations/${conversationId}?user_id=${userId}`,
+    );
+  },
+
+  discardConversation(userId: number, conversationId: string) {
+    return request<void>(
+      `/api/v1/planner/conversations/${conversationId}?user_id=${userId}`,
+      { method: "DELETE" },
+    );
   },
 };
 

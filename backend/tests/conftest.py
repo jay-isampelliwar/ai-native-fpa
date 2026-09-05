@@ -28,6 +28,8 @@ from sqlalchemy import text
 TEST_USER_ID = 9001
 
 CLEANUP_ORDER = [
+    "conversation_messages",
+    "conversations",
     "staged_rows",
     "import_templates",
     "document_imports",

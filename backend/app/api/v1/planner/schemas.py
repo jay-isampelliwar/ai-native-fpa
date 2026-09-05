@@ -27,7 +27,14 @@ a lossy summary of the other.
 A paused run returns an ``approval_card`` block as well as the ``pending_approval`` object. The
 block is what gets rendered inline in the conversation; the object is what the client posts back.
 Keeping them separate means a client that renders no blocks can still complete an approval.
+
+``ConversationMessageRead`` re-validates the stored blocks through the same union the live response
+uses. A transcript that could return a shape the live path cannot would be a second, weaker contract
+with the frontend, and the one place it would show up is on a screen nobody looks at until they are
+already trying to remember what they were told.
 """
+
+from datetime import datetime
 
 from pydantic import BaseModel, Field
 
@@ -76,3 +83,38 @@ class ApprovalRequest(BaseModel):
     user_id: int
     conversation_id: str
     decision: str = Field(pattern="^(approve|reject)$")
+
+
+class ConversationMessageRead(BaseModel):
+
+    """One recorded turn, returned in the same shape the client was shown when it happened."""
+
+    id: str
+    position: int
+    role: str
+    text: str = ""
+    blocks: list[Block] = Field(default_factory=list)
+    skill: str | None = None
+    status: str | None = None
+    correlation_id: str | None = None
+    evidence_ids: list[str] = Field(default_factory=list)
+    calculator_versions: list[str] = Field(default_factory=list)
+    created_at: datetime
+
+
+class ConversationRead(BaseModel):
+
+    """One chat session as it appears in a list: what it was about and when it was last spoken to."""
+
+    id: str
+    title: str | None = None
+    message_count: int = 0
+    created_at: datetime
+    last_message_at: datetime
+
+
+class ConversationDetail(ConversationRead):
+
+    """One chat session together with its turns, which is what reopening a conversation loads."""
+
+    messages: list[ConversationMessageRead] = Field(default_factory=list)
