@@ -11,9 +11,10 @@ pick-up-later document: what exists, what was decided, and what is still open.
 
 | | |
 |---|---|
-| Python modules | 88 (excluding `__init__.py`) |
-| Tests | 126 passing, 2 skipped (live-model evals) |
-| HTTP endpoints | 29 |
+| Python modules | 89 (excluding `__init__.py`) |
+| Tests | 132 passing, 2 skipped (live-model evals) |
+| HTTP endpoints | 30 |
+| Frontend | 19 files, Next 16.3.4 + Tailwind 4 |
 | Database | PostgreSQL `fpa` on `localhost:5433`, 24 tables |
 | Migration | Alembic at revision `0003` |
 
@@ -249,9 +250,43 @@ silence.
 | **SEBI compliance review** | Required before shipping advice or execution. Not a coding task. |
 | **Live routing check** | `route_request` has still never run against a real model — every test stubs it. |
 
+## Frontend — built 05 September 2026
+
+Farline's theme, layout and component idiom, adapted to this backend's API. Stock Next 16.3.4 + pnpm;
+the backend is reached through a `next.config` rewrite so there is one origin and no CORS.
+
+| Route | Component | What it does |
+|---|---|---|
+| `/` | `ChatPanel` | SSE-streamed conversation, typed blocks, approvals answered inline |
+| `/portfolio` | `Portfolio` | Holdings totals, asset-type split, positions, goal funding |
+| `/import` | `Import` | Upload → poll → reconcile → commit, plus the mapping path |
+| `/alerts` | `Alerts` | What the planner noticed, ordered by severity |
+
+`components/blocks.tsx` is the closed rendering vocabulary — `text`, `kpi`, `table`, `chart`,
+`callout`, `approval_card` — with an exhaustive switch, so adding a block type to the backend without
+adding it here is a TypeScript error rather than a missing element.
+
+Copied verbatim from Farline: `app/globals.css`, `lib/chart.ts`, `public/favicon.png`, `public/og.png`,
+and the `layout.tsx` metadata (name, tagline, OG image). Dropped: `PlanReport`, `PlanWorkbench`,
+`PlanWorkspace`, `ForecastCanvas`, `ScenarioLab` — they render a `PlanSummary` this backend does not
+produce.
+
+Two things learned the hard way and worth not re-learning:
+
+- **A render prop cannot cross the server/client boundary.** `<Shell>{(id) => ...}</Shell>` 500s,
+  because a function is not serialisable into the RSC payload. The user id reaches pages through
+  context instead.
+- **`GROUP BY` on a repeated `coalesce`** emits two separate bind parameters, and PostgreSQL then sees
+  two different expressions and rejects the grouping. Label the expression and group by the label.
+
+### Backend additions for the frontend
+
+`GET /api/v1/assets/holdings` — the portfolio read, which did not exist. `app/repositories/holdings_repository.py`
+plus `tests/test_holdings_read.py`.
+
 ## What remains to build
 
-The **frontend only** — roughly 29 files:
+Nothing structural. Previously estimated as ~29 files:
 
 | Area | Files |
 |---|---|

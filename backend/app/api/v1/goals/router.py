@@ -15,6 +15,11 @@ with the figures rather than being available on a second call.
 
 Ownership failures are 404 throughout, matching the records endpoints: a goal the caller does
 not own is reported exactly as one that does not exist.
+
+``GET /assets/holdings`` returns what a user owns together with what their statements said it was
+worth, dated by ``valued_at``. That date is not decoration: nothing refreshes these figures, and an
+interface showing a two month old valuation as though it were current would be making a claim the
+backend never made.
 """
 
 from fastapi import APIRouter, HTTPException
@@ -30,6 +35,7 @@ from app.api.v1.goals.schemas import (
 from app.api.v1.records.schemas import RecordCreated
 from app.db.session import session_scope
 from app.repositories.goals_repository import goals_repository
+from app.repositories.holdings_repository import HoldingsSummary, holdings_repository
 from app.repositories.records_repository import records_repository
 
 router = APIRouter(prefix="/goals", tags=["goals"])
@@ -163,3 +169,11 @@ async def create_retirement_asset(request: RetirementAssetCreate) -> RecordCreat
         )
 
         return RecordCreated(id=row.id, kind="retirement_asset")
+
+
+@assets_router.get("/holdings", response_model=HoldingsSummary)
+async def list_holdings(user_id: int, limit: int = 500) -> HoldingsSummary:
+
+    """Return this user's active positions and their totals, dated by the statement they came from."""
+
+    return await holdings_repository.summary(user_id, limit=limit)
