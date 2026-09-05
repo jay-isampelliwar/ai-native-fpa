@@ -85,7 +85,7 @@ async def test_a_skill_cannot_read_another_users_rows(evidence):
     assert all(not row_id.startswith("txn_1") or row_id == "txn_13" for row_id in returned)
 
 
-async def test_injected_instructions_arrive_as_labelled_data(context, evidence):
+async def test_injected_instructions_arrive_as_labelled_data(context, evidence, seeded_records):
 
     """A description carrying an instruction is delivered under an untrusted field, not as prompt text."""
 
@@ -102,7 +102,7 @@ async def test_injected_instructions_arrive_as_labelled_data(context, evidence):
     assert "ignore previous instructions" in row["untrusted_description"]
 
 
-async def test_evidence_accumulates_across_calls_without_duplicates(context, evidence):
+async def test_evidence_accumulates_across_calls_without_duplicates(context, evidence, seeded_records):
 
     """Rows seen over several tool calls are recorded once each, in the order first returned."""
 

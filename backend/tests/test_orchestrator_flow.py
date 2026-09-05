@@ -74,7 +74,7 @@ async def run_graph(stub_router, monkeypatch, user=None):
     )
 
 
-async def test_request_reaches_skill_and_returns_evidence(stub_router, monkeypatch):
+async def test_request_reaches_skill_and_returns_evidence(stub_router, monkeypatch, seeded_records):
 
     """A permitted request routes to the versioned skill and comes back with traceable evidence."""
 

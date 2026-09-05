@@ -48,7 +48,7 @@ async def postgres_available() -> bool:
 
 
 @pytest.fixture(params=["memory", "sql"])
-async def cashflow_repository(request):
+async def cashflow_repository(request, seeded_records):
 
     """Yield each cash flow backend in turn, skipping SQL when no database is reachable."""
 
@@ -62,7 +62,7 @@ async def cashflow_repository(request):
 
 
 @pytest.fixture(params=["memory", "sql"])
-async def expense_repository(request):
+async def expense_repository(request, seeded_records):
 
     """Yield each expense backend in turn, skipping SQL when no database is reachable."""
 

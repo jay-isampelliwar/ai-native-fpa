@@ -18,6 +18,16 @@ rows behind, and deleting the user first would then fail on a foreign key from a
 cleanup list had forgotten - which is exactly how this fixture broke when goals were added.
 ``CLEANUP_ORDER`` is child before parent throughout, and every user owned table must appear in
 it or a new table will reintroduce the same failure.
+
+``seeded_records`` exists because several tests need the development fixture rows and used to find
+them already sitting in whatever database the developer was pointed at. That made the suite depend
+on ambient state: it passed on a machine that had run the seeder, failed on a clean one, and meant
+those rows could not be removed from a database being used for real without breaking the tests. The
+fixture now inserts exactly those rows for the duration of one test and removes exactly them
+afterwards, matched by their fixed identifiers so nothing a person actually entered is touched.
+
+It removes them before inserting as well as after. The rows have fixed ids, so a run interrupted
+partway would otherwise collide with itself on the primary key on the next attempt.
 """
 
 import asyncio
@@ -48,6 +58,16 @@ CLEANUP_ORDER = [
     "income_records",
     "pending_approvals",
     "audit_records",
+]
+
+
+SEED_ROW_IDS = [
+    ("expense_transactions", [f"txn_{number}" for number in range(1, 14)]),
+    ("emi_records", ["emi_1"]),
+    ("sip_records", ["sip_1"]),
+    ("liabilities", ["liab_1"]),
+    ("expense_records", ["exp_1", "exp_2"]),
+    ("income_records", ["inc_1", "inc_2"]),
 ]
 
 
@@ -133,3 +153,52 @@ async def client(api_user):
         yield test_client
 
     graph_module.route_request = original
+
+
+async def remove_seed_rows() -> None:
+
+    """Delete the development fixture rows by their fixed ids, children before parents."""
+
+    from app.db.session import session_scope
+
+    async with session_scope() as session:
+
+        for table, ids in SEED_ROW_IDS:
+            await session.execute(text(f"DELETE FROM {table} WHERE id = ANY(:ids)"), {"ids": ids})
+
+
+@pytest.fixture
+async def seeded_records():
+
+    """Insert the development fixture rows for one test and remove exactly them afterwards."""
+
+    if not await database_reachable():
+        pytest.skip("postgres is not reachable")
+
+    from sqlalchemy import select
+
+    from app.db.seed import SEED_USER_ID, build_liabilities, build_records, build_transactions, build_users
+    from app.db.session import session_scope
+    from app.models.orm.system import UserRow
+
+    await remove_seed_rows()
+
+    async with session_scope() as session:
+
+        present = set(
+            (await session.scalars(select(UserRow.id).where(UserRow.id.in_([1, 2])))).all()
+        )
+
+        session.add_all([user for user in build_users() if user.id not in present])
+
+        await session.flush()
+
+        for stage in (build_liabilities(), build_records(), build_transactions()):
+
+            session.add_all(stage)
+
+            await session.flush()
+
+    yield SEED_USER_ID
+
+    await remove_seed_rows()
