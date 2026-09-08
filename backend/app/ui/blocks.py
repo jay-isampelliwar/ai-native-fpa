@@ -23,6 +23,19 @@ in two places and guarantee they drift.
 ``ApprovalCardBlock`` is the one block tied to a graph state rather than to a calculation. It
 renders what ``request_approval`` interrupted with, and its ``approval_id`` is what the client
 posts back - so a user approves the exact proposal they were shown rather than a fresh one.
+
+A chart may carry a ``marker`` and each point a ``tone``. The marker is one computed figure drawn
+across the plot - the corpus a retirement needs, the target a goal is aiming at - and without it a
+projection is a rising line with nothing to be measured against, which is decoration rather than an
+answer. ``tone`` lets one bar in a breakdown be read as the shortfall it is; both are computed by the
+skill that built the block, like every other figure here.
+
+``PromptBlock`` is the only block that asks instead of reports, and it carries no evidence
+because there is nothing yet to cite. It exists because a person with no records was being
+handed a sentence listing four things to send, which reads as a description of a gap rather
+than as something to answer. Each item is one question with example answers, and the examples
+are literal sentences the capture skill can already parse - so an example is a working answer
+a client may offer to send, not an illustration of the format.
 """
 
 from decimal import Decimal
@@ -88,6 +101,18 @@ class ChartPoint(BaseModel):
     label: str
     value: Decimal
     display: str | None = None
+    tone: Literal["neutral", "positive", "negative"] = "neutral"
+
+
+class ChartMarker(BaseModel):
+
+    """A line drawn across a chart at a computed figure, such as the target a projection is aiming at."""
+
+    model_config = {"arbitrary_types_allowed": True}
+
+    label: str
+    value: Decimal
+    display: str | None = None
 
 
 class ChartBlock(BlockBase):
@@ -95,9 +120,11 @@ class ChartBlock(BlockBase):
     """A small chart built from computed figures, never from anything a model produced."""
 
     type: Literal["chart"] = "chart"
-    chart: Literal["bar", "line", "donut"] = "bar"
+    chart: Literal["bar", "line", "donut", "progress"] = "bar"
     title: str | None = None
     points: list[ChartPoint] = Field(default_factory=list)
+    marker: ChartMarker | None = None
+    caption: str | None = None
     value_prefix: str = "INR "
 
 
@@ -108,6 +135,25 @@ class CalloutBlock(BlockBase):
     type: Literal["callout"] = "callout"
     level: Literal["note", "warning"] = "note"
     text: str
+
+
+class PromptItem(BaseModel):
+
+    """One thing the planner is missing, with example answers a person can send as they are."""
+
+    label: str
+    question: str
+    examples: list[str] = Field(default_factory=list)
+
+
+class PromptBlock(BlockBase):
+
+    """The data the planner does not have yet, asked as questions rather than described as a gap."""
+
+    type: Literal["prompt"] = "prompt"
+    title: str
+    items: list[PromptItem] = Field(default_factory=list)
+    caption: str | None = None
 
 
 class FieldChange(BaseModel):
@@ -137,9 +183,10 @@ Block = Annotated[
         TableBlock,
         ChartBlock,
         CalloutBlock,
+        PromptBlock,
         ApprovalCardBlock,
     ],
     Field(discriminator="type"),
 ]
 
-BLOCK_TYPES = frozenset({"text", "kpi", "table", "chart", "callout", "approval_card"})
+BLOCK_TYPES = frozenset({"text", "kpi", "table", "chart", "callout", "prompt", "approval_card"})

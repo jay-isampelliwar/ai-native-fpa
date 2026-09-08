@@ -10,7 +10,12 @@ and a mobile app in a user's pocket may lag the server by months, so ``/api/v1``
 frozen while ``/api/v2`` is developed is cheaper than negotiating a version on every
 request.
 
-Seven surfaces are mounted and they split along one line. ``/workspace`` sits with the readers and
+``/users`` is mounted first and is the one every other surface assumes. Identity in this phase is an
+integer a client sends, and nothing was creating the row it names - so a person could upload, extract
+and review, and meet a foreign key violation at the commit. Registering an id is now a call rather
+than an assumption.
+
+Seven surfaces follow and they split along one line. ``/workspace`` sits with the readers and
 is the standing view rather than an answer to a question: it reports what the planner currently knows
 about a person and what it still needs, which is what the panel beside the conversation renders.
  ``/alerts`` sits with the readers: it
@@ -32,10 +37,12 @@ from app.api.v1.documents.router import router as documents_router
 from app.api.v1.goals.router import assets_router, router as goals_router
 from app.api.v1.planner.router import router as planner_router
 from app.api.v1.records.router import router as records_router
+from app.api.v1.users.router import router as users_router
 from app.api.v1.workspace.router import router as workspace_router
 
 api_router = APIRouter(prefix="/api/v1")
 
+api_router.include_router(users_router)
 api_router.include_router(planner_router)
 api_router.include_router(records_router)
 api_router.include_router(goals_router)

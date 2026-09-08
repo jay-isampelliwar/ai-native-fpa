@@ -42,9 +42,19 @@ from app.core.config import settings
 
 ALLOWED_CHECKPOINT_TYPES = (
     ("app.core.security", "AuthenticatedUser"),
-    ("app.graphs.skills.contracts", "SkillContext"),
-    ("app.graphs.skills.contracts", "SkillDefinition"),
-    ("app.graphs.skills.contracts", "SkillResult"),
+    ("app.agent.context", "AgentContext"),
+    ("app.ui.blocks", "TextBlock"),
+    ("app.ui.blocks", "KpiBlock"),
+    ("app.ui.blocks", "TableBlock"),
+    ("app.ui.blocks", "TableColumn"),
+    ("app.ui.blocks", "ChartBlock"),
+    ("app.ui.blocks", "ChartPoint"),
+    ("app.ui.blocks", "ChartMarker"),
+    ("app.ui.blocks", "CalloutBlock"),
+    ("app.ui.blocks", "PromptBlock"),
+    ("app.ui.blocks", "PromptItem"),
+    ("app.ui.blocks", "ApprovalCardBlock"),
+    ("app.ui.blocks", "FieldChange"),
 )
 
 NONCE_BYTES = 12

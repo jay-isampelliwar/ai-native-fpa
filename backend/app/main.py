@@ -40,7 +40,20 @@ from app.core.logging import configure_logging, get_logger
 from app.db.checkpointer import postgres_checkpointer
 from app.db.session import dispose_engine
 from app.graphs.orchestrator.graph import build_planner_graph, set_planner_graph
-from app.graphs.skills.bootstrap import register_skills
+
+
+async def abandon_unfinished_imports() -> None:
+
+    """Fail imports a stopped process left mid read, so nothing polls a background job that no longer exists."""
+
+    from app.services.import_service import import_service
+
+    try:
+        await import_service.abandon_unfinished()
+
+    except Exception:
+
+        get_logger("startup").warning("unfinished imports could not be abandoned", exc_info=True)
 
 
 @asynccontextmanager
@@ -50,7 +63,7 @@ async def lifespan(app: FastAPI):
 
     configure_logging()
 
-    register_skills()
+    await abandon_unfinished_imports()
 
     async with postgres_checkpointer() as checkpointer:
 

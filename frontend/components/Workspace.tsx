@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { BlockRenderer } from '@/components/blocks';
 import { useUser } from '@/components/Shell';
 import { workspace as workspaceApi } from '@/lib/api';
+import { useRecordsVersion } from '@/lib/records';
 import type { Workspace as WorkspaceData } from '@/lib/types';
 
 /**
@@ -27,12 +28,20 @@ import type { Workspace as WorkspaceData } from '@/lib/types';
  * watches the list fill in as they answer, which is the only version of an empty state that does any
  * work.
  *
- * Refreshing is driven by a version counter the chat increments, not by polling. The panel changes
- * exactly when the records change - a confirmed record, a committed import - and a timer would
- * either lag that or ask a question nobody needed answered every few seconds.
+ * Refreshing is driven by the records-changed signal in `lib/records`, not by polling. The panel
+ * reloads exactly when something wrote - a confirmed record, a committed import - and a timer would
+ * either lag that or ask a question nobody needed answered every few seconds. Every figure here is
+ * computed by the backend at read time, so a refetch is genuinely a recalculation rather than a cache
+ * being refreshed; there is nothing stored that could disagree with the rows.
+ *
+ * The signal used to arrive as a prop from `Console`. It is subscribed to directly now, because this
+ * panel is not the only reader any more and a parent threading a counter to each of them was a wire
+ * that told you nothing about who was listening.
  */
-export default function Workspace({ version }: { version: number }) {
+export default function Workspace() {
   const userId = useUser();
+
+  const version = useRecordsVersion();
 
   const [data, setData] = useState<WorkspaceData | null>(null);
   const [failed, setFailed] = useState(false);

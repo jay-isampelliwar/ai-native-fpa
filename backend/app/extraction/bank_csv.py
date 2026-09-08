@@ -147,7 +147,7 @@ class BankCsvExtractor:
 
         return find_column(headers, DATE_ALIASES) is not None
 
-    async def extract(self, content: bytes, filename: str) -> ExtractionResult:
+    async def extract(self, content: bytes, filename: str, user_id: int) -> ExtractionResult:
 
         """Map every debit row to a transaction, skipping credits and flagging what could not be read."""
 

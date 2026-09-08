@@ -11,9 +11,15 @@ never balances, transaction narratives, account numbers or raw model output.
 underlying records through the same permission checks as anyone else rather than reading
 them out of a log they should not have access to.
 
-Refusals are recorded as carefully as successes. A permission denial, an unroutable
-message and a rejected approval are all outcomes worth seeing, and a system that only
-logs its successes cannot be audited at all.
+Refusals are recorded as carefully as successes. A refusal, an agent that ran out of steps and a
+tool that declined are all outcomes worth seeing, and a system that only logs its successes cannot be
+audited at all.
+
+The columns kept their old names while what fills them changed, which is a deliberate choice to avoid
+a migration for a rename. ``skill_name`` now holds the first tool a turn called, ``route_reason``
+holds the whole sequence of them, and ``write_performed`` is true when any tool changed a row. A
+reader of the table sees what a turn did; a reader of the schema sees the vocabulary of the design
+that came before it, and this paragraph is the bridge between the two.
 
 Persistence is intentionally behind ``AuditRecorder`` rather than inlined, and nodes only
 ever call ``record``. Phase 2 writes to the ``audit_records`` table; the logging fallback
@@ -83,20 +89,24 @@ class AuditRecorder:
             user_id=state.user_id,
             conversation_id=state.conversation_id,
             recorded_at=datetime.now(UTC),
-            skill_name=state.skill_name,
-            skill_version=state.definition.version if state.definition else None,
-            route_confidence=state.route_confidence,
-            route_reason=state.route_reason,
-            permission_granted=state.permission_granted,
+            skill_name=state.tools_used[0] if state.tools_used else None,
+            skill_version=None,
+            route_confidence=None,
+            route_reason=describe_run(state),
+            permission_granted=state.denial_reason is None,
             denial_reason=state.denial_reason,
-            result_status=state.result.status if state.result else None,
-            evidence_ids=state.result.evidence_ids if state.result else [],
-            calculator_versions=state.result.calculator_versions if state.result else [],
-            assumptions=state.result.assumptions if state.result else {},
-            validation_errors=state.validation_errors,
-            approval_decision=state.approval_decision,
-            pending_approval_id=state.result.pending_approval_id if state.result else None,
-            write_performed=state.write_outcome is not None,
+            result_status=status_of(state),
+            evidence_ids=state.evidence_ids,
+            calculator_versions=state.calculator_versions,
+            assumptions={
+                key: value
+                for key, value in state.assumptions.items()
+                if isinstance(value, (int, float))
+            },
+            validation_errors=[],
+            approval_decision=None,
+            pending_approval_id=None,
+            write_performed=bool(state.writes_performed),
         )
 
     async def persist(self, record: AuditRecord) -> None:
@@ -117,6 +127,37 @@ class AuditRecorder:
                 error=type(exc).__name__,
                 record=record.model_dump_json(),
             )
+
+
+def describe_run(state: PlannerState) -> str:
+
+    """Say what this turn actually did, since there is no single routed skill left to name."""
+
+    if state.denial_reason:
+        return f"refused: {state.denial_reason}"
+
+    parts = []
+
+    if state.tools_used:
+        parts.append(f"called {', '.join(state.tools_used)}")
+
+    if state.writes_performed:
+        parts.append(f"changed {'; '.join(state.writes_performed)}")
+
+    return " and ".join(parts) or "answered without calling a tool"
+
+
+def status_of(state: PlannerState) -> str:
+
+    """Classify the turn the way the old result status did, from what the agent left in state."""
+
+    if state.denial_reason:
+        return "refused"
+
+    if state.writes_performed:
+        return "completed"
+
+    return "answered" if state.response else "failed"
 
 
 recorder = AuditRecorder()

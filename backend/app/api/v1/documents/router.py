@@ -17,12 +17,28 @@ Size is checked before the body is read into memory. A large upload should be re
 not after the process has already allocated it.
 
 Ownership failures are 404 throughout, matching every other surface: an import the caller does not
-own is reported exactly as one that does not exist.
+own is reported exactly as one that does not exist. An id nobody registered is refused the same way
+and at the same moment - before the bytes are stored - because the alternative is what used to
+happen: the upload succeeded, extraction succeeded, a person reviewed a dozen rows, and the foreign
+key stopped it at the one call that writes.
 
 The two mapping endpoints exist so an unfamiliar layout costs one confirmation rather than one every
 month. ``/mapping/propose`` asks a model to read the column headings - never the data - and validates
 what comes back; ``/mapping/confirm`` stores the person's decision as a template and re extracts. From
 then on that layout parses deterministically with no model involved at all.
+
+Mapping is available on any import whose layout was kept, not only on one that stopped for it. A
+workbook nothing recognises is now read anyway - see ``app.extraction.sheets`` - so the common case
+reaches ``extracted`` with rows to review and never sees this pair of endpoints. Someone who thinks
+a column was read wrongly can still open the form, and the same confirmation still saves a template
+and re extracts. Gating these on ``needs_mapping`` would have made correcting a reading impossible.
+
+``/mapping/propose`` returns every candidate sheet and its columns whether or not the model answered.
+The sheets used to be built from the proposal, so a failed or empty suggestion returned nothing to
+map and the person was left with a card offering no columns and no way past it - which is what a
+broken response schema turned into a dead end for every unrecognised layout. The columns come from
+the file and the mapping is a suggestion laid over them, so the worst a model outage costs is that
+the dropdowns start empty.
 """
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
@@ -41,18 +57,24 @@ from app.api.v1.documents.schemas import (
     StagedRowUpdate,
 )
 from app.core.config import settings
+from app.core.logging import get_logger
 from app.db.session import session_scope
 from app.models.orm.imports import DocumentImportRow, StagedRowRow
+from app.models.orm.system import UserRow
 from app.services.import_service import import_service
 from app.storage.files import document_storage
 
 router = APIRouter(prefix="/documents", tags=["documents"])
+
+log = get_logger("documents")
 
 
 @router.post("", response_model=ImportRead, status_code=202)
 async def upload_document(user_id: int = Form(...), file: UploadFile = File(...)) -> ImportRead:
 
     """Store an upload, register it and start extraction in the background, returning immediately."""
+
+    await known_user(user_id)
 
     content = await file.read()
 
@@ -79,6 +101,16 @@ async def upload_document(user_id: int = Form(...), file: UploadFile = File(...)
         )
 
     return to_import_read(record, duplicate=already_imported)
+
+
+async def known_user(user_id: int) -> None:
+
+    """Refuse an id nobody registered, at the door rather than at the commit the constraint would stop."""
+
+    async with session_scope() as session:
+
+        if await session.get(UserRow, user_id) is None:
+            raise HTTPException(status_code=404, detail="no such user")
 
 
 @router.get("/{import_id}", response_model=ImportRead)
@@ -234,6 +266,7 @@ def to_import_read(record: DocumentImportRow, duplicate: bool = False) -> Import
         extracted_at=record.extracted_at,
         committed_at=record.committed_at,
         duplicate_of_existing_upload=duplicate,
+        can_remap=bool(record.proposed_mapping),
     )
 
 
@@ -244,8 +277,8 @@ async def propose_column_mapping(import_id: str, user_id: int) -> MappingProposa
 
     record = await load_import(import_id, user_id)
 
-    if record.status != "needs_mapping" or not record.proposed_mapping:
-        raise HTTPException(status_code=409, detail="this import does not need a mapping")
+    if not record.proposed_mapping:
+        raise HTTPException(status_code=409, detail="this import has no layout to map")
 
     from app.extraction.mapping import describe_workbook, propose_mapping
     from app.extraction.workbook import WorkbookProfile
@@ -254,25 +287,27 @@ async def propose_column_mapping(import_id: str, user_id: int) -> MappingProposa
 
     described = {sheet["sheet"]: sheet for sheet in describe_workbook(profile)}
 
-    proposal, problems = await propose_mapping(profile)
+    try:
+        proposal, problems = await propose_mapping(profile)
 
-    sheets = []
+    except Exception:
 
-    if proposal is not None:
+        log.warning("mapping.not_suggested", import_id=import_id, exc_info=True)
 
-        for sheet in proposal.sheets:
+        proposal, problems = None, ["a mapping could not be suggested, so no column is filled in yet"]
 
-            described_sheet = described.get(sheet.sheet, {})
+    suggested = {sheet.sheet: sheet for sheet in proposal.sheets} if proposal else {}
 
-            sheets.append(
-                MappingSheet(
-                    sheet=sheet.sheet,
-                    header_row=sheet.header_row,
-                    asset_type=sheet.asset_type,
-                    columns=described_sheet.get("columns", []),
-                    mapping=sheet.mapping,
-                )
-            )
+    sheets = [
+        MappingSheet(
+            sheet=name,
+            header_row=suggested[name].header_row if name in suggested else sheet["header_row"],
+            asset_type=suggested[name].asset_type if name in suggested else "unknown",
+            columns=sheet["columns"],
+            mapping=suggested[name].mapping if name in suggested else {},
+        )
+        for name, sheet in described.items()
+    ]
 
     return MappingProposal(
         import_id=import_id,

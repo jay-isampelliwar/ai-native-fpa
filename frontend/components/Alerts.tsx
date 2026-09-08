@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 
 import { useUser } from '@/components/Shell';
 import { alerts as alertsApi } from '@/lib/api';
+import { useRecordsVersion } from '@/lib/records';
 import type { Alert } from '@/lib/types';
 
 /**
@@ -46,6 +47,8 @@ export default function Alerts() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const version = useRecordsVersion();
+
   useEffect(() => {
     let cancelled = false;
 
@@ -64,7 +67,7 @@ export default function Alerts() {
     return () => {
       cancelled = true;
     };
-  }, [userId]);
+  }, [userId, version]);
 
   return (
     <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto">

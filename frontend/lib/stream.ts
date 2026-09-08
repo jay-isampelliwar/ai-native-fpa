@@ -10,14 +10,21 @@
  * any event unlucky enough to straddle a boundary - rare locally, common over a real network.
  *
  * The terminal `done` event carries exactly what the non-streaming endpoint returns. A caller may
- * ignore every progress event and still be correct, which is what keeps the streaming path from
- * becoming a second, subtly different source of truth about what the answer was.
+ * ignore every progress and token event and still be correct, which is what keeps the streaming path
+ * from becoming a second, subtly different source of truth about what the answer was.
+ *
+ * That matters most for `token`. Those are the words as the model writes them, sent so a person reads
+ * a reply forming rather than watching a spinner; the backend checks every figure in the finished
+ * reply afterwards and may replace it. So tokens are rendered as they arrive and then overwritten by
+ * what `done` says — identical in the ordinary case, and correct in the case the check exists for.
  */
 
 import type { MessageResponse, ProgressEvent } from "@/lib/types";
 
 interface StreamHandlers {
   onProgress?: (event: ProgressEvent) => void;
+  /** A piece of the answer as the model writes it. A preview: `onDone` carries the authoritative text. */
+  onToken?: (text: string) => void;
   onDone: (response: MessageResponse) => void;
   onError: (message: string) => void;
 }
@@ -87,6 +94,8 @@ function dispatch(chunk: string, handlers: StreamHandlers): void {
 
     if (name === "progress") {
       handlers.onProgress?.(parsed as ProgressEvent);
+    } else if (name === "token") {
+      handlers.onToken?.((parsed as { text: string }).text);
     } else if (name === "done") {
       handlers.onDone(parsed as MessageResponse);
     } else if (name === "error") {

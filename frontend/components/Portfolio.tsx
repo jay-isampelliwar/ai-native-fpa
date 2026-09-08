@@ -6,6 +6,7 @@ import { Card, Kpi } from '@/components/blocks';
 import { useUser } from '@/components/Shell';
 import { assets, goals as goalsApi } from '@/lib/api';
 import { rupees, toNumber } from '@/lib/format';
+import { useRecordsVersion } from '@/lib/records';
 import type { GoalRead, HoldingsSummary } from '@/lib/types';
 
 /**
@@ -31,6 +32,8 @@ export default function Portfolio() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const version = useRecordsVersion();
+
   useEffect(() => {
     let cancelled = false;
 
@@ -50,7 +53,7 @@ export default function Portfolio() {
     return () => {
       cancelled = true;
     };
-  }, [userId]);
+  }, [userId, version]);
 
   if (loading) {
     return <Centered>Loading your portfolio…</Centered>;

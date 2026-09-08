@@ -1,216 +1,283 @@
-"""End to end checks that the top level graph enforces its own rules, not just that it runs.
+"""The graph around the agent: that a turn is audited, streamed and answered, whatever the agent did.
 
-These tests exercise the property Phase 1 exists to prove: a request reaches a versioned
-skill, comes back with evidence, and cannot reach anything it lacks permission for. The
-router's model call is stubbed throughout, because what is under test is the graph's
-control flow rather than the quality of a classification.
+This file used to be about gates - a router's choice, a permission edge, a result validator, an
+approval interrupt - because a turn was several decisions in sequence and each fork was worth a test.
+The graph is four nodes in a line now, so what is left to defend is narrower and mostly about
+bookkeeping: a request cannot answer somebody without leaving an audit row, a failure still reaches
+that row, and the words of an answer reach the client as they are written.
 
-The permission test is the important one. It grants a caller only some of the scopes the
-skill requires and asserts the skill never executed at all - not that it executed and
-returned nothing. A test that only checked the reply would pass even if the skill had run
-and read records it should not have seen.
+The agent node is stubbed in every test here. What is under test is the graph, and a test of the graph
+that depended on a model would fail for reasons that have nothing to do with the graph. The tools
+themselves are tested for real in ``test_agent_tools``.
 
-Assertions on absent fields use ``state.get`` rather than indexing. LangGraph returns the
-state as a plain dict and omits keys no node ever wrote, so a field that stayed at its
-default is missing from the result rather than present and None.
+``test_a_failed_turn_is_still_recorded`` is the one worth keeping if the file ever shrinks. An audit
+trail that only contains successful turns cannot be audited, and the failure path is the one nobody
+exercises by hand.
 
-The checkpointer is passed explicitly. ``build_planner_graph`` has no default because the
-application must never fall back to throwaway approval state; these tests choose an in
-memory saver deliberately, which is a different thing from getting one by omission.
-
-The routing tests at the end cover ``route_by_risk`` directly, because both of its conditions guard
-a different mistake and only one of them is visible from an end to end run. A refusal from a write
-capable skill must not pause for approval, and a result claiming to be a proposal without an
-approval row must not either.
+The streaming test asserts that tokens are forwarded rather than invented, and that the terminal event
+carries the same answer the non streaming path returns. A client is allowed to ignore every
+intermediate event and still be correct, and that property is what keeps the streaming path from
+becoming a second source of truth about what was said.
 """
 
 import pytest
 from langgraph.checkpoint.memory import InMemorySaver
 
-from app.core.security import AuthenticatedUser
-from app.graphs.orchestrator import nodes
+from app.db.fixture_ids import SEED_USER_ID
 from app.graphs.orchestrator.graph import build_planner_graph
-from app.graphs.skills.bootstrap import register_skills
-from app.graphs.skills.registry import SkillRegistry
+from app.graphs.orchestrator.state import new_turn
+
+pytestmark = pytest.mark.asyncio
 
 
-@pytest.fixture(autouse=True)
-def registered_skills():
+async def run_graph(agent_node, message: str = "how much is left this month?") -> dict:
 
-    """Populate the shared registry before each test so routing has something to resolve."""
+    """Compile a fresh graph with the agent stubbed and run one request through it."""
 
-    register_skills()
+    from app.graphs.orchestrator import graph as graph_module
+
+    original = graph_module.run_agent
+
+    graph_module.run_agent = agent_node
+
+    try:
+        graph = build_planner_graph(InMemorySaver())
+
+        return await graph.ainvoke(
+            new_turn(SEED_USER_ID, "conv_1", message),
+            config={"configurable": {"thread_id": "thread_1"}},
+        )
+
+    finally:
+        graph_module.run_agent = original
 
 
-@pytest.fixture
-def stub_router(monkeypatch):
+def recorded(monkeypatch) -> list:
 
-    """Replace the router node with a fixed choice, so no model call is made during a graph run."""
+    """Capture every audit record the run writes, without needing the audit table."""
 
-    async def fake_route(state):
-        return {"skill_name": "cashflow_summary", "route_confidence": 0.95, "route_reason": "stubbed"}
+    from app.audit import recorder as recorder_module
 
-    monkeypatch.setattr("app.graphs.orchestrator.graph.route_request", fake_route, raising=False)
+    written = []
 
-    return fake_route
+    async def capture(record):
+        written.append(record)
+
+    monkeypatch.setattr(recorder_module.recorder, "persist", capture)
+
+    return written
 
 
-async def run_graph(stub_router, monkeypatch, user=None):
+async def test_an_answered_turn_carries_its_evidence_out_to_the_response(monkeypatch):
 
-    """Compile a fresh graph with the router stubbed and run one request through it."""
+    """What the tools produced reaches the client rather than stopping inside the agent node."""
 
-    import app.graphs.orchestrator.graph as graph_module
+    recorded(monkeypatch)
 
-    monkeypatch.setattr(graph_module, "route_request", stub_router)
+    async def agent(state):
 
-    if user is not None:
-        monkeypatch.setattr(nodes, "local_user", lambda user_id: user)
+        """Answer with one figure, its evidence and the calculator behind it."""
 
-    graph = build_planner_graph(InMemorySaver())
+        return {
+            "response": "Your surplus is INR 70,000.",
+            "tools_used": ["cashflow_summary"],
+            "writes_performed": [],
+            "blocks": [],
+            "evidence_ids": ["inc_1", "exp_1"],
+            "calculator_versions": ["cashflow.v1"],
+            "assumptions": {},
+        }
 
-    return await graph.ainvoke(
-        {"user_id": 1, "conversation_id": "conv_1", "user_message": "how much is left this month?"},
-        config={"configurable": {"thread_id": "thread_1"}},
+    state = await run_graph(agent)
+
+    assert state["response"] == "Your surplus is INR 70,000."
+    assert state["evidence_ids"] == ["inc_1", "exp_1"]
+    assert state["calculator_versions"] == ["cashflow.v1"]
+
+
+async def test_a_turn_needing_no_tool_is_still_answered(monkeypatch):
+
+    """A greeting is a conversation rather than the closest financial capability, which was the point."""
+
+    from tests.conftest import answer_with
+
+    recorded(monkeypatch)
+
+    state = await run_graph(answer_with("Hello - what would you like to know?"), message="hi")
+
+    assert state["response"] == "Hello - what would you like to know?"
+    assert state["tools_used"] == []
+    assert state["blocks"] == []
+
+
+async def test_every_turn_leaves_an_audit_row(monkeypatch):
+
+    """A request cannot answer a person without a trail, so the audit node runs before responding."""
+
+    from tests.conftest import answer_with
+
+    written = recorded(monkeypatch)
+
+    await run_graph(answer_with("Done.", tools=["list_income"]))
+
+    assert len(written) == 1
+    assert written[0].user_id == SEED_USER_ID
+    assert written[0].correlation_id.startswith("req_")
+
+
+async def test_the_audit_row_names_the_tools_and_the_changes(monkeypatch):
+
+    """The trail says what a turn looked at and what it altered, since no single skill is named now."""
+
+    from tests.conftest import answer_with
+
+    written = recorded(monkeypatch)
+
+    await run_graph(
+        answer_with(
+            "Updated your rent.",
+            tools=["list_expenses", "update_record"],
+            writes=["changed expense exp_1 amount to INR 40,000"],
+        )
     )
 
+    record = written[0]
 
-async def test_request_reaches_skill_and_returns_evidence(stub_router, monkeypatch, seeded_records):
-
-    """A permitted request routes to the versioned skill and comes back with traceable evidence."""
-
-    state = await run_graph(stub_router, monkeypatch)
-
-    assert state["skill_name"] == "cashflow_summary"
-    assert state["definition"].version == "1.0"
-    assert state["permission_granted"] is True
-    assert state["result"].status == "answered"
-    assert state["result"].evidence_ids
-    assert state["result"].calculator_versions == ["cashflow.v1"]
-    assert state["validation_errors"] == []
-    assert "free surplus" in state["response"]
+    assert record.skill_name == "list_expenses"
+    assert "list_expenses, update_record" in record.route_reason
+    assert "changed expense" in record.route_reason
+    assert record.write_performed is True
+    assert record.result_status == "completed"
 
 
-async def test_missing_scope_stops_before_the_skill_runs(stub_router, monkeypatch):
+async def test_a_read_only_turn_is_not_recorded_as_a_write(monkeypatch):
 
-    """A caller lacking one required scope is refused, and the skill is never executed."""
+    """A turn that changed nothing must not look like one that did, or the trail is worthless."""
 
-    partial = AuthenticatedUser(user_id=1, scopes=frozenset({"income:read", "expenses:read"}))
+    from tests.conftest import answer_with
 
-    state = await run_graph(stub_router, monkeypatch, user=partial)
+    written = recorded(monkeypatch)
 
-    assert state["permission_granted"] is False
-    assert state.get("result") is None
-    assert "liabilities:read" in state["denial_reason"]
-    assert state["response"].startswith("I could not do that")
+    await run_graph(answer_with("You have three SIPs.", tools=["list_sips"]))
 
-
-async def test_unregistered_skill_name_is_refused(stub_router, monkeypatch):
-
-    """A routed name with no registered version is refused before permissions are even checked."""
-
-    async def route_to_nothing(state):
-        return {"skill_name": "definitely_not_a_skill", "route_confidence": 0.4, "route_reason": "stubbed"}
-
-    state = await run_graph(route_to_nothing, monkeypatch)
-
-    assert state.get("definition") is None
-    assert state["permission_granted"] is False
-    assert "not registered" in state["denial_reason"] or "no enabled version" in state["denial_reason"]
+    assert written[0].write_performed is False
+    assert written[0].result_status == "answered"
 
 
-def test_registry_resolves_by_name_and_version():
+async def test_a_failed_turn_is_still_recorded_and_still_answers(monkeypatch):
 
-    """A skill registered into an isolated registry resolves by both its name and its exact version."""
+    """A refusal is an outcome worth keeping, and the person is owed an explanation either way."""
 
-    isolated = SkillRegistry()
+    written = recorded(monkeypatch)
 
-    register_skills(into=isolated)
+    async def refusing(state):
 
-    definition, skill = isolated.resolve("cashflow_summary", "1.0")
+        """Report that the turn could not proceed, the way the agent node does without a caller."""
 
-    assert definition.read_only is True
-    assert skill.name == "cashflow_summary"
+        return {"denial_reason": "the agent was reached without a caller"}
 
+    state = await run_graph(refusing)
 
-def test_a_refusal_from_a_write_capable_skill_does_not_pause_for_approval():
-
-    """A skill that could write but produced no proposal goes to the audit record, not to a human."""
-
-    from app.graphs.orchestrator.edges import route_by_risk
-    from app.graphs.orchestrator.state import PlannerState
-    from app.graphs.skills.contracts import SkillDefinition, SkillResult
-
-    definition = SkillDefinition(
-        name="sip_modification",
-        version="1.0",
-        description="",
-        risk_level="high",
-        read_only=False,
-        requires_approval=True,
-    )
-
-    state = PlannerState(
-        user_id=1,
-        conversation_id="conv",
-        user_message="raise my SIP 5000",
-        definition=definition,
-        result=SkillResult(status="refused", message="ambiguous"),
-    )
-
-    assert route_by_risk(state) == "write_audit_record"
+    assert "I could not do that" in state["response"]
+    assert written[0].result_status == "refused"
+    assert written[0].permission_granted is False
 
 
-def test_a_proposal_without_a_stored_approval_does_not_pause_either():
+async def test_a_second_message_does_not_replay_the_first_answer(monkeypatch):
 
-    """A result claiming to be a proposal with nothing durable behind it is not treated as one."""
+    """State is checkpointed per conversation, so a stale response must be cleared before each turn.
 
-    from app.graphs.orchestrator.edges import route_by_risk
-    from app.graphs.orchestrator.state import PlannerState
-    from app.graphs.skills.contracts import SkillDefinition, SkillResult
+    The stub answers from a queue rather than being swapped between the two calls. ``build_planner_graph``
+    binds the node function into the graph when it compiles, so replacing the module attribute afterwards
+    has no effect - the graph keeps the function it was built with. That is worth knowing here because
+    the mistake does not fail loudly: the test would pass against a graph that never changed behaviour.
+    """
 
-    definition = SkillDefinition(
-        name="sip_modification",
-        version="1.0",
-        description="",
-        risk_level="high",
-        read_only=False,
-        requires_approval=True,
-    )
+    recorded(monkeypatch)
 
-    state = PlannerState(
-        user_id=1,
-        conversation_id="conv",
-        user_message="raise it to 15000",
-        definition=definition,
-        result=SkillResult(status="proposed", message="change it", pending_approval_id=None),
-    )
+    replies = ["First answer.", "Second answer."]
 
-    assert route_by_risk(state) == "write_audit_record"
+    async def agent(state):
+
+        """Answer with the next queued reply, so one compiled graph can produce two different turns."""
+
+        return {
+            "response": replies.pop(0),
+            "tools_used": [],
+            "writes_performed": [],
+            "blocks": [],
+            "evidence_ids": [],
+            "calculator_versions": [],
+            "assumptions": {},
+        }
+
+    from app.graphs.orchestrator import graph as graph_module
+
+    original = graph_module.run_agent
+
+    graph_module.run_agent = agent
+
+    try:
+        graph = build_planner_graph(InMemorySaver())
+
+        config = {"configurable": {"thread_id": "thread_same"}}
+
+        first = await graph.ainvoke(new_turn(SEED_USER_ID, "conv_same", "one"), config=config)
+
+        second = await graph.ainvoke(new_turn(SEED_USER_ID, "conv_same", "two"), config=config)
+
+    finally:
+        graph_module.run_agent = original
+
+    assert first["response"] == "First answer."
+    assert second["response"] == "Second answer."
 
 
-def test_a_real_proposal_does_pause_for_approval():
+async def test_the_words_of_an_answer_are_forwarded_as_they_are_written(monkeypatch):
 
-    """Both conditions met is the only combination that reaches a human."""
+    """A person should read a reply forming rather than watch a spinner, so the node streams."""
 
-    from app.graphs.orchestrator.edges import route_by_risk
-    from app.graphs.orchestrator.state import PlannerState
-    from app.graphs.skills.contracts import SkillDefinition, SkillResult
+    from app.agent import runtime
 
-    definition = SkillDefinition(
-        name="sip_modification",
-        version="1.0",
-        description="",
-        risk_level="high",
-        read_only=False,
-        requires_approval=True,
-    )
+    class StreamingAgent:
 
-    state = PlannerState(
-        user_id=1,
-        conversation_id="conv",
-        user_message="raise it to 15000",
-        definition=definition,
-        result=SkillResult(status="proposed", message="change it", pending_approval_id="appr_1"),
-    )
+        """Answers in pieces, the way the real agent does when something is listening."""
 
-    assert route_by_risk(state) == "request_approval"
+        async def astream(self, payload, stream_mode=None, config=None):
+
+            """Emit two pieces from the answer node and one from a tool, then the finished state."""
+
+            from langchain_core.messages import AIMessage
+
+            yield "messages", (AIMessage(content="Your income "), {"langgraph_node": "model"})
+            yield "messages", (AIMessage(content="is INR 226,000."), {"langgraph_node": "model"})
+            yield "messages", (AIMessage(content="reading a prompt"), {"langgraph_node": "tools"})
+            yield "values", {"messages": [AIMessage(content="Your income is INR 226,000.")]}
+
+    written: list[dict] = []
+
+    finished = await runtime.speak(StreamingAgent(), [("user", "what is my income?")], written.append)
+
+    tokens = [line["token"] for line in written if "token" in line]
+
+    assert tokens == ["Your income ", "is INR 226,000."]
+    assert runtime.final_text(finished) == "Your income is INR 226,000."
+
+
+async def test_a_reply_quoting_a_figure_no_tool_returned_is_set_aside():
+
+    """The figure check is what makes "quote, never compute" a rule rather than a request."""
+
+    from app.agent.context import RunLog
+    from app.agent.runtime import settle
+
+    log = RunLog()
+
+    log.returned = ['{"amount": "10000.00"}']
+
+    kept = settle("Your SIP is INR 10,000.", log, "what is my sip?", "")
+
+    set_aside = settle("Your SIPs total INR 18,000.", log, "what is my sip?", "")
+
+    assert kept == "Your SIP is INR 10,000."
+    assert "could not trace" in set_aside

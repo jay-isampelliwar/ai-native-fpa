@@ -1,52 +1,45 @@
-"""The one graph every request passes through, wired by hand and never by a model.
+"""The one graph every request passes through, now four nodes in a straight line.
 
-This file is the security boundary of the product expressed as code. A model cannot add
-an edge, remove one, or jump between nodes. It contributes exactly one string inside
-``route_request``, and every gate after that is ordinary Python. Read the edges below and
-you have read the complete set of paths a request can take.
+There are no conditional edges left. That is the visible consequence of replacing eleven skills with
+one agent: the branches used to exist because a turn could be routed, refused, validated, paused for a
+human, written and audited along several different paths, and every fork was a decision made in
+ordinary Python about what a skill had returned. A turn is now one agent run, so the path is the same
+every time and the file is short enough to read in one go.
 
-The property worth checking on any change here: there is no edge into
-``controlled_write`` except from ``request_approval``. Approval is therefore not a
-policy a skill may follow, it is the only road to a write. Adding a shortcut for
-convenience would silently remove the guarantee the whole design exists to provide.
+    START -> authenticate_context -> agent -> write_audit_record -> respond -> END
 
-``write_audit_record`` sits in front of ``respond`` on every path, including the refusal
-paths, so a request cannot answer a user without leaving a trail. That ordering is also
-why refused runs still produce a record.
+What the model decides is which tools to call and what to say. What it still does not decide is what a
+figure is - every derived number comes from a versioned calculator in ``app.calculations``, reached
+through a tool, and the reply is checked against the numbers the tools returned before it is shown.
 
-The checkpointer is a required argument with no default. ``request_approval`` calls
-``interrupt``, so a graph without one has nowhere to persist a pending change and it dies
-with the process. A default would make that failure silent and environment dependent -
-working in tests, quietly wrong in production - so callers must say which one they mean.
+What this graph no longer guarantees, stated plainly because it used to be the headline property here:
+a write no longer passes through a human. ``controlled_write`` had exactly one inbound edge, from
+``request_approval``, which made "the model cannot change your records on its own" true by
+construction. The tools write when called. What replaced the guarantee is narrower - nothing is ever
+destroyed, and every change is recorded in the audit row - and ``app.agent.tools.writes`` is where the
+trade is described.
 
-``set_planner_graph`` and ``get_planner_graph`` hold the compiled graph for the process.
-The application builds it during startup inside the PostgreSQL checkpointer's context and
-registers it here; the API reads it back. It cannot be an ``lru_cache`` factory, because
-the saver is an async context manager whose connection must stay open for the life of the
-application rather than for the life of one call.
+``write_audit_record`` still sits in front of ``respond`` on every path, so a request cannot answer a
+person without leaving a trail.
 
-``get_planner_graph`` raises rather than building a fallback. A request that arrives before
-startup finished is a deployment problem, and answering it from a graph with throwaway
-state would hide that.
+The checkpointer is still a required argument with no default. Nothing interrupts any more, so it is
+no longer load bearing for a paused approval - but it is what carries the thread's state between
+messages, and a default would make the choice of saver silent and environment dependent.
+
+``set_planner_graph`` and ``get_planner_graph`` hold the compiled graph for the process. The
+application builds it during startup inside the PostgreSQL checkpointer's context and registers it
+here; the API reads it back. It cannot be an ``lru_cache`` factory, because the saver is an async
+context manager whose connection must stay open for the life of the application rather than one call.
+
+``get_planner_graph`` raises rather than building a fallback. A request that arrives before startup
+finished is a deployment problem, and answering it from a graph with throwaway state would hide that.
 """
 
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 
-from app.graphs.orchestrator.edges import after_permission_check, after_routing, route_by_risk
-from app.graphs.orchestrator.nodes import (
-    authenticate_context,
-    check_permissions,
-    controlled_write,
-    execute_skill,
-    load_skill_definition,
-    request_approval,
-    respond,
-    validate_skill_result,
-    write_audit_record,
-)
-from app.graphs.orchestrator.router import route_request
-from app.graphs.skills.bootstrap import register_skills
+from app.agent.runtime import run_agent
+from app.graphs.orchestrator.nodes import authenticate_context, respond, write_audit_record
 from app.graphs.orchestrator.state import PlannerState
 
 
@@ -57,43 +50,13 @@ def build_planner_graph(checkpointer: BaseCheckpointSaver):
     builder = StateGraph(PlannerState)
 
     builder.add_node("authenticate_context", authenticate_context)
-    builder.add_node("route_request", route_request)
-    builder.add_node("load_skill_definition", load_skill_definition)
-    builder.add_node("check_permissions", check_permissions)
-    builder.add_node("execute_skill", execute_skill)
-    builder.add_node("validate_skill_result", validate_skill_result)
-    builder.add_node("request_approval", request_approval)
-    builder.add_node("controlled_write", controlled_write)
+    builder.add_node("agent", run_agent)
     builder.add_node("write_audit_record", write_audit_record)
     builder.add_node("respond", respond)
 
     builder.add_edge(START, "authenticate_context")
-    builder.add_edge("authenticate_context", "route_request")
-
-    builder.add_conditional_edges(
-        "route_request",
-        after_routing,
-        ["load_skill_definition", "write_audit_record"],
-    )
-
-    builder.add_edge("load_skill_definition", "check_permissions")
-
-    builder.add_conditional_edges(
-        "check_permissions",
-        after_permission_check,
-        ["execute_skill", "write_audit_record"],
-    )
-
-    builder.add_edge("execute_skill", "validate_skill_result")
-
-    builder.add_conditional_edges(
-        "validate_skill_result",
-        route_by_risk,
-        ["request_approval", "write_audit_record"],
-    )
-
-    builder.add_edge("request_approval", "controlled_write")
-    builder.add_edge("controlled_write", "write_audit_record")
+    builder.add_edge("authenticate_context", "agent")
+    builder.add_edge("agent", "write_audit_record")
     builder.add_edge("write_audit_record", "respond")
     builder.add_edge("respond", END)
 

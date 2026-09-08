@@ -214,6 +214,106 @@ async def test_reading_someone_elses_conversation_is_a_404(client, api_user):
     assert denied.status_code == 404
 
 
+async def test_a_second_message_is_answered_rather_than_the_first_replayed(client, api_user):
+
+    """State is checkpointed per thread, so a turn that inherits the last one answers a question nobody asked."""
+
+    first = client.post(
+        "/api/v1/planner/messages",
+        json={"user_id": api_user, "message": "How much is left over this month?"},
+    ).json()
+
+    second = client.post(
+        "/api/v1/planner/messages",
+        json={
+            "user_id": api_user,
+            "message": "How much is left over this month?",
+            "conversation_id": first["conversation_id"],
+        },
+    ).json()
+
+    assert second["conversation_id"] == first["conversation_id"]
+
+    assert second["correlation_id"] != first["correlation_id"]
+
+
+async def test_a_turn_inherits_nothing_from_the_one_before_it(api_user):
+
+    """Every field a node fills is cleared, not only the response, so stale blocks cannot be rendered either."""
+
+    from app.graphs.orchestrator.state import PlannerState, new_turn
+
+    from app.ui.blocks import TextBlock
+
+    stale = PlannerState(
+        user_id=api_user,
+        conversation_id="conv_stale",
+        user_message="the first question",
+        response="the first answer",
+        tools_used=["cashflow_summary"],
+        writes_performed=["added income Salary"],
+        blocks=[TextBlock(text="last turn's table")],
+        evidence_ids=["inc_1"],
+        calculator_versions=["cashflow.v1"],
+        assumptions={"months_per_year": 12.0},
+    )
+
+    fresh = PlannerState(**{**stale.model_dump(), **new_turn(api_user, "conv_stale", "the second question")})
+
+    assert fresh.user_message == "the second question"
+    assert fresh.response is None
+    assert fresh.tools_used == []
+    assert fresh.writes_performed == []
+    assert fresh.blocks == []
+    assert fresh.evidence_ids == []
+    assert fresh.calculator_versions == []
+    assert fresh.assumptions == {}
+
+
+async def test_posting_to_someone_elses_conversation_is_a_404(client, api_user):
+
+    """A conversation id is the graph's thread id, so accepting one from a stranger hands them the thread."""
+
+    first = client.post(
+        "/api/v1/planner/messages",
+        json={"user_id": api_user, "message": "How much is left over this month?"},
+    ).json()
+
+    intruded = client.post(
+        "/api/v1/planner/messages",
+        json={
+            "user_id": OTHER_USER,
+            "message": "hello",
+            "conversation_id": first["conversation_id"],
+        },
+    )
+
+    assert intruded.status_code == 404
+
+    approved = client.post(
+        "/api/v1/planner/approvals",
+        json={
+            "user_id": OTHER_USER,
+            "conversation_id": first["conversation_id"],
+            "decision": "approve",
+        },
+    )
+
+    assert approved.status_code == 404
+
+
+async def test_an_unknown_conversation_is_refused_rather_than_started(client, api_user):
+
+    """A thread id nobody has is not a new conversation: accepting it would let a caller pick their own thread."""
+
+    response = client.post(
+        "/api/v1/planner/messages",
+        json={"user_id": api_user, "message": "hello", "conversation_id": "conv_invented"},
+    )
+
+    assert response.status_code == 404
+
+
 async def test_the_streaming_endpoint_records_both_halves_too(client, api_user):
 
     """The path the interface actually uses writes its answer from inside the generator."""

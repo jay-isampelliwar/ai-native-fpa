@@ -77,6 +77,23 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
+export const users = {
+  /**
+   * Claim an id before anything is written against it.
+   *
+   * Idempotent, and called on every visit rather than only on the first: the id lives in this
+   * browser's local storage, so a person who has one has no other way of telling the backend they
+   * exist. Without it the row every record table points at is never created, and the failure surfaces
+   * at a commit rather than at the gate where the id was typed.
+   */
+  register(userId: number) {
+    return request<{ id: number; display_name: string; created: boolean }>("/api/v1/users", {
+      method: "POST",
+      body: JSON.stringify({ user_id: userId }),
+    });
+  },
+};
+
 export const planner = {
   send(userId: number, message: string, conversationId?: string) {
     return request<MessageResponse>("/api/v1/planner/messages", {

@@ -19,6 +19,12 @@ cleanup list had forgotten - which is exactly how this fixture broke when goals 
 ``CLEANUP_ORDER`` is child before parent throughout, and every user owned table must appear in
 it or a new table will reintroduce the same failure.
 
+The fixture users live at 990001 and 990002 rather than at 1 and 2. They used to be the first two
+ids, which are also the first two anybody types into the gate - so a person adding a record as user 2
+made ``test_ownership_is_enforced_identically`` fail on a fact about their data rather than about the
+code, and the suite reported a bug that did not exist. ``app.db.fixture_ids`` holds the two ids the
+seeder, the in memory repositories and these tests all read.
+
 ``seeded_records`` exists because several tests need the development fixture rows and used to find
 them already sitting in whatever database the developer was pointed at. That made the suite depend
 on ambient state: it passed on a machine that had run the seeder, failed on a clean one, and meant
@@ -28,6 +34,10 @@ afterwards, matched by their fixed identifiers so nothing a person actually ente
 
 It removes them before inserting as well as after. The rows have fixed ids, so a run interrupted
 partway would otherwise collide with itself on the primary key on the next attempt.
+
+No test here calls a model. ``client`` replaces the conversation node with one that runs a named
+skill, so a test about the graph's gates fails when a gate breaks rather than when a model phrases
+something differently - and the suite runs with no API key at all.
 """
 
 import asyncio
@@ -133,26 +143,94 @@ async def api_user():
     await purge(TEST_USER_ID)
 
 
+def answer_with(reply: str, tools: list[str] | None = None, writes: list[str] | None = None):
+
+    """Stand in for the agent node with a fixed answer, so a graph test needs no model.
+
+    The real node asks a model which tools to call. A test about the graph itself - that the audit row
+    is written, that the response reaches the client, that a refusal still gets recorded - should fail
+    when one of those breaks and never because a model phrased something differently, so the answer is
+    fixed here and every node around it runs for real.
+    """
+
+    async def fake_agent(state):
+
+        """Return one finished turn in the shape the agent runtime produces."""
+
+        return {
+            "response": reply,
+            "tools_used": tools or [],
+            "writes_performed": writes or [],
+            "blocks": [],
+            "evidence_ids": [],
+            "calculator_versions": [],
+            "assumptions": {},
+        }
+
+    return fake_agent
+
+
+def run_tools(*names: str):
+
+    """Stand in for the agent by calling named tools for real, then reporting what they produced.
+
+    This is the middle ground between stubbing the whole turn and needing an API key: the tools run
+    against the real database and the real calculators, and only the model's choice of which to call
+    is fixed. A test asserting that a tool's blocks and evidence reach the client is testing the
+    plumbing, not the model.
+    """
+
+    async def fake_agent(state):
+
+        """Call each named tool with no arguments and return the turn its log describes."""
+
+        from app.agent.context import AgentContext, RunLog
+        from app.agent.tools import build_tools
+
+        context = AgentContext(**state.context.model_dump())
+
+        log = RunLog()
+
+        available = {tool.name: tool for tool in build_tools(context, log)}
+
+        spoken = []
+
+        for name in names:
+
+            result = await available[name].ainvoke({})
+
+            spoken.append(str(result))
+
+        return {
+            "response": log.spoken[-1] if log.spoken else " ".join(spoken)[:400],
+            "tools_used": log.tools,
+            "writes_performed": log.writes,
+            "blocks": log.blocks,
+            "evidence_ids": log.evidence_ids,
+            "calculator_versions": log.calculator_versions,
+            "assumptions": log.assumptions,
+        }
+
+    return fake_agent
+
+
 @pytest.fixture
 async def client(api_user):
 
-    """A test client against the real application, with the router stubbed so no model is called."""
+    """A test client against the real application, with the conversation stubbed so no model is called."""
 
     from fastapi.testclient import TestClient
 
     from app.graphs.orchestrator import graph as graph_module
     from app.main import app
 
-    async def fake_route(state):
-        return {"skill_name": "cashflow_summary", "route_confidence": 0.9, "route_reason": "stubbed"}
-
-    original = graph_module.route_request
-    graph_module.route_request = fake_route
+    original = graph_module.run_agent
+    graph_module.run_agent = run_tools("cashflow_summary")
 
     with TestClient(app) as test_client:
         yield test_client
 
-    graph_module.route_request = original
+    graph_module.run_agent = original
 
 
 async def remove_seed_rows() -> None:
@@ -177,7 +255,8 @@ async def seeded_records():
 
     from sqlalchemy import select
 
-    from app.db.seed import SEED_USER_ID, build_liabilities, build_records, build_transactions, build_users
+    from app.db.fixture_ids import SECOND_SEED_USER_ID, SEED_USER_ID
+    from app.db.seed import build_liabilities, build_records, build_transactions, build_users
     from app.db.session import session_scope
     from app.models.orm.system import UserRow
 
@@ -186,7 +265,11 @@ async def seeded_records():
     async with session_scope() as session:
 
         present = set(
-            (await session.scalars(select(UserRow.id).where(UserRow.id.in_([1, 2])))).all()
+            (
+                await session.scalars(
+                    select(UserRow.id).where(UserRow.id.in_([SEED_USER_ID, SECOND_SEED_USER_ID]))
+                )
+            ).all()
         )
 
         session.add_all([user for user in build_users() if user.id not in present])

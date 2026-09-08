@@ -9,8 +9,10 @@ import type {
   Block,
   CalloutBlock,
   ChartBlock,
+  ChartMarker,
   ChartPoint,
   KpiBlock,
+  PromptBlock,
   TableBlock,
   TextBlock,
 } from '@/lib/types';
@@ -280,10 +282,106 @@ function Donut({ points }: { points: ChartPoint[] }) {
   );
 }
 
+/**
+ * One figure as a share of the figure it is aiming at.
+ *
+ * Progress is the only shape where the interesting number is the gap rather than the value, so the
+ * bar is drawn against the target and the target is written out beside it. The colour follows the
+ * point's own tone, which the backend sets from whether the projection reaches it — never from the
+ * width, which would let a bar that is nearly full read as good news when it is short by a decade.
+ */
+function Progress({ points, marker }: { points: ChartPoint[]; marker: ChartMarker | null }) {
+  const point = points[0];
+
+  if (!point) return null;
+
+  const reached = Math.max(0, Math.min(toNumber(point.value), 100));
+
+  return (
+    <div>
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-[13px] font-medium tabular-nums text-[#18312f]">
+          {point.display ?? `${reached}%`}
+        </span>
+        {marker && (
+          <span className="shrink-0 text-[11.5px] tabular-nums text-[#8ba09c]">
+            of {marker.display ?? marker.value}
+          </span>
+        )}
+      </div>
+
+      <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-[#18312f]/7">
+        <div
+          className="h-full rounded-full transition-[width] duration-500"
+          style={{
+            width: `${reached}%`,
+            background: point.tone === 'negative' ? STATUS.warning : STATUS.good,
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A curve with the figure it has to reach drawn across it.
+ *
+ * A projection without its target is a rising line, which always looks like good news. The marker is
+ * what makes it an answer: the area is the corpus as it grows, the dashed rule is what that corpus
+ * has to be worth, and the distance between them at the right-hand edge is the shortfall. Both come
+ * from the same calculator, so the picture cannot disagree with the sentence beside it.
+ */
+function Curve({ points, marker }: { points: ChartPoint[]; marker: ChartMarker | null }) {
+  if (points.length < 2) return null;
+
+  const values = points.map((point) => toNumber(point.value));
+  const target = marker ? toNumber(marker.value) : 0;
+  const ceiling = Math.max(...values, target, 1);
+
+  const width = 100;
+  const height = 42;
+
+  const at = (index: number) => (index / (points.length - 1)) * width;
+  const up = (value: number) => height - (value / ceiling) * height;
+
+  const line = points.map((point, index) => `${at(index)},${up(toNumber(point.value))}`).join(' ');
+
+  return (
+    <div>
+      <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" className="h-28 w-full" role="img">
+        <polygon points={`0,${height} ${line} ${width},${height}`} fill={SERIES.existing} opacity="0.14" />
+        <polyline points={line} fill="none" stroke={SERIES.existing} strokeWidth="1.2" vectorEffect="non-scaling-stroke" />
+
+        {marker && (
+          <line
+            x1="0"
+            x2={width}
+            y1={up(target)}
+            y2={up(target)}
+            stroke={STATUS.warning}
+            strokeWidth="1"
+            strokeDasharray="3 3"
+            vectorEffect="non-scaling-stroke"
+          />
+        )}
+      </svg>
+
+      <div className="mt-1 flex items-baseline justify-between text-[11px] tabular-nums text-[#8ba09c]">
+        <span>{points[0].label}</span>
+        {marker && <span style={{ color: STATUS.warning }}>{marker.label} {marker.display ?? marker.value}</span>}
+        <span>{points[points.length - 1].label}</span>
+      </div>
+    </div>
+  );
+}
+
 export function Chart({ block }: { block: ChartBlock }) {
   return (
-    <Card title={block.title ?? undefined}>
-      {block.chart === 'donut' ? <Donut points={block.points} /> : <Bars points={block.points} />}
+    <Card title={block.title ?? undefined} subtitle={block.caption ?? undefined}>
+      {block.chart === 'donut' && <Donut points={block.points} />}
+      {block.chart === 'progress' && <Progress points={block.points} marker={block.marker} />}
+      {block.chart === 'line' && <Curve points={block.points} marker={block.marker} />}
+      {block.chart === 'bar' && <Bars points={block.points} />}
       <Evidence ids={block.evidence_ids} />
     </Card>
   );
@@ -412,6 +510,66 @@ function Text({ block }: { block: TextBlock }) {
   );
 }
 
+/**
+ * The one block that asks rather than reports, and the only one a person answers by typing.
+ *
+ * Every example is a sentence the backend can already parse, so tapping one is a working answer and
+ * not a hint about the format. It fills the composer instead of sending, because a stray tap should
+ * not put a figure about someone's money into the conversation — the person still reads it, edits the
+ * amount to their own, and presses send.
+ *
+ * Without `onCompose` the examples render as plain text. The workspace panel renders blocks with no
+ * composer to fill, and a chip that looks pressable and does nothing is worse than a sentence.
+ */
+export function Prompt({
+  block,
+  onCompose,
+}: {
+  block: PromptBlock;
+  onCompose?: (text: string) => void;
+}) {
+  return (
+    <Card title={block.title} note={block.caption ?? undefined}>
+      <ul className="space-y-3.5">
+        {block.items.map((item) => (
+          <li key={item.label} className="border-t border-[#18312f]/7 pt-3.5 first:border-t-0 first:pt-0">
+            <p className="text-[11px] font-medium uppercase tracking-[0.07em] text-[#8ba09c]">
+              {item.label}
+            </p>
+
+            <p className="mt-1 text-[13.5px] leading-5 text-[#22423e]">{item.question}</p>
+
+            {item.examples.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {item.examples.map((example) =>
+                  onCompose ? (
+                    <button
+                      key={example}
+                      type="button"
+                      onClick={() => onCompose(example)}
+                      title="Put this in the composer to edit and send"
+                      className="rounded-full border border-[#18312f]/12 bg-white/70 px-3 py-1.5 text-left text-[12px] text-[#4d6560] transition hover:border-[#00947a] hover:text-[#18312f]"
+                    >
+                      {example}
+                    </button>
+                  ) : (
+                    <span
+                      key={example}
+                      className="rounded-full border border-[#18312f]/10 bg-[#f5f2e8]/70 px-3 py-1.5 text-[12px] text-[#5d7470]"
+                    >
+                      {example}
+                    </span>
+                  ),
+                )}
+              </div>
+            )}
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
 // ---------------------------------------------------------------- registry
 /**
  * The switch is exhaustive on purpose: the `never` in the default branch turns adding a block type to
@@ -424,22 +582,28 @@ function Text({ block }: { block: TextBlock }) {
 export function BlockRenderer({
   blocks,
   onDecide,
+  onCompose,
 }: {
   blocks: Block[];
   onDecide?: (decision: 'approve' | 'reject') => Promise<void>;
+  onCompose?: (text: string) => void;
 }) {
   if (blocks.length === 0) return null;
 
   return (
     <div className="space-y-3">
       {blocks.map((block, index) => (
-        <div key={`${block.type}-${index}`}>{render(block, onDecide)}</div>
+        <div key={`${block.type}-${index}`}>{render(block, onDecide, onCompose)}</div>
       ))}
     </div>
   );
 }
 
-function render(block: Block, onDecide?: (decision: 'approve' | 'reject') => Promise<void>) {
+function render(
+  block: Block,
+  onDecide?: (decision: 'approve' | 'reject') => Promise<void>,
+  onCompose?: (text: string) => void,
+) {
   switch (block.type) {
     case 'text':
       return <Text block={block} />;
@@ -451,6 +615,8 @@ function render(block: Block, onDecide?: (decision: 'approve' | 'reject') => Pro
       return <Chart block={block} />;
     case 'callout':
       return <Callout block={block} />;
+    case 'prompt':
+      return <Prompt block={block} onCompose={onCompose} />;
     case 'approval_card':
       return <ApprovalCard block={block} onDecide={onDecide} />;
     default: {

@@ -253,6 +253,117 @@ async def test_the_same_file_uploaded_twice_returns_the_first_import(doc_client,
     assert second["duplicate_of_existing_upload"] is True
 
 
+async def test_an_extractor_that_crashes_leaves_a_stated_failure(doc_client, api_user, monkeypatch):
+
+    """A job's exception lives in this process only, so the reason has to reach the row the client polls."""
+
+    from app.services import import_service as module
+    from app.services.jobs import job_runner
+
+    async def explode(filename, content_type, content, user_id):
+
+        """Fail the way a malformed file or a dead dependency does, from inside the background job."""
+
+        raise RuntimeError("extractor blew up")
+
+    monkeypatch.setattr(module, "extract_document", explode)
+
+    response = doc_client.post(
+        "/api/v1/documents",
+        data={"user_id": str(api_user)},
+        files={"file": ("boom.csv", AUGUST_CSV, "text/csv")},
+    )
+
+    body = response.json()
+
+    await job_runner.wait(body["id"])
+
+    read = doc_client.get(f"/api/v1/documents/{body['id']}?user_id={api_user}").json()
+
+    assert read["status"] == "failed"
+    assert "RuntimeError" in read["error"]
+
+
+async def test_an_import_left_mid_read_is_failed_at_startup(doc_client, api_user):
+
+    """A stopped process takes its jobs with it, and the row it was working on must not poll forever."""
+
+    from app.db.session import session_scope
+    from app.models.orm.imports import DocumentImportRow
+    from app.services.import_service import import_service
+
+    response, body = await upload(doc_client, api_user, AUGUST_CSV)
+
+    async with session_scope() as session:
+
+        record = await session.get(DocumentImportRow, body["id"])
+
+        record.status = "extracting"
+
+    await import_service.abandon_unfinished()
+
+    read = doc_client.get(f"/api/v1/documents/{body['id']}?user_id={api_user}").json()
+
+    assert read["status"] == "failed"
+    assert "the server stopped" in read["error"]
+
+
+async def test_an_import_that_produced_nothing_is_read_again_on_re_upload(doc_client, api_user, monkeypatch):
+
+    """A file stuck at needs_mapping wrote nothing, so uploading it again must re read it rather than replay the gap."""
+
+    from app.extraction import sheets as sheets_module
+    from tests.fixtures_workbooks import unknown_workbook
+    from tests.test_holdings_import import HOLDING_SHEET, stub_reading
+
+    workbook = unknown_workbook()
+
+    async def unreachable(profile):
+
+        """Fail the first read the way a missing key or a dead network would."""
+
+        raise RuntimeError("the model is unreachable")
+
+    monkeypatch.setattr(sheets_module, "read_workbook", unreachable)
+
+    first, body = await upload(doc_client, api_user, workbook, "mystery.xlsx")
+
+    stuck = doc_client.get(f"/api/v1/documents/{body['id']}?user_id={api_user}").json()
+
+    assert stuck["status"] == "needs_mapping"
+
+    stub_reading(monkeypatch, [HOLDING_SHEET])
+
+    second, again = await upload(doc_client, api_user, workbook, "mystery.xlsx")
+
+    assert again["id"] == body["id"]
+    assert again["duplicate_of_existing_upload"] is False
+
+    read = doc_client.get(f"/api/v1/documents/{body['id']}?user_id={api_user}").json()
+
+    assert read["status"] == "extracted"
+    assert read["row_count"] == 2
+
+
+async def test_a_committed_import_is_still_refused_as_a_duplicate(doc_client, api_user):
+
+    """Re reading must not weaken the check that stops one statement being written into records twice."""
+
+    response, body = await upload(doc_client, api_user, AUGUST_CSV)
+
+    doc_client.post(
+        f"/api/v1/documents/{body['id']}/decision?user_id={api_user}",
+        json={"status": "accepted", "only_pending": True},
+    )
+
+    doc_client.post(f"/api/v1/documents/{body['id']}/commit?user_id={api_user}")
+
+    again, second = await upload(doc_client, api_user, AUGUST_CSV)
+
+    assert second["id"] == body["id"]
+    assert second["duplicate_of_existing_upload"] is True
+
+
 async def test_a_transaction_already_in_the_records_is_flagged_as_duplicate(doc_client, api_user):
 
     """An overlapping statement marks the repeated rows rather than silently doubling a month."""

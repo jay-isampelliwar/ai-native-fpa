@@ -20,8 +20,15 @@ The asset type grouping labels its expression and groups by that label rather th
 ``coalesce`` in both clauses. Repeating it emits two separate bind parameters, and PostgreSQL then
 sees two different expressions and rejects the grouping - which is a runtime failure on an endpoint
 that type checks perfectly.
+
+The oldest valuation date is reported beside the newest, and it is the one that says how much to
+trust the total. A portfolio holding one line from a statement pulled this morning and eleven from
+one pulled in March is not valued as of this morning; it was being described that way, because the
+summary reported ``max(as_of)`` alone. Nothing here fetches a price - there is no market data source
+in this system - so the honest thing a total can carry is the age of the oldest figure inside it.
 """
 
+from datetime import date
 from decimal import Decimal
 
 from pydantic import BaseModel, Field
@@ -68,6 +75,8 @@ class HoldingsSummary(BaseModel):
     unrealised: Decimal = Decimal("0")
     identified_by_isin: int = 0
     valued_at: str | None = None
+    oldest_valued_at: str | None = None
+    stale_days: int = 0
 
     by_asset_type: dict[str, Decimal] = Field(default_factory=dict)
     holdings: list[HoldingRead] = Field(default_factory=list)
@@ -100,6 +109,7 @@ class HoldingsRepository:
                         func.coalesce(func.sum(HoldingRow.current_value), 0),
                         func.count().filter(HoldingRow.identifier_type == "isin"),
                         func.max(HoldingRow.as_of),
+                        func.min(HoldingRow.as_of),
                     ).where(HoldingRow.user_id == user_id, HoldingRow.active.is_(True))
                 )
             ).one()
@@ -116,7 +126,7 @@ class HoldingsRepository:
                 )
             ).all()
 
-        count, invested, current, isin_count, newest = totals
+        count, invested, current, isin_count, newest, oldest = totals
 
         return HoldingsSummary(
             count=count,
@@ -125,6 +135,8 @@ class HoldingsRepository:
             unrealised=current - invested,
             identified_by_isin=isin_count,
             valued_at=newest.isoformat() if newest else None,
+            oldest_valued_at=oldest.isoformat() if oldest else None,
+            stale_days=(date.today() - oldest).days if oldest else 0,
             by_asset_type={asset_type: value for asset_type, value in by_type},
             holdings=[
                 HoldingRead(

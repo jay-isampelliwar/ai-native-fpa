@@ -6,15 +6,18 @@ import { BlockRenderer } from '@/components/blocks';
 import ImportTurn from '@/components/ImportTurn';
 import { useUser } from '@/components/Shell';
 import { planner } from '@/lib/api';
+import { announceRecordsChanged } from '@/lib/records';
 import { streamMessage } from '@/lib/stream';
-import type { Block, Conversation, MessageResponse } from '@/lib/types';
+import type { Block, Conversation } from '@/lib/types';
 
 /**
  * The conversation — one graph run per message, streamed, with approvals and imports answered inline.
  *
- * Progress events drive the placeholder rather than a generic spinner. The graph already knows
- * whether it is routing, reading records or verifying a result, and saying so is the difference
- * between waiting and wondering — especially on the investigation skill, which takes several seconds.
+ * Progress events drive the placeholder rather than a generic spinner, and they accumulate rather
+ * than replace each other. The graph knows which skill it chose and, inside the investigation loop,
+ * which tool it is calling; showing that as a growing list is the difference between waiting and
+ * watching. Steps are named after the skill running them — "Looking into your spending" rather than
+ * "Reading your records", which is true of all six and therefore says nothing.
  *
  * The conversation id is held from the first reply onwards and sent with every later message. It is
  * the graph's thread id, so it is also what makes an approval resume the exact paused run rather than
@@ -40,8 +43,24 @@ import type { Block, Conversation, MessageResponse } from '@/lib/types';
  * question; once answered it should stop looking like one, and a live Approve button sitting above
  * the outcome invites a second click on a decision already made.
  *
+ * The answer's turn is created empty and filled as the words arrive. Tokens are a preview of what the
+ * model is writing; the closing event carries the text the backend actually stands behind, after its
+ * figure check, so the turn is overwritten with that rather than left as whatever streamed. The two
+ * are identical except in the case the check exists for, and in that case the corrected sentence is
+ * the one that should be on screen.
+ *
+ * The answer is read as a sentence and the blocks sit under it. The blocks used to replace the text
+ * entirely whenever a skill returned any, which made a reply to a question about someone's money a
+ * bare wall of KPIs and tables - and left the one part written for a reader unrendered. The sentence
+ * is now the planner's own words about the figures below it, and both come from the same result.
+ *
  * Errors become a turn rather than a toast. A failure to answer a question about money is part of the
  * record of what was asked, and dismissing it leaves a gap the reader cannot account for.
+ *
+ * An example answer tapped in a prompt block fills the composer rather than sending itself. The
+ * examples are plausible figures, not this person's figures, and a tap that sent one straight to the
+ * planner would put an invented salary in the conversation on the way to a proposal card. Filling the
+ * field puts the edit in front of the person while their attention is already on it.
  */
 
 type Turn = {
@@ -65,12 +84,12 @@ const ACCEPTS = '.xlsx,.xlsm,.xls,.csv';
 
 const newId = () => Math.random().toString(36).slice(2, 10);
 
-export default function ChatPanel({ onRecordsChanged }: { onRecordsChanged?: () => void }) {
+export default function ChatPanel() {
   const userId = useUser();
 
   const [turns, setTurns] = useState<Turn[]>([]);
   const [draft, setDraft] = useState('');
-  const [progress, setProgress] = useState<string | null>(null);
+  const [steps, setSteps] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [conversationId, setConversationId] = useState<string | undefined>();
@@ -79,29 +98,13 @@ export default function ChatPanel({ onRecordsChanged }: { onRecordsChanged?: () 
 
   const scroller = useRef<HTMLDivElement>(null);
   const picker = useRef<HTMLInputElement>(null);
+  const composer = useRef<HTMLTextAreaElement>(null);
 
   // Pin to the newest turn as it arrives.
   useEffect(() => {
     const element = scroller.current;
     if (element) element.scrollTop = element.scrollHeight;
-  }, [turns, progress]);
-
-  function record(response: MessageResponse) {
-    setConversationId(response.conversation_id);
-
-    setTurns((current) => [
-      ...current,
-      {
-        id: newId(),
-        role: 'planner',
-        text: response.response,
-        blocks: response.blocks,
-        skill: response.skill,
-        calculators: response.calculator_versions,
-        conversationId: response.conversation_id,
-      },
-    ]);
-  }
+  }, [turns, steps]);
 
   function say(text: string) {
     setTurns((current) => [...current, { id: newId(), role: 'planner', text, blocks: [] }]);
@@ -118,7 +121,7 @@ export default function ChatPanel({ onRecordsChanged }: { onRecordsChanged?: () 
     setTurns([]);
     setConversationId(undefined);
     setDraft('');
-    setProgress(null);
+    setSteps([]);
     setHistoryOpen(false);
   }
 
@@ -173,22 +176,57 @@ export default function ChatPanel({ onRecordsChanged }: { onRecordsChanged?: () 
     ]);
   }
 
+  function compose(example: string) {
+    setDraft(example);
+    composer.current?.focus();
+  }
+
   async function send(message: string) {
     const trimmed = message.trim();
     if (!trimmed || busy) return;
 
+    const answerId = newId();
+
     setDraft('');
-    setTurns((current) => [...current, { id: newId(), role: 'user', text: trimmed, blocks: [] }]);
+    setTurns((current) => [
+      ...current,
+      { id: newId(), role: 'user', text: trimmed, blocks: [] },
+      { id: answerId, role: 'planner', text: '', blocks: [] },
+    ]);
     setBusy(true);
-    setProgress('Sending');
+    setSteps(['Thinking']);
+
+    function amend(change: (turn: Turn) => Turn) {
+      setTurns((current) => current.map((turn) => (turn.id === answerId ? change(turn) : turn)));
+    }
 
     await streamMessage(userId, trimmed, conversationId, {
-      onProgress: (event) => setProgress(event.label),
-      onDone: record,
-      onError: say,
-    }).catch(() => say('The planner could not be reached. Check that the backend is running.'));
+      onProgress: (event) =>
+        setSteps((current) =>
+          current[current.length - 1] === event.label ? current : [...current, event.label],
+        ),
+      onToken: (piece) => amend((turn) => ({ ...turn, text: turn.text + piece })),
+      onDone: (response) => {
+        setConversationId(response.conversation_id);
 
-    setProgress(null);
+        amend((turn) => ({
+          ...turn,
+          text: response.response,
+          blocks: response.blocks,
+          skill: response.skill,
+          calculators: response.calculator_versions,
+          conversationId: response.conversation_id,
+        }));
+      },
+      onError: (message) => amend((turn) => ({ ...turn, text: message })),
+    }).catch(() =>
+      amend((turn) => ({
+        ...turn,
+        text: 'The planner could not be reached. Check that the backend is running.',
+      })),
+    );
+
+    setSteps([]);
     setBusy(false);
   }
 
@@ -198,7 +236,7 @@ export default function ChatPanel({ onRecordsChanged }: { onRecordsChanged?: () 
 
     const outcome = await planner.decide(userId, turn.conversationId, decision);
 
-    if (decision === 'approve') onRecordsChanged?.();
+    if (decision === 'approve') announceRecordsChanged();
 
     setTurns((current) =>
       current.map((candidate) =>
@@ -351,7 +389,7 @@ export default function ChatPanel({ onRecordsChanged }: { onRecordsChanged?: () 
                       file={turn.file}
                       onCommitted={(summary) => {
                         say(summary);
-                        onRecordsChanged?.();
+                        announceRecordsChanged();
                       }}
                     />
                   )}
@@ -360,8 +398,14 @@ export default function ChatPanel({ onRecordsChanged }: { onRecordsChanged?: () 
             }
 
             return (
-              <div key={turn.id} className="space-y-2">
-                {turn.blocks.length > 0 ? (
+              <div key={turn.id} className="space-y-3">
+                {turn.text && (
+                  <p className="whitespace-pre-wrap text-[14px] leading-[1.65] text-[#22423e]">
+                    {turn.text}
+                  </p>
+                )}
+
+                {turn.blocks.length > 0 && (
                   <BlockRenderer
                     blocks={turn.blocks}
                     onDecide={
@@ -369,11 +413,8 @@ export default function ChatPanel({ onRecordsChanged }: { onRecordsChanged?: () 
                         ? (decision) => decide(turn.id, decision)
                         : undefined
                     }
+                    onCompose={compose}
                   />
-                ) : (
-                  <p className="whitespace-pre-wrap text-[14px] leading-[1.65] text-[#22423e]">
-                    {turn.text}
-                  </p>
                 )}
 
                 {(turn.skill || turn.calculators?.length) && (
@@ -386,11 +427,28 @@ export default function ChatPanel({ onRecordsChanged }: { onRecordsChanged?: () 
             );
           })}
 
-          {progress && (
-            <div className="flex items-center gap-2 text-[12.5px] text-[#a8b8b4]">
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#e7a14d]" />
-              {progress}
-            </div>
+          {steps.length > 0 && (
+            <ol className="space-y-1">
+              {steps.map((step, index) => {
+                const current = index === steps.length - 1;
+
+                return (
+                  <li
+                    key={`${step}-${index}`}
+                    className={`flex items-center gap-2 text-[12.5px] ${
+                      current ? 'text-[#5d7470]' : 'text-[#c2ccca]'
+                    }`}
+                  >
+                    <span
+                      className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                        current ? 'animate-pulse bg-[#e7a14d]' : 'bg-[#d6dedc]'
+                      }`}
+                    />
+                    {step}
+                  </li>
+                );
+              })}
+            </ol>
           )}
         </div>
       </div>
@@ -423,6 +481,7 @@ export default function ChatPanel({ onRecordsChanged }: { onRecordsChanged?: () 
             </button>
 
             <textarea
+              ref={composer}
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={(event) => {

@@ -1,8 +1,18 @@
 'use client';
 
 import Link from 'next/link';
-import { createContext, useContext, useState, useSyncExternalStore, type ReactNode } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from 'react';
 
+import { alerts, users } from '@/lib/api';
+import { useRecordsVersion } from '@/lib/records';
 import { clearUserId, readUserId, serverUserId, subscribeToUserId, writeUserId } from '@/lib/session';
 
 /**
@@ -17,6 +27,13 @@ import { clearUserId, readUserId, serverUserId, subscribeToUserId, writeUserId }
  * it would advertise surfaces that only fragment the same work across screens that cannot see each
  * other. What is left is the mark, and the one control that is genuinely about the frame rather than
  * the conversation: which person's records are on screen.
+ *
+ * The id is registered with the backend on every visit, not just when it is first typed. Identity here
+ * is an integer a person chose, kept in this browser, and nothing else told the server that the person
+ * exists — so every record table's foreign key pointed at a row nobody had created. The failure that
+ * caused surfaced at the very end: upload a statement, watch it extract, review twelve rows, and meet
+ * a foreign key violation at the commit. Registering costs one idempotent call and moves that failure
+ * out of existence rather than earlier.
  *
  * The id reaches pages through context rather than a render prop. A function passed as `children`
  * cannot cross the server/client boundary - it is not serialisable into the RSC payload - so pages
@@ -41,8 +58,51 @@ export function useUser(): number {
   return userId;
 }
 
+/**
+ * How many findings are waiting, recounted when the app opens and whenever the records change.
+ *
+ * Alerts are computed on request rather than stored, so "recompute" is a fetch: the rules run against
+ * whatever is in the database at that moment. Nothing schedules them, which is the honest shape for a
+ * product nobody is logged into while they are away — a finding that appears the instant you open the
+ * app is as timely as one that was computed overnight, and needs no process to be running.
+ *
+ * The records-changed signal fires when a record is confirmed or an import committed, so the count
+ * moves in the same beat as the panel beside it rather than on the next reload. It is read through
+ * the shared hook in `lib/records` rather than by attaching a listener here, so the event's name is
+ * written in one file and every surface that cares subscribes the same way.
+ */
+function useAttention(userId: number): number {
+  const [count, setCount] = useState(0);
+
+  const version = useRecordsVersion();
+
+  const recount = useCallback(() => {
+    alerts
+      .list(userId)
+      .then((response) => setCount(response.action_required))
+      .catch(() => setCount(0));
+  }, [userId]);
+
+  useEffect(() => {
+    recount();
+  }, [recount, version]);
+
+  return count;
+}
+
 export default function Shell({ children }: { children: ReactNode }) {
   const userId = useSyncExternalStore(subscribeToUserId, readUserId, serverUserId);
+
+  // Every visit, not only the first: the id lives in this browser, so this is the only moment the
+  // backend can learn that the person holding it exists.
+  useEffect(() => {
+    if (typeof userId !== 'number') return;
+
+    void users.register(userId).catch(() => {
+      // A backend that cannot be reached is reported by whatever the person does next, which will
+      // fail visibly and say so. Failing here would only replace the app with a blank screen.
+    });
+  }, [userId]);
 
   if (userId === undefined) return null;
 
@@ -58,6 +118,8 @@ export default function Shell({ children }: { children: ReactNode }) {
 }
 
 function Nav({ userId, onSwitch }: { userId: number; onSwitch: () => void }) {
+  const attention = useAttention(userId);
+
   return (
     <header className="relative z-20 border-b border-[#18312f]/8 bg-[#f5f2e8]/85 backdrop-blur">
       <nav className="mx-auto flex w-full max-w-[1180px] items-center px-5 py-3">
@@ -69,6 +131,17 @@ function Nav({ userId, onSwitch }: { userId: number; onSwitch: () => void }) {
             Farline
           </span>
         </Link>
+
+        {attention > 0 && (
+          <Link
+            href="/alerts"
+            title="Things worth your attention"
+            className="ml-4 flex items-center gap-1.5 rounded-full border border-[#bf8410]/30 bg-[#bf8410]/8 px-2.5 py-1 text-[11.5px] font-medium text-[#8a5a12] transition hover:bg-[#bf8410]/14"
+          >
+            <span className="h-1.5 w-1.5 rounded-full bg-[#bf8410]" aria-hidden="true" />
+            {attention} to look at
+          </Link>
+        )}
 
         <button
           type="button"

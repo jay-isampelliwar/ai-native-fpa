@@ -60,7 +60,10 @@ class Settings(BaseSettings):
 
     repository_backend: str = "sql"
 
-    route_confidence_floor: float = 0.55
+    conversation_memory_turns: int = 12
+    agent_recursion_limit: int = Field(default=24, ge=4)
+
+    stale_valuation_days: int = 7
 
     upload_directory: str = "var/uploads"
     maximum_upload_bytes: int = 20 * 1024 * 1024

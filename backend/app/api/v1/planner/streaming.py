@@ -4,9 +4,33 @@ A planner answer can take several seconds - a routing call, a repository read, a
 for the investigation skill an agent loop. Returning nothing until all of it finishes makes a
 working system feel broken, and the graph already knows what it is doing at each step.
 
-Events are emitted from LangGraph's ``updates`` stream, which yields one entry per node as it
-completes. That means the client is told which skill was chosen the moment routing returns,
-rather than after the skill has run, and can show the right shell while the figures arrive.
+Events come from two of LangGraph's stream modes at once. ``updates`` yields one entry per node as
+it completes, so the client is told which skill was chosen the moment routing returns rather than
+after the skill has run. ``custom`` carries whatever a skill writes from inside its own run, which
+is how a tool call several frames deep - inside an agent loop, inside the conversation node - reaches
+the client at all. Without it the longest part of the longest answer is a single unchanging label.
+
+Four nodes emit nothing. Authenticating, loading a definition, checking permissions and writing the
+audit record are steps in this system's own bookkeeping, and a person waiting on an answer about
+their money does not need to be told that permissions were checked - it reads as busywork and it
+buries the two lines that are actually about them. They still run, are still audited and still refuse
+what they should; they are simply not narrated.
+
+The answer arrives twice, and the second one is the truth. ``token`` events carry the words as the
+model writes them, so a person reads a reply forming instead of watching a spinner for several
+seconds; the closing ``done`` event carries the finished body, after the figure check has decided
+whether that reply survives. A client renders the tokens as they come and replaces them with what
+``done`` says, which is identical except in the case the check exists for.
+
+"Thinking" is emitted before the graph starts rather than when a node finishes. ``updates`` fires on
+completion, so a label attached to the conversation node would arrive after the work it describes -
+after the tool events it emitted, which is exactly backwards from what a person is watching for.
+
+The skills name themselves as they are called, rather than being named here. ``updates`` fires when a
+node completes, and the whole conversation is one node - so labelling it could only say "thinking"
+before and "done" after, with the several seconds in between unexplained. Each skill tool writes its
+own line as it starts, which is why the interesting part of a long answer is visible while it
+happens.
 
 Only node names and finished results cross the wire. The graph's state carries the caller's
 scopes, the loaded skill definition and the raw denial reason, none of which a client should see,
@@ -32,17 +56,11 @@ import orjson
 
 from app.api.v1.planner.schemas import MessageResponse
 
-PROGRESS_LABELS = {
-    "authenticate_context": "Checking your session",
-    "route_request": "Working out what you are asking",
-    "load_skill_definition": "Loading the right skill",
-    "check_permissions": "Checking permissions",
-    "execute_skill": "Reading your records",
-    "validate_skill_result": "Verifying the result",
-    "request_approval": "Waiting for your approval",
-    "controlled_write": "Applying the approved change",
-    "write_audit_record": "Recording what happened",
-    "respond": "Composing the answer",
+SILENT = {
+    "authenticate_context",
+    "agent",
+    "write_audit_record",
+    "respond",
 }
 
 
@@ -65,23 +83,41 @@ async def stream_planner_run(
 
     final_state: dict = {}
 
+    yield event("progress", {"node": "start", "label": "Thinking", "skill": None})
+
     try:
-        async for update in graph.astream(state, config=config, stream_mode="updates"):
+        async for mode, chunk in graph.astream(state, config=config, stream_mode=["updates", "custom"]):
 
-            for node_name, node_state in update.items():
+            if mode == "custom":
 
-                if node_name == "__interrupt__":
+                if "token" in chunk:
+
+                    yield event("token", {"text": str(chunk["token"])})
+
                     continue
-
-                final_state.update(node_state or {})
 
                 yield event(
                     "progress",
                     {
-                        "node": node_name,
-                        "label": PROGRESS_LABELS.get(node_name, node_name),
-                        "skill": final_state.get("skill_name"),
+                        "node": "tool",
+                        "label": str(chunk.get("label") or chunk.get("tool") or "Looking something up"),
+                        "tool": chunk.get("tool"),
+                        "skill": chunk.get("tool"),
                     },
+                )
+
+                continue
+
+            for node_name, node_state in chunk.items():
+
+                final_state.update(node_state or {})
+
+                if node_name in SILENT:
+                    continue
+
+                yield event(
+                    "progress",
+                    {"node": node_name, "label": node_name, "skill": None},
                 )
 
         snapshot = await graph.aget_state(config)
@@ -112,9 +148,4 @@ def build_body(conversation_id: str, snapshot) -> MessageResponse:
 
     from app.api.v1.planner.router import to_response
 
-    values = dict(snapshot.values)
-
-    if snapshot.interrupts:
-        values["__interrupt__"] = snapshot.interrupts
-
-    return to_response(conversation_id, values)
+    return to_response(conversation_id, dict(snapshot.values))

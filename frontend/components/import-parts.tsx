@@ -254,6 +254,13 @@ export function Reconcile({
   );
 }
 
+const RECORD_WORDS: Record<string, string> = {
+  income: 'Income',
+  expense: 'Expense',
+  emi: 'Loan EMI',
+  sip: 'SIP',
+};
+
 export function describe(row: StagedRow): string {
   const payload = row.payload as Record<string, string | null>;
 
@@ -262,6 +269,14 @@ export function describe(row: StagedRow): string {
     const value = payload.current_value ?? payload.invested_value;
 
     return `${payload.instrument_name ?? 'Unnamed'} · ${units} units${value ? ` · ${value}` : ''}`;
+  }
+
+  if (row.target_table === 'records') {
+    const record = row.payload as unknown as { kind: string; fields: Record<string, string> };
+    const kind = RECORD_WORDS[record.kind] ?? record.kind;
+    const every = record.fields?.frequency === 'monthly' ? 'a month' : record.fields?.frequency;
+
+    return `${kind} · ${record.fields?.label ?? 'Unnamed'} · ${record.fields?.amount ?? ''} ${every ?? ''}`.trim();
   }
 
   return `${payload.occurred_on ?? '—'} · ${payload.merchant ?? ''} · ${payload.amount ?? ''}`;

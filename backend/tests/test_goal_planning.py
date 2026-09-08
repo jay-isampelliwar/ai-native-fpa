@@ -1,45 +1,75 @@
-"""The goal planning skill end to end, from records entered through the API to the sentence returned.
+"""Projecting a goal, from records entered through the API to the figures the tool hands the model.
 
-This is Phase 2's exit condition expressed as a test: data entered manually produces a verified
-projection. Nothing is stubbed except the router, because what is under test is that real rows
-reach a real calculator and come back with evidence, not that a model classifies well.
+This was the skill's test file and it is now the tool's. What changed in the code is that the model
+passes a goal id rather than a name: the old skill resolved a name by word overlap and, when nothing
+matched, silently projected whichever goal sorted first - so "how are my goals doing" produced a
+confident answer about one of five with no sign the others existed. ``project_goal`` takes an id, and
+``test_an_unknown_goal_id_is_refused_with_the_way_to_find_one`` is the replacement for that failure.
 
-The router has to be replaced before the application starts. ``build_planner_graph`` binds the
-node function into the graph at compile time, so patching the module attribute afterwards has no
-effect - a mistake worth stating, because the test would then silently exercise the live router.
+The projection itself is unchanged and so are the properties worth asserting. Nothing is stubbed
+except nothing at all - real rows reach the real calculator, because the arithmetic is the part a
+person will act on.
 
-``test_the_projection_moves_when_funding_is_linked`` is the assertion that proves goals do not
-store balances. Linking a holding changes the answer without touching the goal row, which is only
-possible because funding is valued at read time.
+``test_the_projection_moves_when_funding_is_linked`` is the assertion that proves goals do not store
+balances. Linking a holding changes the numbers without touching the goal row, which is only possible
+because funding is valued at read time.
 
-The word matching in ``resolve_goal`` is tested directly, since picking the wrong goal produces a
-confidently wrong answer about a different large sum. The chosen goal is always named in the
-reply, so the test asserts on that name rather than on the numbers alone.
+Holdings are valued at cost rather than at market, and the tool says so in a field rather than leaving
+the model to guess. There is no price feed here, and a projection that implied a market valuation
+would be the one fabrication this design forbids.
 """
 
+from decimal import Decimal
+
 import pytest
+
+pytestmark = pytest.mark.asyncio
 
 
 @pytest.fixture
 async def goal_client(api_user):
 
-    """A client whose router is pinned to goal planning, patched before the graph is compiled."""
+    """A plain client, since these endpoints write records rather than run the planner graph."""
 
     from fastapi.testclient import TestClient
 
-    from app.graphs.orchestrator import graph as graph_module
     from app.main import app
-
-    async def fake_route(state):
-        return {"skill_name": "goal_planning", "route_confidence": 0.95, "route_reason": "stubbed"}
-
-    original = graph_module.route_request
-    graph_module.route_request = fake_route
 
     with TestClient(app) as client:
         yield client
 
-    graph_module.route_request = original
+
+def context_for(user_id: int):
+
+    """Build the context the graph would hand the agent for one turn."""
+
+    from app.agent.context import AgentContext
+
+    return AgentContext(user_id=user_id, conversation_id="conv_goal", correlation_id="req_goal")
+
+
+async def project(user_id: int, goal_id: str) -> dict:
+
+    """Run the projection tool the way the agent would, with an id it was given by list_goals."""
+
+    from app.agent.context import RunLog
+    from app.agent.tools import build_tools
+
+    tools = {tool.name: tool for tool in build_tools(context_for(user_id), RunLog())}
+
+    return await tools["project_goal"].ainvoke({"goal_id": goal_id})
+
+
+async def listed(user_id: int) -> dict:
+
+    """List the goals the way the agent would before choosing one to project."""
+
+    from app.agent.context import RunLog
+    from app.agent.tools import build_tools
+
+    tools = {tool.name: tool for tool in build_tools(context_for(user_id), RunLog())}
+
+    return await tools["list_goals"].ainvoke({})
 
 
 def create_goal(client, user_id, label="Buy house", amount="8000000.00", target="2031-03-01", **extra):
@@ -55,62 +85,65 @@ def create_goal(client, user_id, label="Buy house", amount="8000000.00", target=
     return response.json()["id"]
 
 
-def ask(client, user_id, message):
+async def test_no_goals_means_nothing_to_list(goal_client, api_user):
 
-    """Send one planner message and return the parsed response body."""
+    """With nothing set up the listing is empty and says so, rather than reporting an error."""
 
-    return client.post("/api/v1/planner/messages", json={"user_id": user_id, "message": message}).json()
+    result = await listed(api_user)
 
-
-def test_no_goals_is_a_refusal_rather_than_a_failure(goal_client, api_user):
-
-    """With nothing set up the skill refuses politely instead of reporting an error."""
-
-    body = ask(goal_client, api_user, "can I afford a house by 2031?")
-
-    assert body["status"] == "refused"
-    assert "no goals" in body["response"]
+    assert result["goals"] == []
+    assert "no goals" in result["note"]
 
 
-def test_a_goal_projects_against_its_inflated_target(goal_client, api_user):
+async def test_an_unknown_goal_id_is_refused_with_the_way_to_find_one(goal_client, api_user):
 
-    """The reply quotes the goal, the horizon and a target larger than today's price."""
+    """An invented id is refused by name and points at the tool that returns the real ones."""
 
-    create_goal(goal_client, api_user)
+    result = await project(api_user, "goal_invented")
 
-    body = ask(goal_client, api_user, "can I afford the house?")
-
-    assert body["status"] == "answered"
-    assert "Buy house" in body["response"]
-    assert "INR 8,000,000" in body["response"]
-    assert "goals.v1" in body["calculator_versions"]
-    assert "cashflow.v1" in body["calculator_versions"]
+    assert "list_goals" in result["note"]
 
 
-def test_the_answer_carries_the_evidence_it_was_built_from(goal_client, api_user):
+async def test_a_goal_projects_against_its_inflated_target(goal_client, api_user):
 
-    """Every projection returns the goal id and the records behind the surplus figure."""
+    """The projection quotes the goal, the horizon and a target larger than today's price."""
 
     goal_id = create_goal(goal_client, api_user)
 
-    goal_client.post(
-        "/api/v1/records/income",
-        json={"user_id": api_user, "label": "Salary", "amount": "200000.00"},
-    )
+    result = await project(api_user, goal_id)
 
-    body = ask(goal_client, api_user, "how is the house goal doing?")
-
-    assert goal_id in body["evidence_ids"]
-    assert any(evidence.startswith("inc_") for evidence in body["evidence_ids"])
+    assert result["goal"] == "Buy house"
+    assert result["target_today"] == "8000000.00"
+    assert Decimal(result["target_at_maturity"]) > Decimal(result["target_today"])
+    assert result["calculator"] == "goals.v1"
 
 
-def test_the_projection_moves_when_funding_is_linked(goal_client, api_user):
+async def test_the_projection_carries_the_evidence_it_was_built_from(goal_client, api_user):
+
+    """A projection cites the goal row it read, so a figure can be traced even with no funding linked."""
+
+    from app.agent.context import RunLog
+    from app.agent.tools import build_tools
+
+    goal_id = create_goal(goal_client, api_user)
+
+    log = RunLog()
+
+    tools = {tool.name: tool for tool in build_tools(context_for(api_user), log)}
+
+    await tools["project_goal"].ainvoke({"goal_id": goal_id})
+
+    assert goal_id in log.evidence_ids
+    assert log.calculator_versions == ["goals.v1"]
+
+
+async def test_the_projection_moves_when_funding_is_linked(goal_client, api_user):
 
     """Linking an asset changes the answer without the goal row storing any balance."""
 
     goal_id = create_goal(goal_client, api_user)
 
-    before = ask(goal_client, api_user, "how is the house goal doing?")["response"]
+    before = await project(api_user, goal_id)
 
     holding = goal_client.post(
         "/api/v1/assets/holdings",
@@ -133,26 +166,25 @@ def test_the_projection_moves_when_funding_is_linked(goal_client, api_user):
 
     assert linked.status_code == 201
 
-    after = ask(goal_client, api_user, "how is the house goal doing?")["response"]
+    after = await project(api_user, goal_id)
 
-    assert before != after
-    assert "valued at cost" in after
+    assert Decimal(after["projected_corpus"]) > Decimal(before["projected_corpus"])
+    assert after["funding_valued_at_cost"] is True
 
 
-def test_the_right_goal_is_chosen_when_several_exist(goal_client, api_user):
+async def test_every_goal_is_listed_rather_than_one_being_chosen(goal_client, api_user):
 
-    """A word from the question picks the matching goal rather than the first one on the list."""
+    """Listing names all of them, which is what the old word matching resolver could never do."""
 
     create_goal(goal_client, api_user, label="Buy house", priority=1)
     create_goal(goal_client, api_user, label="Education fund", amount="2500000.00", target="2035-06-01", priority=5)
 
-    body = ask(goal_client, api_user, "am I on track for the education fund?")
+    result = await listed(api_user)
 
-    assert "Education fund" in body["response"]
-    assert "Buy house" not in body["response"]
+    assert [goal["label"] for goal in result["goals"]] == ["Buy house", "Education fund"]
 
 
-def test_the_goal_read_endpoint_reports_funding_as_cost(goal_client, api_user):
+async def test_the_goal_read_endpoint_reports_funding_as_cost(goal_client, api_user):
 
     """A client reading a goal is told the funded figure is cost, not a market valuation."""
 
@@ -164,7 +196,7 @@ def test_the_goal_read_endpoint_reports_funding_as_cost(goal_client, api_user):
     assert body["funded_corpus"] == "0.00" or float(body["funded_corpus"]) == 0.0
 
 
-def test_another_users_goal_is_reported_as_missing(goal_client, api_user):
+async def test_another_users_goal_is_reported_as_missing(goal_client, api_user):
 
     """A goal the caller does not own is a 404, never a 403 that would confirm it exists."""
 
@@ -175,7 +207,7 @@ def test_another_users_goal_is_reported_as_missing(goal_client, api_user):
     assert response.status_code == 404
 
 
-def test_a_linked_sip_counts_as_contribution_not_as_corpus(goal_client, api_user):
+async def test_a_linked_sip_counts_as_contribution_not_as_corpus(goal_client, api_user):
 
     """An SIP funds a goal monthly rather than adding to its corpus, which would double count it."""
 

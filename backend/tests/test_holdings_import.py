@@ -18,6 +18,13 @@ The mapping path is tested without a model. Proposing a mapping is the one step 
 matters structurally is that a confirmed mapping becomes a template and that the next file of the same
 shape parses deterministically - both of which are testable with a hand written mapping.
 
+Two of those tests exist for a failure that made every unrecognised layout unimportable. The response
+schema asked the model for an open ended object, which a strict schema cannot express, so the call was
+rejected with a 400 before reaching the model - and because the endpoint built its sheet list from the
+proposal, a person was shown a mapping card with no columns in it and no way forward. So the schema is
+asserted to contain no free form object, and the endpoint is asserted to offer the file's own columns
+even when asking a model fails outright.
+
 Fixtures reproduce the real layouts and none of the real values. The PAN and mobile number in them are
 invented and belong to nobody.
 """
@@ -31,6 +38,7 @@ from tests.fixtures_workbooks import (
     broker_workbook,
     consolidated_workbook,
     fund_statement_workbook,
+    plan_workbook,
     unknown_workbook,
 )
 
@@ -48,6 +56,40 @@ async def doc_client(api_user):
 
     with TestClient(app) as client:
         yield client
+
+
+def stub_reading(monkeypatch, sheets: list[dict], provider: str = "test") -> None:
+
+    """Answer the sheet reader from the test rather than from a model, so the suite needs no API key."""
+
+    from app.extraction import sheets as sheets_module
+
+    reading = sheets_module.ReadWorkbook(
+        provider=provider,
+        sheets=[sheets_module.ReadSheet(**sheet) for sheet in sheets],
+    )
+
+    async def prepared(profile):
+
+        """Return the classification this test is about, ignoring the profile it would have been read from."""
+
+        return reading
+
+    monkeypatch.setattr(sheets_module, "read_workbook", prepared)
+
+
+HOLDING_SHEET = {
+    "sheet": "Positions",
+    "kind": "holding",
+    "header_row": 1,
+    "fields": [
+        {"field": "instrument_name", "column": "Description"},
+        {"field": "isin", "column": "Security Code"},
+        {"field": "quantity", "column": "Qty Available"},
+        {"field": "average_cost", "column": "Cost Per Unit"},
+        {"field": "current_value", "column": "Current Amount"},
+    ],
+}
 
 
 async def upload(client, user_id, content, filename):
@@ -204,9 +246,339 @@ async def test_every_staged_row_keeps_where_it_came_from(doc_client, api_user):
     assert all(row.source_cells for row in rows)
 
 
-async def test_an_unknown_layout_asks_for_a_mapping_instead_of_guessing(doc_client, api_user):
+async def test_an_unknown_layout_is_read_rather_than_refused(doc_client, api_user, monkeypatch):
 
-    """A layout no template covers is neither parsed nor failed, it waits for a person to map it."""
+    """A layout no template covers is read from what its headings say, so an import is never a form first."""
+
+    stub_reading(
+        monkeypatch,
+        [
+            {
+                "sheet": "Positions",
+                "kind": "holding",
+                "header_row": 1,
+                "fields": [
+                    {"field": "instrument_name", "column": "Description"},
+                    {"field": "isin", "column": "Security Code"},
+                    {"field": "quantity", "column": "Qty Available"},
+                    {"field": "current_value", "column": "Current Amount"},
+                ],
+            }
+        ],
+    )
+
+    record = await upload(doc_client, api_user, unknown_workbook(), "mystery.xlsx")
+
+    assert record["status"] == "extracted"
+    assert record["row_count"] == 2
+
+    assert await count_holdings(api_user) == 0
+
+    rows = rows_of(doc_client, record["id"], api_user)["rows"]
+
+    assert {row["payload"]["instrument_name"] for row in rows} == {"HDFC Bank Limited", "Infosys Limited"}
+
+    assert all(float(row["confidence"]) < 1 for row in rows)
+
+
+async def test_a_workbook_of_income_and_loans_becomes_records(doc_client, api_user, monkeypatch):
+
+    """A plan workbook is not a holdings statement, and every kind it holds is staged as its own record."""
+
+    stub_reading(
+        monkeypatch,
+        [
+            {
+                "sheet": "2_Income",
+                "kind": "income",
+                "header_row": 1,
+                "fields": [
+                    {"field": "label", "column": "Source"},
+                    {"field": "amount", "column": "Amount"},
+                    {"field": "frequency", "column": "How often"},
+                ],
+            },
+            {
+                "sheet": "8_Loans",
+                "kind": "emi",
+                "header_row": 1,
+                "fields": [
+                    {"field": "label", "column": "Loan"},
+                    {"field": "amount", "column": "EMI"},
+                    {"field": "remaining_months", "column": "Months left"},
+                ],
+            },
+            {
+                "sheet": "1_Personal_Details",
+                "kind": "ignore",
+                "header_row": 1,
+                "fields": [],
+            },
+        ],
+    )
+
+    record = await upload(doc_client, api_user, plan_workbook(), "plan.xlsx")
+
+    assert record["status"] == "extracted"
+
+    rows = rows_of(doc_client, record["id"], api_user)["rows"]
+
+    staged = {(row["payload"]["kind"], row["payload"]["fields"]["label"]) for row in rows}
+
+    assert ("income", "Salary") in staged
+    assert ("income", "Flat rent") in staged
+    assert ("emi", "Home loan") in staged
+
+    assert all(row["target_table"] == "records" for row in rows)
+
+    assert not [row for row in rows if "A Person" in str(row["payload"]) or "ABCDE1234F" in str(row["payload"])]
+
+
+async def test_committing_a_read_plan_writes_the_records(doc_client, api_user, monkeypatch):
+
+    """The whole point of reading a plan is that accepting it puts income and EMIs in the record tables."""
+
+    from sqlalchemy import func, select
+
+    from app.db.session import session_scope
+    from app.models.orm.cashflow import IncomeRecordRow
+    from app.models.orm.credit import EmiRecordRow
+
+    stub_reading(
+        monkeypatch,
+        [
+            {
+                "sheet": "2_Income",
+                "kind": "income",
+                "header_row": 1,
+                "fields": [
+                    {"field": "label", "column": "Source"},
+                    {"field": "amount", "column": "Amount"},
+                    {"field": "frequency", "column": "How often"},
+                ],
+            },
+            {
+                "sheet": "8_Loans",
+                "kind": "emi",
+                "header_row": 1,
+                "fields": [
+                    {"field": "label", "column": "Loan"},
+                    {"field": "amount", "column": "EMI"},
+                    {"field": "remaining_months", "column": "Months left"},
+                ],
+            },
+        ],
+    )
+
+    record = await upload(doc_client, api_user, plan_workbook(), "plan.xlsx")
+
+    doc_client.post(
+        f"/api/v1/documents/{record['id']}/decision?user_id={api_user}",
+        json={"status": "accepted", "only_pending": True},
+    )
+
+    outcome = doc_client.post(f"/api/v1/documents/{record['id']}/commit?user_id={api_user}").json()
+
+    assert outcome["status"] == "committed"
+
+    async with session_scope() as session:
+
+        income = await session.scalar(
+            select(func.count()).select_from(IncomeRecordRow).where(IncomeRecordRow.user_id == api_user)
+        )
+
+        emis = await session.scalar(
+            select(func.count()).select_from(EmiRecordRow).where(EmiRecordRow.user_id == api_user)
+        )
+
+    assert income == 2
+    assert emis == 1
+
+
+async def test_a_template_belongs_to_the_person_who_confirmed_it(doc_client, api_user, monkeypatch):
+
+    """One person's mapping must not silently parse another person's file, however alike the two layouts are."""
+
+    from app.extraction.workbook import profile_workbook
+    from app.repositories.templates_repository import templates_repository
+
+    fingerprint = profile_workbook(unknown_workbook()).fingerprint
+
+    stub_reading(monkeypatch, [HOLDING_SHEET])
+
+    record = await upload(doc_client, api_user, unknown_workbook(), "mystery.xlsx")
+
+    doc_client.post(
+        f"/api/v1/documents/{record['id']}/mapping/confirm",
+        json={
+            "user_id": api_user,
+            "provider": "test_broker",
+            "name": "Test broker positions",
+            "sheets": [
+                {
+                    "sheet": "Positions",
+                    "header_row": 1,
+                    "asset_type": "equity",
+                    "mapping": {"instrument_name": "Description", "quantity": "Qty Available"},
+                }
+            ],
+        },
+    )
+
+    assert await templates_repository.by_fingerprint(fingerprint, api_user) is not None
+
+    assert await templates_repository.by_fingerprint(fingerprint, api_user + 1) is None
+
+
+async def test_a_record_already_on_file_is_flagged_rather_than_staged_again(doc_client, api_user, monkeypatch):
+
+    """A plan re-exported with one cell changed is a new file and the same records; the second pass must say so."""
+
+    from app.services.jobs import job_runner
+
+    reading = [
+        {
+            "sheet": "2_Income",
+            "kind": "income",
+            "header_row": 1,
+            "fields": [
+                {"field": "label", "column": "Source"},
+                {"field": "amount", "column": "Amount"},
+            ],
+        }
+    ]
+
+    stub_reading(monkeypatch, reading)
+
+    first = await upload(doc_client, api_user, plan_workbook(), "plan.xlsx")
+
+    doc_client.post(
+        f"/api/v1/documents/{first['id']}/decision?user_id={api_user}",
+        json={"status": "accepted", "only_pending": True},
+    )
+
+    doc_client.post(f"/api/v1/documents/{first['id']}/commit?user_id={api_user}")
+
+    stub_reading(monkeypatch, reading)
+
+    response = doc_client.post(
+        "/api/v1/documents",
+        data={"user_id": str(api_user)},
+        files={"file": ("plan-again.xlsx", plan_workbook() + b"\x00", WORKBOOK_TYPE)},
+    ).json()
+
+    await job_runner.wait(response["id"])
+
+    rows = rows_of(doc_client, response["id"], api_user)["rows"]
+
+    assert rows
+
+    assert all(row["status"] == "duplicate" for row in rows)
+
+    assert all("already appears in your records" in (row["issue"] or "") for row in rows)
+
+
+async def test_a_holding_already_held_is_flagged_by_its_isin(doc_client, api_user, monkeypatch):
+
+    """The same statement re-exported must not double a portfolio, and ISIN is what identifies a holding."""
+
+    from app.services.jobs import job_runner
+
+    stub_reading(monkeypatch, [HOLDING_SHEET])
+
+    first = await upload(doc_client, api_user, unknown_workbook(), "mystery.xlsx")
+
+    doc_client.post(
+        f"/api/v1/documents/{first['id']}/decision?user_id={api_user}",
+        json={"status": "accepted", "only_pending": True},
+    )
+
+    doc_client.post(f"/api/v1/documents/{first['id']}/commit?user_id={api_user}")
+
+    stub_reading(monkeypatch, [HOLDING_SHEET])
+
+    response = doc_client.post(
+        "/api/v1/documents",
+        data={"user_id": str(api_user)},
+        files={"file": ("mystery-again.xlsx", unknown_workbook() + b"\x00", WORKBOOK_TYPE)},
+    ).json()
+
+    await job_runner.wait(response["id"])
+
+    rows = rows_of(doc_client, response["id"], api_user)["rows"]
+
+    assert rows
+
+    assert all(row["status"] == "duplicate" for row in rows)
+
+
+async def test_a_flagged_duplicate_is_still_the_persons_decision(doc_client, api_user, monkeypatch):
+
+    """Flagging is not blocking: someone who genuinely has two of something can still accept the second."""
+
+    from app.services.jobs import job_runner
+
+    reading = [
+        {
+            "sheet": "2_Income",
+            "kind": "income",
+            "header_row": 1,
+            "fields": [
+                {"field": "label", "column": "Source"},
+                {"field": "amount", "column": "Amount"},
+            ],
+        }
+    ]
+
+    stub_reading(monkeypatch, reading)
+
+    first = await upload(doc_client, api_user, plan_workbook(), "plan.xlsx")
+
+    doc_client.post(
+        f"/api/v1/documents/{first['id']}/decision?user_id={api_user}",
+        json={"status": "accepted", "only_pending": True},
+    )
+
+    doc_client.post(f"/api/v1/documents/{first['id']}/commit?user_id={api_user}")
+
+    stub_reading(monkeypatch, reading)
+
+    again = doc_client.post(
+        "/api/v1/documents",
+        data={"user_id": str(api_user)},
+        files={"file": ("plan-again.xlsx", plan_workbook() + b"\x00", WORKBOOK_TYPE)},
+    ).json()
+
+    await job_runner.wait(again["id"])
+
+    rows = rows_of(doc_client, again["id"], api_user)["rows"]
+
+    accepted = doc_client.post(
+        f"/api/v1/documents/{again['id']}/rows/{rows[0]['id']}/decision?user_id={api_user}",
+        json={"status": "accepted"},
+    )
+
+    assert accepted.status_code == 200
+
+    outcome = doc_client.post(f"/api/v1/documents/{again['id']}/commit?user_id={api_user}").json()
+
+    assert outcome["status"] == "committed"
+    assert outcome["rows_written"] == 1
+
+
+async def test_a_model_that_cannot_be_reached_falls_back_to_the_form(doc_client, api_user, monkeypatch):
+
+    """No key, no network or a refusal must cost the reading, not the file - the mapping form is the floor."""
+
+    from app.extraction import sheets as sheets_module
+
+    async def unreachable(profile):
+
+        """Stand in for a model call that fails, which is the state a fresh checkout runs in."""
+
+        raise RuntimeError("the model is unreachable")
+
+    monkeypatch.setattr(sheets_module, "read_workbook", unreachable)
 
     record = await upload(doc_client, api_user, unknown_workbook(), "mystery.xlsx")
 
@@ -215,9 +587,11 @@ async def test_an_unknown_layout_asks_for_a_mapping_instead_of_guessing(doc_clie
     assert await count_holdings(api_user) == 0
 
 
-async def test_a_confirmed_mapping_parses_the_import(doc_client, api_user):
+async def test_a_confirmed_mapping_parses_the_import(doc_client, api_user, monkeypatch):
 
     """Confirming a mapping re extracts the same file deterministically, with no model involved."""
+
+    stub_reading(monkeypatch, [HOLDING_SHEET])
 
     record = await upload(doc_client, api_user, unknown_workbook(), "mystery.xlsx")
 
@@ -253,9 +627,11 @@ async def test_a_confirmed_mapping_parses_the_import(doc_client, api_user):
     assert all(row["payload"]["identifier_type"] == "isin" for row in rows)
 
 
-async def test_the_next_file_of_a_learned_layout_needs_no_mapping(doc_client, api_user):
+async def test_the_next_file_of_a_learned_layout_needs_no_mapping(doc_client, api_user, monkeypatch):
 
     """Once a mapping is confirmed the same layout parses straight through, which is the whole point."""
+
+    stub_reading(monkeypatch, [HOLDING_SHEET])
 
     first = await upload(doc_client, api_user, unknown_workbook(), "mystery.xlsx")
 
@@ -329,6 +705,103 @@ async def test_a_proposal_without_an_instrument_name_is_rejected():
     )
 
     assert any("instrument name" in problem for problem in problems)
+
+
+async def test_a_suggestion_becomes_the_dictionary_everything_else_reads():
+
+    """The model answers in pairs and the rest of the pipeline reads a dictionary, so the fold must be exact."""
+
+    from app.extraction.mapping import SuggestedField, SuggestedMapping, SuggestedSheet
+
+    suggestion = SuggestedMapping(
+        provider="test_broker",
+        document_kind="holdings_statement",
+        sheets=[
+            SuggestedSheet(
+                sheet="Positions",
+                header_row=1,
+                asset_type="equity",
+                fields=[
+                    SuggestedField(field="instrument_name", column="Description"),
+                    SuggestedField(field="quantity", column="Qty Available"),
+                ],
+            )
+        ],
+    )
+
+    proposal = suggestion.to_proposal()
+
+    assert proposal.provider == "test_broker"
+
+    assert proposal.sheets[0].mapping == {
+        "instrument_name": "Description",
+        "quantity": "Qty Available",
+    }
+
+
+async def test_the_model_facing_schema_has_no_open_ended_object():
+
+    """An open ended object cannot be a strict response schema, which is what made this call fail with a 400."""
+
+    from app.extraction.mapping import SuggestedMapping
+
+    schema = SuggestedMapping.model_json_schema()
+
+    def objects(node):
+
+        """Walk every nested schema node, since one free form object anywhere rejects the whole request."""
+
+        if isinstance(node, dict):
+
+            if node.get("type") == "object":
+                yield node
+
+            for value in node.values():
+                yield from objects(value)
+
+        elif isinstance(node, list):
+
+            for value in node:
+                yield from objects(value)
+
+    assert list(objects(schema))
+
+    assert all(node.get("properties") for node in objects(schema))
+
+
+async def test_the_columns_are_offered_even_when_no_mapping_can_be_suggested(doc_client, api_user, monkeypatch):
+
+    """A model that cannot be reached must cost the suggestion, not the ability to map the file at all."""
+
+    from app.extraction import mapping as mapping_module
+
+    stub_reading(monkeypatch, [HOLDING_SHEET])
+
+    record = await upload(doc_client, api_user, unknown_workbook(), "mystery.xlsx")
+
+    async def unreachable(profile):
+
+        """Stand in for a model call that fails, which is the case that used to empty the card."""
+
+        raise RuntimeError("the model is unreachable")
+
+    monkeypatch.setattr(mapping_module, "propose_mapping", unreachable)
+
+    response = doc_client.post(f"/api/v1/documents/{record['id']}/mapping/propose?user_id={api_user}")
+
+    assert response.status_code == 200
+
+    proposal = response.json()
+
+    assert proposal["usable"] is False
+
+    assert proposal["problems"]
+
+    sheet = proposal["sheets"][0]
+
+    assert sheet["mapping"] == {}
+
+    assert "Description" in [column["header"] for column in sheet["columns"]]
 
 
 async def test_committing_writes_holdings_tagged_with_the_batch(doc_client, api_user):

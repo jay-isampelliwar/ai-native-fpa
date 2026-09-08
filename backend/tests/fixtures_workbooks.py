@@ -15,6 +15,11 @@ never reach a staged row is testing something real. They belong to nobody.
 
 Amounts are chosen so that the rows sum exactly to the stated totals. A reconciliation test against a
 fixture whose totals were approximated would pass or fail for the wrong reason.
+
+``plan_workbook`` is the fourth shape and the one that is not a statement at all. It is what a person
+actually uploads - a plan holding their income, their loans and their personal details on separate
+sheets - and it exists because the importer used to have nowhere to put such a file. Its income sheet
+mixes a monthly figure with a yearly one, since normalising to a month is the part worth asserting.
 """
 
 from io import BytesIO
@@ -164,6 +169,32 @@ def fund_statement_workbook() -> bytes:
     for offset, row in enumerate(FUND_STATEMENT_ROWS, start=23):
         for column, value in enumerate(row, start=1):
             sheet.cell(row=offset, column=column, value=value)
+
+    return to_bytes(workbook)
+
+
+def plan_workbook() -> bytes:
+
+    """Build a financial plan workbook: several sheets, several record kinds, and no holdings at all."""
+
+    workbook = Workbook()
+
+    personal = workbook.active
+    personal.title = "1_Personal_Details"
+
+    personal.append(["Name", "Mobile", "PAN"])
+    personal.append(["A Person", "9876543210", "ABCDE1234F"])
+
+    income = workbook.create_sheet("2_Income")
+
+    income.append(["Source", "Amount", "How often"])
+    income.append(["Salary", 150000, "Monthly"])
+    income.append(["Flat rent", 264000, "Yearly"])
+
+    loans = workbook.create_sheet("8_Loans")
+
+    loans.append(["Loan", "EMI", "Months left"])
+    loans.append(["Home loan", 42000, 216])
 
     return to_bytes(workbook)
 

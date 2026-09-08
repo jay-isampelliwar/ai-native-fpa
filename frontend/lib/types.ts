@@ -13,6 +13,10 @@
  *
  * `evidence_ids` appears on every block, not just on the response. That is what lets a reader tap one
  * figure and see the rows behind that figure rather than the rows behind the whole answer.
+ *
+ * `PromptBlock` is the one block with nothing to trace: it asks for records instead of reporting
+ * them, so its `evidence_ids` is always empty. Its `examples` are sentences the backend's capture
+ * skill can parse, which is why the renderer can offer them as something to send.
  */
 
 export type BlockType =
@@ -21,6 +25,7 @@ export type BlockType =
   | "table"
   | "chart"
   | "callout"
+  | "prompt"
   | "approval_card";
 
 export interface BlockBase {
@@ -58,13 +63,23 @@ export interface ChartPoint {
   label: string;
   value: string;
   display: string | null;
+  tone: "neutral" | "positive" | "negative";
+}
+
+/** One computed figure drawn across a chart — the target a projection is measured against. */
+export interface ChartMarker {
+  label: string;
+  value: string;
+  display: string | null;
 }
 
 export interface ChartBlock extends BlockBase {
   type: "chart";
-  chart: "bar" | "line" | "donut";
+  chart: "bar" | "line" | "donut" | "progress";
   title: string | null;
   points: ChartPoint[];
+  marker: ChartMarker | null;
+  caption: string | null;
   value_prefix: string;
 }
 
@@ -72,6 +87,19 @@ export interface CalloutBlock extends BlockBase {
   type: "callout";
   level: "note" | "warning";
   text: string;
+}
+
+export interface PromptItem {
+  label: string;
+  question: string;
+  examples: string[];
+}
+
+export interface PromptBlock extends BlockBase {
+  type: "prompt";
+  title: string;
+  items: PromptItem[];
+  caption: string | null;
 }
 
 export interface FieldChange {
@@ -94,6 +122,7 @@ export type Block =
   | TableBlock
   | ChartBlock
   | CalloutBlock
+  | PromptBlock
   | ApprovalCardBlock;
 
 export interface PendingApproval {
@@ -167,6 +196,8 @@ export interface ProgressEvent {
   node: string;
   label: string;
   skill: string | null;
+  /** Present only on an event a skill wrote from inside its own run, naming the tool it called. */
+  tool?: string | null;
 }
 
 export interface ImportRead {
@@ -190,6 +221,7 @@ export interface ImportRead {
   extracted_at: string | null;
   committed_at: string | null;
   duplicate_of_existing_upload: boolean;
+  can_remap: boolean;
   statement_totals: Record<string, string> | null;
   computed_totals: Record<string, string> | null;
   reconciled: boolean | null;

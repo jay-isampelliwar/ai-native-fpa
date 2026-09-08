@@ -50,6 +50,7 @@ class ImportRead(BaseModel):
     extracted_at: datetime | None = None
     committed_at: datetime | None = None
     duplicate_of_existing_upload: bool = False
+    can_remap: bool = False
 
     statement_totals: dict | None = None
     computed_totals: dict | None = None

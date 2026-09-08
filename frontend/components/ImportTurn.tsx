@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Card } from '@/components/blocks';
 import { ImportSummary, Mapping, Reconcile } from '@/components/import-parts';
 import { useUser } from '@/components/Shell';
-import { documents } from '@/lib/api';
+import { ApiError, documents } from '@/lib/api';
 import type { ImportRead, StagedRow, StagedRowsPage } from '@/lib/types';
 
 /**
@@ -21,14 +21,32 @@ import type { ImportRead, StagedRow, StagedRowsPage } from '@/lib/types';
  * mounts every effect twice in development, and an unguarded upload would send the same statement
  * twice — harmless only because the backend happens to deduplicate, which is not a thing to rely on.
  *
+ * That guard needs the liveness flag to be a ref that the mount re-arms, and getting this wrong hung
+ * every import in the chat. A per-run `let cancelled` is set by strict mode's immediate cleanup, and
+ * the remount that follows hits the ref guard and starts nothing — so the one run in flight discarded
+ * its own result, `progress` kept its initial value, and a spinner sat over an import the backend had
+ * already finished. The two facts have to agree: if the guard survives the remount then so must the
+ * run it belongs to, which is what re-arming `alive` at the top of the effect does.
+ *
  * Extraction outlives the request that started it, so this polls the import's status. The poll is a
  * loop rather than a function that re-schedules itself: it reads as the sequence it is, it cannot be
- * called from anywhere but the effect that owns it, and one cancelled flag stops every await in it.
+ * called from anywhere but the effect that owns it, and one liveness ref stops every await in it.
  * Stopping matters — a chat holds many of these at once, and a turn scrolled out of view that keeps
  * asking the backend how it is doing is a leak with a network bill.
  *
+ * The mapping form is opened by the person, not by the file. Every workbook is now read on arrival -
+ * see `app/extraction/sheets.py` - so the normal path is rows to review, and the form exists for the
+ * case where a column was read wrongly. It still appears on its own when a reading was impossible,
+ * because then there is nothing else to offer.
+ *
  * Committing does not remove the turn. What a file added is part of the record of the conversation,
  * and a card that vanishes on success leaves a person unable to answer "which upload did that?".
+ *
+ * The commit reports which failure it hit, and no longer treats the refresh that follows it as part
+ * of the write. One `try` around both meant a 404, a server error, an unreachable backend and a
+ * failed re-read all printed "Nothing was written" — true for three of them and a lie about the
+ * fourth, which is the one where the rows are already on disk. The status the client already holds
+ * is the difference between "press it again" and "this will never work".
  */
 
 const POLL_MS = 700;
@@ -46,6 +64,7 @@ export default function ImportTurn({ file, onCommitted }: Props) {
   const [progress, setProgress] = useState<string | null>(`Reading ${file.name}`);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [remapping, setRemapping] = useState(false);
 
   const started = useRef(false);
   const alive = useRef(true);
@@ -59,27 +78,29 @@ export default function ImportTurn({ file, onCommitted }: Props) {
   );
 
   useEffect(() => {
+    // Re-armed before the guard returns: strict mode's cleanup stops this turn a moment after it
+    // starts, and the run it stopped is the only one there will ever be.
+    alive.current = true;
+
     if (started.current) return;
     started.current = true;
-
-    let cancelled = false;
 
     (async () => {
       try {
         let current = await documents.upload(userId, file);
 
-        if (cancelled) return;
+        if (!alive.current) return;
 
         setRecord(current);
 
         while (current.status === 'uploaded' || current.status === 'extracting') {
           await wait(POLL_MS);
 
-          if (cancelled) return;
+          if (!alive.current) return;
 
           current = await documents.read(userId, current.id);
 
-          if (cancelled) return;
+          if (!alive.current) return;
 
           setRecord(current);
         }
@@ -89,10 +110,10 @@ export default function ImportTurn({ file, onCommitted }: Props) {
         if (current.status === 'extracted') {
           const page = await documents.rows(userId, current.id);
 
-          if (!cancelled) setRows(page);
+          if (alive.current) setRows(page);
         }
       } catch {
-        if (cancelled) return;
+        if (!alive.current) return;
 
         setError('That file could not be read. Spreadsheets and bank CSVs are what this understands.');
         setProgress(null);
@@ -100,15 +121,9 @@ export default function ImportTurn({ file, onCommitted }: Props) {
     })();
 
     return () => {
-      cancelled = true;
-    };
-  }, [userId, file]);
-
-  useEffect(() => {
-    return () => {
       alive.current = false;
     };
-  }, []);
+  }, [userId, file]);
 
   async function decideAll(status: 'accepted' | 'rejected') {
     if (!record) return;
@@ -125,21 +140,35 @@ export default function ImportTurn({ file, onCommitted }: Props) {
     if (!record) return;
 
     setBusy(true);
+    setError(null);
+
+    let outcome;
 
     try {
-      const outcome = await documents.commit(userId, record.id);
+      outcome = await documents.commit(userId, record.id);
+    } catch (failure) {
+      setError(whyCommitFailed(failure));
+      setBusy(false);
+      return;
+    }
 
-      if (outcome.status === 'committed') {
-        setRecord(await documents.read(userId, record.id));
-        setRows(null);
-        onCommitted?.(
-          `${outcome.rows_written} record${outcome.rows_written === 1 ? '' : 's'} from ${file.name}`,
-        );
-      } else {
-        setError(outcome.detail ?? `Nothing was committed (${outcome.status}).`);
-      }
+    if (outcome.status !== 'committed') {
+      setError(outcome.detail ?? `Nothing was committed (${outcome.status}).`);
+      setBusy(false);
+      return;
+    }
+
+    const written = `${outcome.rows_written} record${outcome.rows_written === 1 ? '' : 's'} from ${file.name}`;
+
+    setRows(null);
+    onCommitted?.(written);
+
+    // Past the point of no return: the rows are on disk, so a failure from here says what was
+    // written rather than claiming nothing was.
+    try {
+      setRecord(await documents.read(userId, record.id));
     } catch {
-      setError('The commit did not go through. Nothing was written.');
+      setError(`${written} were written. This card could not be refreshed to show it.`);
     } finally {
       setBusy(false);
     }
@@ -166,12 +195,23 @@ export default function ImportTurn({ file, onCommitted }: Props) {
 
       {record && <ImportSummary record={record} />}
 
-      {record?.status === 'needs_mapping' && (
+      {record?.status === 'extracted' && record.can_remap && !remapping && (
+        <button
+          type="button"
+          onClick={() => setRemapping(true)}
+          className="text-[11.5px] text-[#8ba09c] underline decoration-dotted underline-offset-2 transition hover:text-[#18312f]"
+        >
+          A column was read wrongly? Set them yourself
+        </button>
+      )}
+
+      {(record?.status === 'needs_mapping' || (remapping && record)) && (
         <Mapping
           userId={userId}
-          importId={record.id}
+          importId={record!.id}
           onConfirmed={async (updated) => {
             setRecord(updated);
+            setRemapping(false);
             if (updated.status === 'extracted') await loadRows(updated.id);
           }}
         />
@@ -188,6 +228,31 @@ export default function ImportTurn({ file, onCommitted }: Props) {
       )}
     </div>
   );
+}
+
+/**
+ * Name the failure, because the three that can happen here need three different answers.
+ *
+ * A 404 means the import is not this user's or is gone, and no amount of retrying helps. A 5xx means
+ * the write itself broke and the transaction rolled back, which is worth reporting with the server's
+ * own detail. Anything with no status never reached the server at all — a restart mid-request during
+ * development is the usual cause — and retrying is exactly right. One sentence covering all three
+ * told a reader nothing and sent them to the backend log for something the response already said.
+ */
+function whyCommitFailed(failure: unknown): string {
+  if (failure instanceof ApiError) {
+    if (failure.status === 404) {
+      return 'That import is not yours, or no longer exists (404). Nothing was written.';
+    }
+
+    if (failure.status >= 500) {
+      return `The server failed while writing (${failure.status}). Nothing was written — ${failure.message}`;
+    }
+
+    return `The commit was refused (${failure.status}) — ${failure.message}`;
+  }
+
+  return 'The server could not be reached, so nothing was written. Try again.';
 }
 
 function wait(ms: number): Promise<void> {

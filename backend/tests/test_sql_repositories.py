@@ -21,6 +21,7 @@ fixtures hold whatever was typed. Comparing numerically asserts what actually ma
 
 from decimal import Decimal
 
+from app.db.fixture_ids import SECOND_SEED_USER_ID, SEED_USER_ID
 import pytest
 
 from app.repositories.cashflow_repository import InMemoryCashflowRepository
@@ -79,7 +80,7 @@ async def test_cashflow_returns_the_same_evidence_set(cashflow_repository):
 
     """Both backends return the same six records for the seeded user, in the same grouping."""
 
-    records = await cashflow_repository.get_cashflow_records(1)
+    records = await cashflow_repository.get_cashflow_records(SEED_USER_ID)
 
     assert sorted(records.evidence_ids) == ["emi_1", "exp_1", "exp_2", "inc_1", "inc_2", "sip_1"]
     assert len(records.income) == 2
@@ -91,7 +92,7 @@ async def test_cashflow_amounts_and_frequencies_match(cashflow_repository):
 
     """The annual bonus normalises to the same monthly figure whichever backend returned it."""
 
-    records = await cashflow_repository.get_cashflow_records(1)
+    records = await cashflow_repository.get_cashflow_records(SEED_USER_ID)
 
     bonus = next(record for record in records.income if record.id == "inc_2")
 
@@ -103,7 +104,7 @@ async def test_ownership_is_enforced_identically(cashflow_repository):
 
     """A user with no records gets an empty bundle rather than someone else's."""
 
-    records = await cashflow_repository.get_cashflow_records(2)
+    records = await cashflow_repository.get_cashflow_records(SECOND_SEED_USER_ID)
 
     assert records.evidence_ids == []
 
@@ -112,7 +113,7 @@ async def test_category_totals_agree(expense_repository):
 
     """August totals are identical across backends, including the ordering by size."""
 
-    totals = await expense_repository.category_totals(1, 2026, 8)
+    totals = await expense_repository.category_totals(SEED_USER_ID, 2026, 8)
 
     assert list(totals)[0] == "shopping"
     assert totals["shopping"] == Decimal("32000")
@@ -124,10 +125,10 @@ async def test_transactions_are_newest_first_and_owner_scoped(expense_repository
 
     """Both backends order by date descending and never return another user's transactions."""
 
-    rows = await expense_repository.list_transactions(1, year=2026, month=8)
+    rows = await expense_repository.list_transactions(SEED_USER_ID, year=2026, month=8)
 
     assert [row.id for row in rows][:3] == ["txn_12", "txn_11", "txn_10"]
-    assert all(row.user_id == 1 for row in rows)
+    assert all(row.user_id == SEED_USER_ID for row in rows)
     assert "txn_13" not in [row.id for row in rows]
 
 
@@ -135,7 +136,7 @@ async def test_category_filter_agrees(expense_repository):
 
     """Filtering to one category returns the same single row from either backend."""
 
-    rows = await expense_repository.list_transactions(1, year=2026, month=8, category="shopping")
+    rows = await expense_repository.list_transactions(SEED_USER_ID, year=2026, month=8, category="shopping")
 
     assert [row.id for row in rows] == ["txn_10"]
     assert rows[0].merchant == "Croma"
@@ -145,7 +146,7 @@ async def test_the_injected_description_survives_storage(expense_repository):
 
     """The instruction bearing description is stored and returned verbatim, as untrusted data."""
 
-    rows = await expense_repository.list_transactions(1, year=2026, month=8, category="subscriptions")
+    rows = await expense_repository.list_transactions(SEED_USER_ID, year=2026, month=8, category="subscriptions")
 
     assert rows[0].id == "txn_12"
     assert "ignore previous instructions" in rows[0].description
@@ -155,6 +156,6 @@ async def test_limits_are_applied_by_both_backends(expense_repository):
 
     """A requested limit is honoured, so an agent cannot pull an unbounded page of spending."""
 
-    rows = await expense_repository.list_transactions(1, limit=3)
+    rows = await expense_repository.list_transactions(SEED_USER_ID, limit=3)
 
     assert len(rows) == 3

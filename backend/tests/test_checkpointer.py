@@ -24,7 +24,7 @@ from decimal import Decimal
 import pytest
 
 from app.db.checkpointer import ENCRYPTED_TYPE, EncryptedSerializer
-from app.graphs.skills.contracts import SkillResult
+from app.ui.blocks import KpiBlock
 
 PENDING_CHANGE = {
     "skill": "sip_modification",
@@ -72,21 +72,22 @@ def test_round_trip_restores_types_exactly(serializer):
     assert isinstance(restored["to_amount"], Decimal)
 
 
-def test_pydantic_results_survive_the_round_trip(serializer):
+def test_pydantic_blocks_survive_the_round_trip(serializer):
 
-    """A SkillResult stored mid run is restored with its evidence and calculator versions intact."""
+    """A block stored in checkpointed state comes back as a block, with its Decimal still a Decimal."""
 
-    result = SkillResult(
-        status="proposed",
-        message="Raise the SIP to INR 15,000.",
-        evidence_ids=["sip_1"],
-        calculator_versions=["cashflow.v1"],
+    block = KpiBlock(
+        label="Free surplus",
+        display="INR 70,000",
+        value=Decimal("70000.00"),
+        evidence_ids=["inc_1"],
     )
 
-    restored = serializer.loads_typed(serializer.dumps_typed(result))
+    restored = serializer.loads_typed(serializer.dumps_typed(block))
 
-    assert restored.evidence_ids == ["sip_1"]
-    assert restored.calculator_versions == ["cashflow.v1"]
+    assert restored.evidence_ids == ["inc_1"]
+    assert isinstance(restored.value, Decimal)
+    assert restored.value == Decimal("70000.00")
 
 
 def test_a_tampered_checkpoint_refuses_to_load(serializer):

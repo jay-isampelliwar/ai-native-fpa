@@ -25,6 +25,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Protocol
 
+from app.db.fixture_ids import SEED_USER_ID
 from app.models.finance import (
     CashflowRecords,
     EmiRecord,
@@ -43,11 +44,11 @@ class CashflowRepository(Protocol):
 
 
 SEEDED_RECORDS: dict[int, CashflowRecords] = {
-    1: CashflowRecords(
+    SEED_USER_ID: CashflowRecords(
         income=[
             IncomeRecord(
                 id="inc_1",
-                user_id=1,
+                user_id=SEED_USER_ID,
                 label="Salary",
                 amount=Decimal("150000"),
                 frequency=Frequency.MONTHLY,
@@ -55,7 +56,7 @@ SEEDED_RECORDS: dict[int, CashflowRecords] = {
             ),
             IncomeRecord(
                 id="inc_2",
-                user_id=1,
+                user_id=SEED_USER_ID,
                 label="Annual bonus",
                 amount=Decimal("240000"),
                 frequency=Frequency.ANNUAL,
@@ -65,14 +66,14 @@ SEEDED_RECORDS: dict[int, CashflowRecords] = {
         expenses=[
             ExpenseRecord(
                 id="exp_1",
-                user_id=1,
+                user_id=SEED_USER_ID,
                 label="Household",
                 amount=Decimal("55000"),
                 category="living",
             ),
             ExpenseRecord(
                 id="exp_2",
-                user_id=1,
+                user_id=SEED_USER_ID,
                 label="Term insurance premium",
                 amount=Decimal("24000"),
                 frequency=Frequency.ANNUAL,
@@ -82,7 +83,7 @@ SEEDED_RECORDS: dict[int, CashflowRecords] = {
         emis=[
             EmiRecord(
                 id="emi_1",
-                user_id=1,
+                user_id=SEED_USER_ID,
                 label="Home loan",
                 amount=Decimal("42000"),
                 liability_id="liab_1",
@@ -93,7 +94,7 @@ SEEDED_RECORDS: dict[int, CashflowRecords] = {
         sips=[
             SipRecord(
                 id="sip_1",
-                user_id=1,
+                user_id=SEED_USER_ID,
                 label="Flexi cap SIP",
                 amount=Decimal("10000"),
                 scheme_name="Parag Parikh Flexi Cap",
