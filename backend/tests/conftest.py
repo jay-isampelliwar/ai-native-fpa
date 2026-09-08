@@ -202,13 +202,9 @@ def run_tools(*names: str):
             spoken.append(str(result))
 
         return {
-            "response": log.spoken[-1] if log.spoken else " ".join(spoken)[:400],
+            "response": " ".join(spoken)[:400],
             "tools_used": log.tools,
             "writes_performed": log.writes,
-            "blocks": log.blocks,
-            "evidence_ids": log.evidence_ids,
-            "calculator_versions": log.calculator_versions,
-            "assumptions": log.assumptions,
         }
 
     return fake_agent

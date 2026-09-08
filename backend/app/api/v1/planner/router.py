@@ -82,9 +82,6 @@ def to_response(conversation_id: str, state: dict) -> MessageResponse:
         skill=", ".join(dict.fromkeys(tools)) or None,
         status=status_of(state),
         response=state.get("response", ""),
-        blocks=state.get("blocks") or [],
-        evidence_ids=state.get("evidence_ids") or [],
-        calculator_versions=state.get("calculator_versions") or [],
     )
 
 
@@ -145,7 +142,7 @@ async def remember_question(user_id: int, conversation_id: str, message: str) ->
 
 async def remember_answer(user_id: int, body: MessageResponse) -> None:
 
-    """Record what the planner replied, including the blocks the client was actually shown."""
+    """Record what the planner replied, leaving the block columns empty while the chat answers in prose."""
 
     try:
         await conversations_repository.append(
@@ -153,12 +150,12 @@ async def remember_answer(user_id: int, body: MessageResponse) -> None:
             conversation_id=body.conversation_id,
             role="planner",
             text=body.response,
-            blocks=[block.model_dump(mode="json") for block in body.blocks],
+            blocks=[],
             skill_name=body.skill,
             status=body.status,
             correlation_id=body.correlation_id,
-            evidence_ids=body.evidence_ids,
-            calculator_versions=body.calculator_versions,
+            evidence_ids=[],
+            calculator_versions=[],
         )
 
     except Exception:

@@ -33,29 +33,10 @@ from app.agent.state import AgentContext, RunLog
 from app.repositories import get_cashflow_repository, get_expense_repository
 from app.repositories.goals_repository import goals_repository
 from app.repositories.holdings_repository import holdings_repository
-from app.ui.blocks import Block, TableBlock, TableColumn
-from app.ui.builders import rupees
 
 DESCRIPTION_LIMIT = 120
 
 TRANSACTION_LIMIT = 50
-
-
-def table(
-    title: str,
-    columns: list[tuple[str, str, str]],
-    rows: list[dict[str, str]],
-    evidence: list[str],
-    ) -> Block:
-
-    """Build one table block from already formatted values, so no figure is rendered twice differently."""
-
-    return TableBlock(
-        title=title,
-        columns=[TableColumn(key=key, label=label, align=align) for key, label, align in columns],
-        rows=rows,
-        evidence_ids=evidence,
-    )
 
 
 def build_read_tools(context: AgentContext, log: RunLog) -> list[BaseTool]:
@@ -75,28 +56,8 @@ def build_read_tools(context: AgentContext, log: RunLog) -> list[BaseTool]:
 
         records = await cashflow.get_cashflow_records(context.user_id)
 
-        log.add_evidence([record.id for record in records.income])
-
         if not records.income:
             return {"income": [], "note": "no income records yet"}
-
-        log.add_blocks(
-            [
-                table(
-                    "Income",
-                    [("label", "Source", "left"), ("amount", "Amount", "right"), ("every", "Every", "left")],
-                    [
-                        {
-                            "label": record.label,
-                            "amount": rupees(record.amount),
-                            "every": record.frequency.value.replace("_", " "),
-                        }
-                        for record in records.income
-                    ],
-                    [record.id for record in records.income],
-                )
-            ]
-        )
 
         return {
             "income": [
@@ -121,28 +82,8 @@ def build_read_tools(context: AgentContext, log: RunLog) -> list[BaseTool]:
 
         records = await cashflow.get_cashflow_records(context.user_id)
 
-        log.add_evidence([record.id for record in records.expenses])
-
         if not records.expenses:
             return {"expenses": [], "note": "no expense records yet"}
-
-        log.add_blocks(
-            [
-                table(
-                    "Regular expenses",
-                    [("label", "Expense", "left"), ("amount", "Amount", "right"), ("category", "Category", "left")],
-                    [
-                        {
-                            "label": record.label,
-                            "amount": rupees(record.amount),
-                            "category": record.category,
-                        }
-                        for record in records.expenses
-                    ],
-                    [record.id for record in records.expenses],
-                )
-            ]
-        )
 
         return {
             "expenses": [
@@ -167,34 +108,8 @@ def build_read_tools(context: AgentContext, log: RunLog) -> list[BaseTool]:
 
         records = await cashflow.get_cashflow_records(context.user_id)
 
-        log.add_evidence([record.id for record in records.emis])
-
         if not records.emis:
             return {"emis": [], "note": "no loan EMIs on record yet"}
-
-        log.add_blocks(
-            [
-                table(
-                    "Loan EMIs",
-                    [
-                        ("label", "Loan", "left"),
-                        ("amount", "EMI", "right"),
-                        ("rate", "Rate", "right"),
-                        ("left", "Months left", "right"),
-                    ],
-                    [
-                        {
-                            "label": record.label,
-                            "amount": rupees(record.amount),
-                            "rate": f"{record.interest_rate_percent}%",
-                            "left": str(record.remaining_months),
-                        }
-                        for record in records.emis
-                    ],
-                    [record.id for record in records.emis],
-                )
-            ]
-        )
 
         return {
             "emis": [
@@ -219,32 +134,8 @@ def build_read_tools(context: AgentContext, log: RunLog) -> list[BaseTool]:
 
         records = await cashflow.get_cashflow_records(context.user_id)
 
-        log.add_evidence([record.id for record in records.sips])
-
         if not records.sips:
             return {"sips": [], "note": "no SIPs on record yet"}
-
-        log.add_blocks(
-            [
-                table(
-                    "SIPs",
-                    [
-                        ("scheme", "Scheme", "left"),
-                        ("amount", "Amount", "right"),
-                        ("every", "Every", "left"),
-                    ],
-                    [
-                        {
-                            "scheme": record.scheme_name,
-                            "amount": rupees(record.amount),
-                            "every": record.frequency.value.replace("_", " "),
-                        }
-                        for record in records.sips
-                    ],
-                    [record.id for record in records.sips],
-                )
-            ]
-        )
 
         return {
             "sips": [
@@ -270,34 +161,8 @@ def build_read_tools(context: AgentContext, log: RunLog) -> list[BaseTool]:
 
         snapshots = await goals_repository.list_snapshots(context.user_id)
 
-        log.add_evidence([identifier for snapshot in snapshots for identifier in snapshot.evidence_ids])
-
         if not snapshots:
             return {"goals": [], "note": "no goals set up yet"}
-
-        log.add_blocks(
-            [
-                table(
-                    "Goals",
-                    [
-                        ("goal", "Goal", "left"),
-                        ("target", "Target", "right"),
-                        ("by", "By", "right"),
-                        ("funded", "Funded", "right"),
-                    ],
-                    [
-                        {
-                            "goal": snapshot.label,
-                            "target": rupees(snapshot.target_amount),
-                            "by": str(snapshot.target_date.year),
-                            "funded": rupees(snapshot.funded_corpus),
-                        }
-                        for snapshot in snapshots
-                    ],
-                    [identifier for snapshot in snapshots for identifier in snapshot.evidence_ids],
-                )
-            ]
-        )
 
         return {
             "goals": [
@@ -324,32 +189,8 @@ def build_read_tools(context: AgentContext, log: RunLog) -> list[BaseTool]:
 
         summary = await holdings_repository.summary(context.user_id)
 
-        log.add_evidence([holding.id for holding in summary.holdings])
-
         if summary.count == 0:
             return {"holdings": [], "note": "no holdings imported yet"}
-
-        log.add_blocks(
-            [
-                table(
-                    "Holdings",
-                    [
-                        ("name", "Instrument", "left"),
-                        ("units", "Units", "right"),
-                        ("value", "Value", "right"),
-                    ],
-                    [
-                        {
-                            "name": holding.instrument_name,
-                            "units": str(holding.units),
-                            "value": rupees(holding.current_value or holding.invested_value or 0),
-                        }
-                        for holding in summary.holdings
-                    ],
-                    [holding.id for holding in summary.holdings],
-                )
-            ]
-        )
 
         return {
             "as_of": summary.valued_at,
@@ -391,8 +232,6 @@ def build_read_tools(context: AgentContext, log: RunLog) -> list[BaseTool]:
             limit=min(limit, TRANSACTION_LIMIT),
         )
 
-        log.add_evidence([row.id for row in rows])
-
         return {
             "year": year,
             "month": month,
@@ -417,25 +256,6 @@ def build_read_tools(context: AgentContext, log: RunLog) -> list[BaseTool]:
         log.used("spending_by_category")
 
         totals = await expenses.category_totals(context.user_id, year, month)
-
-        rows = await expenses.list_transactions(context.user_id, year=year, month=month)
-
-        log.add_evidence([row.id for row in rows])
-
-        if totals:
-            log.add_blocks(
-                [
-                    table(
-                        f"Spending in {month:02d}/{year}",
-                        [("category", "Category", "left"), ("amount", "Amount", "right")],
-                        [
-                            {"category": name, "amount": rupees(amount)}
-                            for name, amount in totals.items()
-                        ],
-                        [row.id for row in rows],
-                    )
-                ]
-            )
 
         return {
             "year": year,

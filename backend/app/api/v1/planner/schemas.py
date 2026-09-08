@@ -50,30 +50,15 @@ class MessageRequest(BaseModel):
     conversation_id: str | None = None
 
 
-class PendingApproval(BaseModel):
-
-    """The proposed change a paused run is waiting on, shown to the user before anything is written."""
-
-    conversation_id: str
-    skill: str | None = None
-    summary: str = ""
-    evidence_ids: list[str] = Field(default_factory=list)
-    expires_in_seconds: int = 0
-
-
 class MessageResponse(BaseModel):
 
-    """What the client receives: the answer, its provenance, and any approval the run is waiting on."""
+    """What the client receives: the answer, and enough about the turn to classify and store it."""
 
     conversation_id: str
     correlation_id: str | None = None
     skill: str | None = None
     status: str = "answered"
     response: str = ""
-    blocks: list[Block] = Field(default_factory=list)
-    evidence_ids: list[str] = Field(default_factory=list)
-    calculator_versions: list[str] = Field(default_factory=list)
-    pending_approval: PendingApproval | None = None
 
 
 class ApprovalRequest(BaseModel):

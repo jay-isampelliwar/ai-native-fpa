@@ -357,8 +357,7 @@ async def test_cashflow_is_computed_by_the_calculator_and_stamped_with_its_versi
 
     assert result["free_surplus"] == "70000.00"
     assert result["calculator"] == "cashflow.v1"
-    assert log.calculator_versions == ["cashflow.v1"]
-    assert log.spoken
+    assert log.tools == ["cashflow_summary"]
 
 
 async def test_projecting_a_goal_needs_an_id_the_model_has_seen(api_user):

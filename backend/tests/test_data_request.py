@@ -29,7 +29,7 @@ produces, and handing the counts over directly is a faster test of exactly that.
 import pytest
 
 from app.agent.state import AgentContext, RunLog
-from app.models.finance import CashflowRecords, ExpenseRecord, IncomeRecord
+from app.models.finance import CashflowRecords, IncomeRecord
 
 pytestmark = pytest.mark.asyncio
 
@@ -128,61 +128,24 @@ async def test_a_complete_set_of_records_is_asked_nothing():
     assert data_request({"income": 1, "expenses": 3, "emis": 1, "sips": 2}) is None
 
 
-async def test_the_cashflow_tool_asks_the_same_questions_when_it_has_nothing(monkeypatch):
+async def test_the_tool_states_the_calculator_behind_every_figure(monkeypatch):
 
-    """A money question from someone with no records produces the questions, not just a no."""
-
-    result, log = await summarise(monkeypatch, nothing())
-
-    assert "no income or expense records" in result["note"]
-
-    asks = only(log.blocks, "prompt")
-
-    assert [item.label for item in asks[0].items] == ["Income", "Regular expenses", "Loan EMIs", "SIPs"]
-
-
-async def test_a_thin_answer_carries_the_ask_for_what_is_missing(monkeypatch):
-
-    """A figure computed from one record still asks for the rest, since a 100% savings rate is not an insight."""
+    """A derived figure is traceable to the arithmetic that produced it, in the result the model reads."""
 
     result, log = await summarise(monkeypatch, salary_only())
 
     assert result["total_income"] == "100000.00"
-
-    assert [item.label for item in only(log.blocks, "prompt")[0].items] == [
-        "Regular expenses",
-        "Loan EMIs",
-        "SIPs",
-    ]
-
-    assert log.blocks[-1].type == "prompt"
-
-
-async def test_a_complete_answer_carries_no_ask(monkeypatch):
-
-    """Nothing is asked of someone whose records cover every input the calculator takes."""
-
-    records = CashflowRecords(
-        income=[IncomeRecord(id="inc_1", user_id=1, label="Salary", amount="100000")],
-        expenses=[ExpenseRecord(id="exp_1", user_id=1, label="Rent", amount="30000")],
-        emis=[],
-        sips=[],
-    )
-
-    _, log = await summarise(monkeypatch, records)
-
-    assert [item.label for item in only(log.blocks, "prompt")[0].items] == ["Loan EMIs", "SIPs"]
-
-
-async def test_the_tool_states_the_calculator_behind_every_figure(monkeypatch):
-
-    """A derived figure is traceable to the arithmetic that produced it, ask or no ask."""
-
-    result, log = await summarise(monkeypatch, salary_only())
-
     assert result["calculator"] == "cashflow.v1"
-    assert log.calculator_versions == ["cashflow.v1"]
-    assert log.evidence_ids == ["inc_1"]
+    assert log.tools == ["cashflow_summary"]
+
+
+async def test_the_tool_says_so_when_there_is_nothing_to_compute(monkeypatch):
+
+    """A money question from someone with no records is answered with a reason, not a zero."""
+
+    result, _ = await summarise(monkeypatch, nothing())
+
+    assert "no income or expense records" in result["note"]
 
 
 async def test_every_emi_example_states_a_tenure():

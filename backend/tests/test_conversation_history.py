@@ -239,11 +239,9 @@ async def test_a_second_message_is_answered_rather_than_the_first_replayed(clien
 
 async def test_a_turn_inherits_nothing_from_the_one_before_it(api_user):
 
-    """Every field a node fills is cleared, not only the response, so stale blocks cannot be rendered either."""
+    """Every field a node fills is cleared, not only the response, so nothing stale can be shown again."""
 
     from app.agent.state import PlannerState, new_turn
-
-    from app.ui.blocks import TextBlock
 
     stale = PlannerState(
         user_id=api_user,
@@ -252,10 +250,6 @@ async def test_a_turn_inherits_nothing_from_the_one_before_it(api_user):
         response="the first answer",
         tools_used=["cashflow_summary"],
         writes_performed=["added income Salary"],
-        blocks=[TextBlock(text="last turn's table")],
-        evidence_ids=["inc_1"],
-        calculator_versions=["cashflow.v1"],
-        assumptions={"months_per_year": 12.0},
     )
 
     fresh = PlannerState(**{**stale.model_dump(), **new_turn(api_user, "conv_stale", "the second question")})
@@ -264,10 +258,6 @@ async def test_a_turn_inherits_nothing_from_the_one_before_it(api_user):
     assert fresh.response is None
     assert fresh.tools_used == []
     assert fresh.writes_performed == []
-    assert fresh.blocks == []
-    assert fresh.evidence_ids == []
-    assert fresh.calculator_versions == []
-    assert fresh.assumptions == {}
 
 
 async def test_posting_to_someone_elses_conversation_is_a_404(client, api_user):

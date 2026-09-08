@@ -59,8 +59,6 @@ from app.api.v1.planner.schemas import MessageResponse
 SILENT = {
     "authenticate_context",
     "agent",
-    "write_audit_record",
-    "respond",
 }
 
 
@@ -86,27 +84,7 @@ async def stream_planner_run(
     yield event("progress", {"node": "start", "label": "Thinking", "skill": None})
 
     try:
-        async for mode, chunk in graph.astream(state, config=config, stream_mode=["updates", "custom"]):
-
-            if mode == "custom":
-
-                if "token" in chunk:
-
-                    yield event("token", {"text": str(chunk["token"])})
-
-                    continue
-
-                yield event(
-                    "progress",
-                    {
-                        "node": "tool",
-                        "label": str(chunk.get("label") or chunk.get("tool") or "Looking something up"),
-                        "tool": chunk.get("tool"),
-                        "skill": chunk.get("tool"),
-                    },
-                )
-
-                continue
+        async for chunk in graph.astream(state, config=config, stream_mode="updates"):
 
             for node_name, node_state in chunk.items():
 

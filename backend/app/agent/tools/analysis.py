@@ -34,8 +34,6 @@ from app.calculations.goals.v1 import CALCULATOR_VERSION as GOALS_VERSION
 from app.repositories import get_cashflow_repository
 from app.services.projections import project_one
 from app.repositories.goals_repository import goals_repository
-from app.ui.asks import data_request
-from app.ui.cashflow import cashflow_blocks, describe_cashflow, record_counts
 from app.utils.dates import today_in_timezone
 
 
@@ -55,12 +53,6 @@ def build_analysis_tools(context: AgentContext, log: RunLog) -> list[BaseTool]:
         records = await cashflow.get_cashflow_records(context.user_id)
 
         if not records.evidence_ids:
-
-            ask = data_request(record_counts(records))
-
-            if ask:
-                log.add_blocks([ask])
-
             return {"note": "no income or expense records yet, so there is no cash flow to compute"}
 
         result = run_cashflow(
@@ -71,19 +63,6 @@ def build_analysis_tools(context: AgentContext, log: RunLog) -> list[BaseTool]:
                 sips=[record.monthly_amount for record in records.sips],
             )
         )
-
-        log.add_evidence(records.evidence_ids)
-
-        log.add_versions([CASHFLOW_VERSION])
-
-        log.add_blocks(cashflow_blocks(result, records))
-
-        log.add_sentence(describe_cashflow(result))
-
-        ask = data_request(record_counts(records))
-
-        if ask:
-            log.add_blocks([ask])
 
         return {
             "calculator": CASHFLOW_VERSION,
@@ -114,10 +93,6 @@ def build_analysis_tools(context: AgentContext, log: RunLog) -> list[BaseTool]:
 
         projection = projected.projection
 
-        log.add_evidence(snapshot.evidence_ids)
-
-        log.add_versions([GOALS_VERSION])
-
         return {
             "calculator": GOALS_VERSION,
             "goal": snapshot.label,
@@ -141,10 +116,6 @@ def build_analysis_tools(context: AgentContext, log: RunLog) -> list[BaseTool]:
         log.used("check_alerts")
 
         findings = await alert_service.evaluate(context.user_id)
-
-        for alert in findings:
-            log.add_evidence(alert.evidence_ids)
-            log.add_versions(alert.calculator_versions)
 
         if not findings:
             return {"alerts": [], "note": "nothing is flagged right now"}

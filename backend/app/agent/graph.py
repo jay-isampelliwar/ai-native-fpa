@@ -6,7 +6,7 @@ human, written and audited along several different paths, and every fork was a d
 ordinary Python about what a skill had returned. A turn is now one agent run, so the path is the same
 every time and the file is short enough to read in one go.
 
-    START -> authenticate_context -> run_agent -> write_audit_record -> respond -> END
+    START -> authenticate_context -> agent -> END
 
 What the model decides is which tools to call and what to say. What it still does not decide is what a
 figure is - every derived number comes from a versioned calculator in ``app.calculations``, reached
@@ -19,8 +19,10 @@ construction. The tools write when called. What replaced the guarantee is narrow
 destroyed, and every change is recorded in the audit row - and ``app.agent.tools.writes`` is where the
 trade is described.
 
-``write_audit_record`` still sits in front of ``respond`` on every path, so a request cannot answer a
-person without leaving a trail.
+The audit node is gone too, by explicit instruction. It ran on every path, so a request could not
+answer a person without leaving a trail, and with the approval interrupt already removed that row was
+the last record of what the agent did to somebody's records. Nothing replaces it. ``respond`` went with
+it, because ``run_agent`` already settles the sentence and can set the refusal itself.
 
 The checkpointer is still a required argument with no default. Nothing interrupts any more, so it is
 no longer load bearing for a paused approval - but it is what carries the thread's state between
@@ -38,7 +40,7 @@ finished is a deployment problem, and answering it from a graph with throwaway s
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 
-from app.agent.nodes import authenticate_context, respond, run_agent, write_audit_record
+from app.agent.nodes import authenticate_context, run_agent
 from app.agent.state import PlannerState
 
 
@@ -50,14 +52,10 @@ def build_planner_graph(checkpointer: BaseCheckpointSaver):
 
     builder.add_node("authenticate_context", authenticate_context)
     builder.add_node("agent", run_agent)
-    builder.add_node("write_audit_record", write_audit_record)
-    builder.add_node("respond", respond)
 
     builder.add_edge(START, "authenticate_context")
     builder.add_edge("authenticate_context", "agent")
-    builder.add_edge("agent", "write_audit_record")
-    builder.add_edge("write_audit_record", "respond")
-    builder.add_edge("respond", END)
+    builder.add_edge("agent", END)
 
     return builder.compile(checkpointer=checkpointer)
 
