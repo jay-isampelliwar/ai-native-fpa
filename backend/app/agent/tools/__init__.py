@@ -18,7 +18,7 @@ and it matches how the set is meant to be used.
 
 from langchain_core.tools import BaseTool
 
-from app.agent.context import AgentContext, RunLog
+from app.agent.state import AgentContext, RunLog
 from app.agent.tools.analysis import build_analysis_tools
 from app.agent.tools.reads import build_read_tools
 from app.agent.tools.writes import build_write_tools

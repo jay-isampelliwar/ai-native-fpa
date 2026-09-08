@@ -26,7 +26,7 @@ underneath whatever the model wrote.
 
 from langchain_core.tools import BaseTool, tool
 
-from app.agent.context import AgentContext, RunLog
+from app.agent.state import AgentContext, RunLog
 from app.alerts.service import alert_service
 from app.calculations.cashflow.v1 import CALCULATOR_VERSION as CASHFLOW_VERSION
 from app.calculations.cashflow.v1 import CashflowInput, run_cashflow

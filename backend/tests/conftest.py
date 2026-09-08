@@ -184,7 +184,7 @@ def run_tools(*names: str):
 
         """Call each named tool with no arguments and return the turn its log describes."""
 
-        from app.agent.context import AgentContext, RunLog
+        from app.agent.state import AgentContext, RunLog
         from app.agent.tools import build_tools
 
         context = AgentContext(**state.context.model_dump())
@@ -221,7 +221,7 @@ async def client(api_user):
 
     from fastapi.testclient import TestClient
 
-    from app.graphs.orchestrator import graph as graph_module
+    from app.agent import graph as graph_module
     from app.main import app
 
     original = graph_module.run_agent

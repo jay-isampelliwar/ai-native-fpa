@@ -24,8 +24,8 @@ import pytest
 from langgraph.checkpoint.memory import InMemorySaver
 
 from app.db.fixture_ids import SEED_USER_ID
-from app.graphs.orchestrator.graph import build_planner_graph
-from app.graphs.orchestrator.state import new_turn
+from app.agent.graph import build_planner_graph
+from app.agent.state import new_turn
 
 pytestmark = pytest.mark.asyncio
 
@@ -34,7 +34,7 @@ async def run_graph(agent_node, message: str = "how much is left this month?") -
 
     """Compile a fresh graph with the agent stubbed and run one request through it."""
 
-    from app.graphs.orchestrator import graph as graph_module
+    from app.agent import graph as graph_module
 
     original = graph_module.run_agent
 
@@ -211,7 +211,7 @@ async def test_a_second_message_does_not_replay_the_first_answer(monkeypatch):
             "assumptions": {},
         }
 
-    from app.graphs.orchestrator import graph as graph_module
+    from app.agent import graph as graph_module
 
     original = graph_module.run_agent
 
@@ -237,7 +237,7 @@ async def test_the_words_of_an_answer_are_forwarded_as_they_are_written(monkeypa
 
     """A person should read a reply forming rather than watch a spinner, so the node streams."""
 
-    from app.agent import runtime
+    from app.agent import nodes
 
     class StreamingAgent:
 
@@ -256,20 +256,20 @@ async def test_the_words_of_an_answer_are_forwarded_as_they_are_written(monkeypa
 
     written: list[dict] = []
 
-    finished = await runtime.speak(StreamingAgent(), [("user", "what is my income?")], written.append)
+    finished = await nodes.speak(StreamingAgent(), [("user", "what is my income?")], written.append)
 
     tokens = [line["token"] for line in written if "token" in line]
 
     assert tokens == ["Your income ", "is INR 226,000."]
-    assert runtime.final_text(finished) == "Your income is INR 226,000."
+    assert nodes.final_text(finished) == "Your income is INR 226,000."
 
 
 async def test_a_reply_quoting_a_figure_no_tool_returned_is_set_aside():
 
     """The figure check is what makes "quote, never compute" a rule rather than a request."""
 
-    from app.agent.context import RunLog
-    from app.agent.runtime import settle
+    from app.agent.state import RunLog
+    from app.agent.nodes import settle
 
     log = RunLog()
 

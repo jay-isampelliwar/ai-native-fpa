@@ -39,7 +39,7 @@ from app.core.config import settings
 from app.core.logging import configure_logging, get_logger
 from app.db.checkpointer import postgres_checkpointer
 from app.db.session import dispose_engine
-from app.graphs.orchestrator.graph import build_planner_graph, set_planner_graph
+from app.agent.graph import build_planner_graph, set_planner_graph
 
 
 async def abandon_unfinished_imports() -> None:

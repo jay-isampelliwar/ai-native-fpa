@@ -241,7 +241,7 @@ async def test_a_turn_inherits_nothing_from_the_one_before_it(api_user):
 
     """Every field a node fills is cleared, not only the response, so stale blocks cannot be rendered either."""
 
-    from app.graphs.orchestrator.state import PlannerState, new_turn
+    from app.agent.state import PlannerState, new_turn
 
     from app.ui.blocks import TextBlock
 

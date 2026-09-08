@@ -28,7 +28,7 @@ produces, and handing the counts over directly is a faster test of exactly that.
 
 import pytest
 
-from app.agent.context import AgentContext, RunLog
+from app.agent.state import AgentContext, RunLog
 from app.models.finance import CashflowRecords, ExpenseRecord, IncomeRecord
 
 pytestmark = pytest.mark.asyncio

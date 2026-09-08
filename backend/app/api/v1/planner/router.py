@@ -61,8 +61,8 @@ from app.api.v1.planner.schemas import (
     MessageResponse,
 )
 from app.api.v1.planner.streaming import stream_planner_run
-from app.graphs.orchestrator.graph import get_planner_graph
-from app.graphs.orchestrator.state import new_turn
+from app.agent.graph import get_planner_graph
+from app.agent.state import new_turn
 from app.repositories.conversations_repository import conversations_repository
 
 log = structlog.get_logger(__name__)

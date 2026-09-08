@@ -1,4 +1,4 @@
-"""The one graph every request passes through, now four nodes in a straight line.
+"""The one graph every request passes through, four nodes in a straight line.
 
 There are no conditional edges left. That is the visible consequence of replacing eleven skills with
 one agent: the branches used to exist because a turn could be routed, refused, validated, paused for a
@@ -6,7 +6,7 @@ human, written and audited along several different paths, and every fork was a d
 ordinary Python about what a skill had returned. A turn is now one agent run, so the path is the same
 every time and the file is short enough to read in one go.
 
-    START -> authenticate_context -> agent -> write_audit_record -> respond -> END
+    START -> authenticate_context -> run_agent -> write_audit_record -> respond -> END
 
 What the model decides is which tools to call and what to say. What it still does not decide is what a
 figure is - every derived number comes from a versioned calculator in ``app.calculations``, reached
@@ -38,9 +38,8 @@ finished is a deployment problem, and answering it from a graph with throwaway s
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 
-from app.agent.runtime import run_agent
-from app.graphs.orchestrator.nodes import authenticate_context, respond, write_audit_record
-from app.graphs.orchestrator.state import PlannerState
+from app.agent.nodes import authenticate_context, respond, run_agent, write_audit_record
+from app.agent.state import PlannerState
 
 
 def build_planner_graph(checkpointer: BaseCheckpointSaver):

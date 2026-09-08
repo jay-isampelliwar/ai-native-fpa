@@ -42,7 +42,7 @@ from app.core.config import settings
 
 ALLOWED_CHECKPOINT_TYPES = (
     ("app.core.security", "AuthenticatedUser"),
-    ("app.agent.context", "AgentContext"),
+    ("app.agent.state", "AgentContext"),
     ("app.ui.blocks", "TextBlock"),
     ("app.ui.blocks", "KpiBlock"),
     ("app.ui.blocks", "TableBlock"),

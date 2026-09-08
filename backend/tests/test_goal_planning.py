@@ -43,7 +43,7 @@ def context_for(user_id: int):
 
     """Build the context the graph would hand the agent for one turn."""
 
-    from app.agent.context import AgentContext
+    from app.agent.state import AgentContext
 
     return AgentContext(user_id=user_id, conversation_id="conv_goal", correlation_id="req_goal")
 
@@ -52,7 +52,7 @@ async def project(user_id: int, goal_id: str) -> dict:
 
     """Run the projection tool the way the agent would, with an id it was given by list_goals."""
 
-    from app.agent.context import RunLog
+    from app.agent.state import RunLog
     from app.agent.tools import build_tools
 
     tools = {tool.name: tool for tool in build_tools(context_for(user_id), RunLog())}
@@ -64,7 +64,7 @@ async def listed(user_id: int) -> dict:
 
     """List the goals the way the agent would before choosing one to project."""
 
-    from app.agent.context import RunLog
+    from app.agent.state import RunLog
     from app.agent.tools import build_tools
 
     tools = {tool.name: tool for tool in build_tools(context_for(user_id), RunLog())}
@@ -122,7 +122,7 @@ async def test_the_projection_carries_the_evidence_it_was_built_from(goal_client
 
     """A projection cites the goal row it read, so a figure can be traced even with no funding linked."""
 
-    from app.agent.context import RunLog
+    from app.agent.state import RunLog
     from app.agent.tools import build_tools
 
     goal_id = create_goal(goal_client, api_user)

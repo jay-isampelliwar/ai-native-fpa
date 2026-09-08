@@ -10,7 +10,7 @@ doubles every surplus figure the planner will ever quote.
 
 The second is never compute. The model may quote a figure a tool returned and may not derive one. This
 was enforceable by construction when a skill returned a finished sentence; with raw rows crossing into
-the model it is a prompt instruction backed by a check after the fact in ``app.agent.narration``. That
+the model it is a prompt instruction backed by a check after the fact in ``app.agent.nodes``. That
 is weaker and it is the honest cost of the tool set being this fine grained.
 
 The third is that writing happens immediately. The model is told plainly that a change it makes is

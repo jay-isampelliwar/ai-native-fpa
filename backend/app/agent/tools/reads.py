@@ -29,7 +29,7 @@ block carries the figures already formatted by the backend, so what a person rea
 
 from langchain_core.tools import BaseTool, tool
 
-from app.agent.context import AgentContext, RunLog
+from app.agent.state import AgentContext, RunLog
 from app.repositories import get_cashflow_repository, get_expense_repository
 from app.repositories.goals_repository import goals_repository
 from app.repositories.holdings_repository import holdings_repository

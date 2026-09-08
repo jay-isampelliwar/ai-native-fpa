@@ -11,7 +11,7 @@ and is rejected anyway, since a model that may reformat a figure may reformat it
 is a correct sentence to fall back to.
 """
 
-from app.agent.narration import figures_in, invents_figures
+from app.agent.nodes import figures_in, invents_figures
 
 
 def test_grouping_and_currency_are_not_part_of_a_number():
