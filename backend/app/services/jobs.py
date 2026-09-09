@@ -29,8 +29,6 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
-from app.core.logging import get_logger
-
 POLL_SECONDS = 0.02
 
 
@@ -69,8 +67,6 @@ class JobRunner:
             except Exception as exc:
 
                 handle.error = f"{type(exc).__name__}: {exc}"
-
-                get_logger("jobs").error("background job failed", job_id=job_id, error=handle.error)
 
         handle.task = asyncio.create_task(run())
 

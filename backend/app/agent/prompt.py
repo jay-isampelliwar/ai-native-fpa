@@ -37,10 +37,6 @@ the person's own records rather than as function names, because "list_sips" on s
 watching a spinner nothing they wanted to know.
 """
 
-from app.core.logging import get_logger
-
-log = get_logger("agent.prompt")
-
 SYSTEM_PROMPT = """You are a personal financial planner, talking with the person whose money it is.
 
 You have tools that read and change that person's own records. Use them freely - they are the only
@@ -140,9 +136,6 @@ async def cashflow_lines(user_id: int) -> list[str]:
         records = await get_cashflow_repository().get_cashflow_records(user_id)
 
     except Exception:
-
-        log.warning("record counts could not be read", user_id=user_id, exc_info=True)
-
         return []
 
     counts = {
@@ -165,9 +158,6 @@ async def goal_lines(user_id: int) -> list[str]:
         goals = await goals_repository.list_snapshots(user_id)
 
     except Exception:
-
-        log.warning("goal count could not be read", user_id=user_id, exc_info=True)
-
         return []
 
     return [f"- Goals: {len(goals) or 'none yet'}"]
@@ -183,9 +173,6 @@ async def holding_lines(user_id: int) -> list[str]:
         summary = await holdings_repository.summary(user_id)
 
     except Exception:
-
-        log.warning("holdings count could not be read", user_id=user_id, exc_info=True)
-
         return []
 
     return [f"- Holdings: {summary.count or 'none yet'}"]

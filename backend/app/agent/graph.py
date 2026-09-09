@@ -28,13 +28,13 @@ The checkpointer is still a required argument with no default. Nothing interrupt
 no longer load bearing for a paused approval - but it is what carries the thread's state between
 messages, and a default would make the choice of saver silent and environment dependent.
 
-``set_planner_graph`` and ``get_planner_graph`` hold the compiled graph for the process. The
-application builds it during startup inside the PostgreSQL checkpointer's context and registers it
-here; the API reads it back. It cannot be an ``lru_cache`` factory, because the saver is an async
-context manager whose connection must stay open for the life of the application rather than one call.
+``planner_graph`` holds the compiled graph for the process. The application builds it during startup
+inside the PostgreSQL checkpointer's context and assigns it here; the API reads it back off this
+module. It cannot be an ``lru_cache`` factory, because the saver is an async context manager whose
+connection must stay open for the life of the application rather than one call.
 
-``get_planner_graph`` raises rather than building a fallback. A request that arrives before startup
-finished is a deployment problem, and answering it from a graph with throwaway state would hide that.
+There is no fallback graph. A request that arrives before startup finished fails on the missing graph,
+which is a deployment problem worth seeing rather than one to hide behind throwaway state.
 """
 
 from langgraph.checkpoint.base import BaseCheckpointSaver
@@ -60,23 +60,4 @@ def build_planner_graph(checkpointer: BaseCheckpointSaver):
     return builder.compile(checkpointer=checkpointer)
 
 
-_planner_graph = None
-
-
-def set_planner_graph(graph) -> None:
-
-    """Register the graph compiled during startup as the one this process serves requests with."""
-
-    global _planner_graph
-
-    _planner_graph = graph
-
-
-def get_planner_graph():
-
-    """Return the graph registered at startup, refusing to invent one if startup has not run."""
-
-    if _planner_graph is None:
-        raise RuntimeError("the planner graph has not been built, application startup did not complete")
-
-    return _planner_graph
+planner_graph = None

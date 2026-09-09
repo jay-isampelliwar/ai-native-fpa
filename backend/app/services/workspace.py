@@ -48,8 +48,6 @@ whose holdings import left something unreadable should still see their cash flow
 renders nothing because one query failed is worse than a panel with a section missing.
 """
 
-import structlog
-
 from datetime import date
 from decimal import Decimal
 
@@ -64,8 +62,6 @@ from app.services.projections import projected_goals
 from app.ui.blocks import Block, CalloutBlock, ChartBlock, ChartMarker, ChartPoint, KpiBlock, TableBlock, TableColumn
 from app.ui.cashflow import cashflow_blocks
 from app.ui.builders import kpi, note, rupees
-
-log = structlog.get_logger(__name__)
 
 READINESS_LABELS = {
     "income": "Income",
@@ -323,9 +319,6 @@ async def safely(builder, user_id: int, key: str) -> WorkspaceSection | None:
         return await builder(user_id)
 
     except Exception:
-
-        log.warning("workspace.section_failed", section=key, user_id=user_id, exc_info=True)
-
         return None
 
 

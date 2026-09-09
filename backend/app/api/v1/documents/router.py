@@ -57,7 +57,6 @@ from app.api.v1.documents.schemas import (
     StagedRowUpdate,
 )
 from app.core.config import settings
-from app.core.logging import get_logger
 from app.db.session import session_scope
 from app.models.orm.imports import DocumentImportRow, StagedRowRow
 from app.models.orm.system import UserRow
@@ -65,8 +64,6 @@ from app.services.import_service import import_service
 from app.storage.files import document_storage
 
 router = APIRouter(prefix="/documents", tags=["documents"])
-
-log = get_logger("documents")
 
 
 @router.post("", response_model=ImportRead, status_code=202)
@@ -291,9 +288,6 @@ async def propose_column_mapping(import_id: str, user_id: int) -> MappingProposa
         proposal, problems = await propose_mapping(profile)
 
     except Exception:
-
-        log.warning("mapping.not_suggested", import_id=import_id, exc_info=True)
-
         proposal, problems = None, ["a mapping could not be suggested, so no column is filled in yet"]
 
     suggested = {sheet.sheet: sheet for sheet in proposal.sheets} if proposal else {}

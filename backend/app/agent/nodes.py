@@ -25,6 +25,11 @@ appeared nowhere was set aside in favour of a tool's own wording. That is what m
 do not derive them" a rule rather than a request in the prompt. It is now a request. A model that adds
 two rows together and reports the total will be believed.
 
+The reply is whatever the agent's last message says, taken as it comes. There is no longer a walk back
+through the messages looking for the last thing the model spoke, which means the shape of that message
+is trusted: a run that ends on anything but a spoken answer puts whatever it ends on in front of the
+person.
+
 Four more were the token stream - ``speak``, ``say``, ``stream_writer``, ``reaching_for``. The agent is
 a graph of its own invoked inside another graph, so it inherited neither the parent's token stream nor
 its writer, and those four bridged the gap. One ``ainvoke`` replaces them: ``/messages/stream`` still
@@ -64,10 +69,7 @@ from app.agent.prompt import SYSTEM_PROMPT, records_held
 from app.agent.state import AgentContext, PlannerState, RunLog
 from app.agent.tools import build_tools
 from app.core.config import settings
-from app.core.logging import get_logger
 from app.core.security import local_user, new_correlation_id
-
-log = get_logger("agent")
 
 FALLBACK = "I could not work that out just now."
 
@@ -123,7 +125,7 @@ async def run_agent(state: PlannerState) -> dict:
         history = [("assistant" if row.role == "planner" else "user", row.text) for row in earlier if row.text]
 
     except Exception:
-        log.warning("history could not be read", conversation_id=context.conversation_id, exc_info=True)
+        history = []
 
     try:
         finished = await agent.ainvoke(
@@ -133,8 +135,6 @@ async def run_agent(state: PlannerState) -> dict:
 
     except GraphRecursionError:
 
-        log.warning("agent did not settle", user_id=context.user_id)
-
         return {
             "response": "I went round in circles on that one. Could you ask it a step at a time?",
             "tools_used": run.tools,
@@ -143,20 +143,10 @@ async def run_agent(state: PlannerState) -> dict:
 
     except Exception:
 
-        log.warning("agent failed", user_id=context.user_id, exc_info=True)
-
         return {"response": FALLBACK, "tools_used": run.tools, "writes_performed": run.writes}
 
-    spoken = [
-        message.content.strip()
-        for message in finished.get("messages", [])
-        if getattr(message, "type", "") == "ai"
-        and isinstance(getattr(message, "content", ""), str)
-        and message.content.strip()
-    ]
-
     return {
-        "response": spoken[-1] if spoken else FALLBACK,
+        "response": finished["messages"][-1].content,
         "tools_used": run.tools,
         "writes_performed": run.writes,
     }

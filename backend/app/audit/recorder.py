@@ -22,13 +22,12 @@ reader of the table sees what a turn did; a reader of the schema sees the vocabu
 that came before it, and this paragraph is the bridge between the two.
 
 Persistence is intentionally behind ``AuditRecorder`` rather than inlined, and nodes only
-ever call ``record``. Phase 2 writes to the ``audit_records`` table; the logging fallback
-remains for tests and for the case where the database is unreachable, because losing an
-audit row is bad but failing the user's request to protect a log line is worse.
+ever call ``record``. It writes to the ``audit_records`` table, and a write that cannot land
+is dropped rather than retried or held anywhere else.
 
-A failed audit write is logged loudly and does not raise. The alternative - propagating the
-error - would turn a bookkeeping outage into a service outage, and the request being
-described has already happened either way.
+A failed audit write does not raise. The alternative - propagating the error - would turn a
+bookkeeping outage into a service outage, and the request being described has already
+happened either way.
 """
 
 from datetime import UTC, datetime
@@ -111,22 +110,15 @@ class AuditRecorder:
 
     async def persist(self, record: AuditRecord) -> None:
 
-        """Append the record to the audit table, falling back to a log line if that write fails."""
+        """Append the record to the audit table, dropping the record if that write fails."""
 
-        from app.core.logging import get_logger
         from app.repositories.audit_repository import audit_repository
 
         try:
             await audit_repository.write(record)
 
-        except Exception as exc:
-
-            get_logger("audit").error(
-                "audit write failed",
-                correlation_id=record.correlation_id,
-                error=type(exc).__name__,
-                record=record.model_dump_json(),
-            )
+        except Exception:
+            pass
 
 
 def describe_run(state: PlannerState) -> str:

@@ -36,10 +36,9 @@ from fastapi import FastAPI
 
 from app.api.v1.router import api_router
 from app.core.config import settings
-from app.core.logging import configure_logging, get_logger
 from app.db.checkpointer import postgres_checkpointer
 from app.db.session import dispose_engine
-from app.agent.graph import build_planner_graph, set_planner_graph
+from app.agent import graph as planner
 
 
 async def abandon_unfinished_imports() -> None:
@@ -52,8 +51,7 @@ async def abandon_unfinished_imports() -> None:
         await import_service.abandon_unfinished()
 
     except Exception:
-
-        get_logger("startup").warning("unfinished imports could not be abandoned", exc_info=True)
+        pass
 
 
 @asynccontextmanager
@@ -61,19 +59,11 @@ async def lifespan(app: FastAPI):
 
     """Open the checkpointer, register skills and compile the graph before the first request is served."""
 
-    configure_logging()
-
     await abandon_unfinished_imports()
 
     async with postgres_checkpointer() as checkpointer:
 
-        set_planner_graph(build_planner_graph(checkpointer))
-
-        get_logger("startup").info(
-            "planner ready",
-            environment=settings.environment,
-            repository_backend=settings.repository_backend,
-        )
+        planner.planner_graph = planner.build_planner_graph(checkpointer)
 
         yield
 

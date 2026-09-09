@@ -18,13 +18,10 @@ a claim into a row, with everything downstream unchanged.
 from fastapi import APIRouter
 
 from app.api.v1.users.schemas import UserRead, UserRegistration
-from app.core.logging import get_logger
 from app.db.session import session_scope
 from app.models.orm.system import UserRow
 
 router = APIRouter(prefix="/users", tags=["users"])
-
-log = get_logger("users")
 
 
 @router.post("", response_model=UserRead)
@@ -42,7 +39,5 @@ async def register_user(request: UserRegistration) -> UserRead:
         display_name = request.display_name or f"User {request.user_id}"
 
         session.add(UserRow(id=request.user_id, display_name=display_name))
-
-        log.info("user registered", user_id=request.user_id)
 
     return UserRead(id=request.user_id, display_name=display_name, created=True)

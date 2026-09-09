@@ -46,7 +46,6 @@ from decimal import Decimal
 
 from pydantic import BaseModel
 
-from app.core.logging import get_logger
 from app.extraction.base import ExtractedRow, ExtractionResult
 from app.extraction.mapping import describe_workbook
 from app.extraction.templates import CANONICAL_FIELDS, SheetSpec, TemplateSpec, parse_with_template
@@ -54,8 +53,6 @@ from app.extraction.values import clean_text, looks_like_total_row, to_decimal, 
 from app.extraction.workbook import SheetProfile, WorkbookProfile, normalise_header
 from app.extraction.holdings import to_payload
 from app.services.llm_service import get_router_model
-
-logger = get_logger("extraction")
 
 RECORD_FIELDS = {
     "income": ["label", "amount", "frequency", "source"],
@@ -416,9 +413,6 @@ async def read_without_a_template(
         reading = await read_workbook(profile)
 
     except Exception:
-
-        logger.warning("workbook could not be read by a model", extractor=extractor, exc_info=True)
-
         reading = None
 
     if reading is None:
@@ -458,13 +452,6 @@ async def read_without_a_template(
     holdings = [sheet for sheet in reading.sheets if sheet.kind == "holding" and sheet.sheet in profiles]
 
     rows.extend(holding_rows(holdings, {sheet.sheet: cells.get(sheet.sheet, []) for sheet in holdings}))
-
-    logger.info(
-        "workbook read without a template",
-        provider=reading.provider,
-        rows=len(rows),
-        skipped=len(skipped),
-    )
 
     if not rows:
         return ExtractionResult(

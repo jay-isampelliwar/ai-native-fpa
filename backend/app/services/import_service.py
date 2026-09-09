@@ -65,7 +65,6 @@ from uuid import uuid4
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.logging import get_logger
 from app.db.session import session_scope
 from app.extraction.dispatcher import extract_document
 from app.models.finance import HoldingKind
@@ -77,8 +76,6 @@ from app.repositories.goals_repository import goals_repository
 from app.repositories.records_repository import records_repository
 from app.services.jobs import job_runner
 from app.services.record_writes import write_one
-
-logger = get_logger("imports")
 
 RECORD_TABLES = {
     "income": (IncomeRecordRow, IncomeRecordRow.label),
@@ -124,8 +121,6 @@ class ImportService:
                 existing.status = "uploaded"
                 existing.error = None
                 existing.row_count = 0
-
-                logger.info("re reading an import that produced nothing", import_id=existing.id)
 
                 return existing, False
 
@@ -180,8 +175,6 @@ class ImportService:
             record.status = "failed"
             record.error = reason
 
-        logger.warning("extraction failed", import_id=import_id, error=reason)
-
     async def abandon_unfinished(self) -> int:
 
         """Fail every import left mid read by a stopped process, so nothing polls a job that no longer exists."""
@@ -197,9 +190,6 @@ class ImportService:
             for record in stranded:
                 record.status = "failed"
                 record.error = "the server stopped while reading this file - upload it again"
-
-        if stranded:
-            logger.warning("unfinished imports abandoned", count=len(stranded))
 
         return len(stranded)
 
@@ -241,15 +231,11 @@ class ImportService:
                 record.status = "needs_mapping"
                 record.error = result.error
 
-                logger.info("layout needs a mapping", import_id=import_id)
-
                 return
 
             if result.error and not result.rows:
                 record.status = "failed"
                 record.error = result.error
-
-                logger.warning("extraction failed", import_id=import_id, error=result.error)
 
                 return
 
@@ -290,8 +276,6 @@ class ImportService:
             record.row_count = len(result.rows)
             record.status = "extracted"
             record.extracted_at = datetime.now(UTC)
-
-            logger.info("extraction complete", import_id=import_id, rows=len(result.rows))
 
 
     async def _commit_holding(self, session: AsyncSession, user_id: int, row: StagedRowRow, batch_id: str):
@@ -617,8 +601,6 @@ class ImportService:
             record.status = "committed"
             record.import_batch_id = batch_id
             record.committed_at = datetime.now(UTC)
-
-            logger.info("import committed", import_id=import_id, batch=batch_id, rows=written)
 
             return {"status": "committed", "import_batch_id": batch_id, "rows_written": written}
 

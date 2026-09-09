@@ -28,8 +28,8 @@ before the graph runs, which means a run that fails still leaves evidence of wha
 than a gap.
 
 Recording never fails a request. The answer has already been computed by the time it is written, and
-refusing to return it because a transcript row would not insert would turn a logging problem into an
-outage. A failed write is logged and the turn is simply missing from the history.
+refusing to return it because a transcript row would not insert would turn a bookkeeping problem into
+an outage. A failed write is swallowed and the turn is simply missing from the history.
 
 The three ``/conversations`` endpoints are reads over those tables, plus the one delete this service
 offers anywhere. A chat a person chose to discard is theirs to discard; nothing financial and no audit
@@ -48,7 +48,6 @@ verbatim as this turn's answer.
 
 from uuid import uuid4
 
-import structlog
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
@@ -61,11 +60,9 @@ from app.api.v1.planner.schemas import (
     MessageResponse,
 )
 from app.api.v1.planner.streaming import stream_planner_run
-from app.agent.graph import get_planner_graph
+from app.agent import graph as planner
 from app.agent.state import new_turn
 from app.repositories.conversations_repository import conversations_repository
-
-log = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/planner", tags=["planner"])
 
@@ -136,8 +133,7 @@ async def remember_question(user_id: int, conversation_id: str, message: str) ->
         )
 
     except Exception:
-
-        log.warning("transcript.question_not_recorded", conversation_id=conversation_id, exc_info=True)
+        pass
 
 
 async def remember_answer(user_id: int, body: MessageResponse) -> None:
@@ -159,8 +155,7 @@ async def remember_answer(user_id: int, body: MessageResponse) -> None:
         )
 
     except Exception:
-
-        log.warning("transcript.answer_not_recorded", conversation_id=body.conversation_id, exc_info=True)
+        pass
 
 
 @router.post("/messages", response_model=MessageResponse)
@@ -172,7 +167,7 @@ async def send_message(request: MessageRequest) -> MessageResponse:
 
     await remember_question(request.user_id, conversation_id, request.message)
 
-    state = await get_planner_graph().ainvoke(
+    state = await planner.planner_graph.ainvoke(
         new_turn(request.user_id, conversation_id, request.message),
         config={"configurable": {"thread_id": conversation_id}},
     )
@@ -215,7 +210,7 @@ async def stream_message(request: MessageRequest) -> StreamingResponse:
     state = new_turn(request.user_id, conversation_id, request.message)
 
     return StreamingResponse(
-        stream_planner_run(get_planner_graph(), state, config, conversation_id, request.user_id),
+        stream_planner_run(planner.planner_graph, state, config, conversation_id, request.user_id),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
