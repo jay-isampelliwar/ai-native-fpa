@@ -1,51 +1,3 @@
-"""The single HTTP entry point into the planner, and the only way a request starts a run.
-
-There is one endpoint for messages, not one per capability. What runs is decided inside the graph, by
-one agent choosing among its tools, so a client cannot name a tool and cannot reach one this caller is
-not bound to. Exposing a route per capability would hand that choice to whoever calls the API and
-quietly remove the layer the design exists to keep.
-
-``conversation_id`` is the LangGraph thread id, which is what makes a second message on the same
-conversation continue the same thread rather than start a new one.
-
-``/approvals`` is kept and answers plainly that nothing is pending. Writes used to pause the graph for
-a human and resume with ``Command(resume=...)``; the agent's tools now apply a change when they are
-called, so there is no interrupt left to resume. The route stays because clients in the wild still
-have the button, and a 404 would read as a broken deploy rather than as a changed design.
-
-The user id arrives in the request body because Phase 1 has no tokens. That is the seam where
-authentication lands later: replace the body field with a verified credential and every layer below
-this file is untouched.
-
-``/messages/stream`` runs the same graph as ``/messages`` and returns the same final body. It exists so
-the interface can show which tool is running rather than a spinner, and a client that ignores every
-intermediate event still gets a correct answer from the terminal one.
-
-Every turn is written to the transcript tables as it happens. The checkpointer holds the machine state
-of the latest run and was never a history: it is encrypted, shaped for resuming a graph, and pruned on
-its own schedule, so a person who closed the tab had lost the conversation. The question is recorded
-before the graph runs, which means a run that fails still leaves evidence of what was asked rather
-than a gap.
-
-Recording never fails a request. The answer has already been computed by the time it is written, and
-refusing to return it because a transcript row would not insert would turn a bookkeeping problem into
-an outage. A failed write is swallowed and the turn is simply missing from the history.
-
-The three ``/conversations`` endpoints are reads over those tables, plus the one delete this service
-offers anywhere. A chat a person chose to discard is theirs to discard; nothing financial and no audit
-record is reachable through it.
-
-A conversation id is checked against its owner before anything runs. It is the graph's thread id, so a
-request carrying somebody else's id would read somebody else's state and return their answer and their
-blocks to whoever asked. Identity in this phase is still a claimed integer rather than a proven one, so
-this does not make the surface safe; it makes a conversation belong to the person it belongs to, which
-is a different and necessary thing.
-
-Each message starts from ``new_turn`` rather than from fields merged into whatever the thread already
-held, because the state is checkpointed per conversation and a stale ``response`` would be returned
-verbatim as this turn's answer.
-"""
-
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException
@@ -61,7 +13,6 @@ from app.api.v1.planner.schemas import (
 )
 from app.api.v1.planner.streaming import stream_planner_run
 from app.agent import graph as planner
-from app.agent.state import new_turn
 from app.repositories.conversations_repository import conversations_repository
 
 router = APIRouter(prefix="/planner", tags=["planner"])
