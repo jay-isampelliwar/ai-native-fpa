@@ -13,7 +13,7 @@ import type { Workspace as WorkspaceData } from '@/lib/types';
  *
  * A chat is the wrong shape for a figure someone wants to keep glancing at. An answer scrolls away,
  * and the surplus a person is reasoning about ends up four questions up the thread. This panel holds
- * the same typed blocks a skill returns and simply stays, so the conversation is where things are
+ * the same typed blocks the backend builds and simply stays, so the conversation is where things are
  * asked and this is where they are.
  *
  * It shows everything currently computable rather than the last answer. A panel that followed the

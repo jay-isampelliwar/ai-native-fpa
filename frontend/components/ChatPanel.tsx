@@ -1,77 +1,57 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
-import { BlockRenderer } from '@/components/blocks';
 import ImportTurn from '@/components/ImportTurn';
 import { useUser } from '@/components/Shell';
-import { planner } from '@/lib/api';
 import { announceRecordsChanged } from '@/lib/records';
 import { streamMessage } from '@/lib/stream';
-import type { Block, Conversation } from '@/lib/types';
 
 /**
- * The conversation — one graph run per message, streamed, with approvals and imports answered inline.
+ * The conversation — one graph run per message, streamed, with imports answered inline.
  *
- * Progress events drive the placeholder rather than a generic spinner, and they accumulate rather
- * than replace each other. The graph knows which skill it chose and, inside the investigation loop,
- * which tool it is calling; showing that as a growing list is the difference between waiting and
- * watching. Steps are named after the skill running them — "Looking into your spending" rather than
- * "Reading your records", which is true of all six and therefore says nothing.
+ * A planner turn is prose. It used to carry typed blocks, the name of the skill that ran and the
+ * calculator versions behind each figure, and all three are gone from here because the backend no
+ * longer sends them: the agent is one model call answering in sentences. They return to this file
+ * when they return to the reply, and rendering an always-empty list in the meantime is how a
+ * component ends up with dead branches nobody dares delete.
+ *
+ * Progress is one line rather than a growing list, for the same reason. The list existed to show
+ * which skill was chosen and which tool it was calling; with one node there is nothing to narrate
+ * between "thinking" and the answer arriving as tokens.
  *
  * The conversation id is held from the first reply onwards and sent with every later message. It is
- * the graph's thread id, so it is also what makes an approval resume the exact paused run rather than
- * starting a fresh one that would re-propose against newer records. Starting a new session drops it,
- * which is the entire mechanism: a new thread id is a new memory.
+ * the graph's thread id, which is what makes the model remember the earlier turns. Starting a new
+ * chat drops it, and that is the entire mechanism: a new thread id is a new memory.
  *
- * A turn that changes the records tells the console rather than reloading anything itself. Approving
- * a capture card writes rows, and so does committing an import, and the panel beside this needs to
- * know - but this component has no business knowing what that panel renders. It reports that
- * something changed and stops there.
+ * Past chats are not listed. The turns on screen are the only copy, so a reload starts a fresh chat -
+ * the backend's transcript tables and the reads over them went with the endpoints, and pretending
+ * otherwise with a "Past chats" button that always came back empty would be worse than not offering
+ * it. The thread itself does survive in the checkpointer, so the id is still worth holding.
  *
- * Past chats are read back from the backend rather than kept here. The turns on screen are a view of
- * rows the server wrote as they happened, so a reload, a second tab or another device all show the
- * same conversation — which is the point of storing it at all. Reopening one restores the blocks the
- * skill built at the time rather than asking the planner to answer the old question again.
+ * The answer's turn is created empty and filled as the words arrive. Tokens are what the model is
+ * writing; the closing event carries the text the backend stands behind, so the turn is overwritten
+ * with that rather than left as whatever streamed. Today the two are identical, and the swap is what
+ * keeps this correct on the day something checks the reply before it is shown.
  *
  * A file is attached in the composer rather than uploaded on a page of its own. Sending a statement is
  * the same act as asking a question — both are a person handing over something to be read — and the
  * answer to either belongs in the thread, in order, next to what was asked before it. The turn it
  * creates is live: it polls, asks for a mapping if the layout is new, and takes row decisions in place.
  *
- * An approval replaces the turn that proposed it rather than appending below it. The card was a
- * question; once answered it should stop looking like one, and a live Approve button sitting above
- * the outcome invites a second click on a decision already made.
- *
- * The answer's turn is created empty and filled as the words arrive. Tokens are a preview of what the
- * model is writing; the closing event carries the text the backend actually stands behind, after its
- * figure check, so the turn is overwritten with that rather than left as whatever streamed. The two
- * are identical except in the case the check exists for, and in that case the corrected sentence is
- * the one that should be on screen.
- *
- * The answer is read as a sentence and the blocks sit under it. The blocks used to replace the text
- * entirely whenever a skill returned any, which made a reply to a question about someone's money a
- * bare wall of KPIs and tables - and left the one part written for a reader unrendered. The sentence
- * is now the planner's own words about the figures below it, and both come from the same result.
+ * A turn that changes the records tells the console rather than reloading anything itself. Committing
+ * an import writes rows and the panel beside this needs to know, but this component has no business
+ * knowing what that panel renders. It reports that something changed and stops there.
  *
  * Errors become a turn rather than a toast. A failure to answer a question about money is part of the
  * record of what was asked, and dismissing it leaves a gap the reader cannot account for.
- *
- * An example answer tapped in a prompt block fills the composer rather than sending itself. The
- * examples are plausible figures, not this person's figures, and a tap that sent one straight to the
- * planner would put an invented salary in the conversation on the way to a proposal card. Filling the
- * field puts the edit in front of the person while their attention is already on it.
  */
 
 type Turn = {
   id: string;
   role: 'user' | 'planner' | 'import';
   text: string;
-  blocks: Block[];
   file?: File;
-  skill?: string | null;
-  calculators?: string[];
-  conversationId?: string;
 };
 
 const OPENERS = [
@@ -89,12 +69,10 @@ export default function ChatPanel() {
 
   const [turns, setTurns] = useState<Turn[]>([]);
   const [draft, setDraft] = useState('');
-  const [steps, setSteps] = useState<string[]>([]);
+  const [step, setStep] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [conversationId, setConversationId] = useState<string | undefined>();
-  const [sessions, setSessions] = useState<Conversation[]>([]);
-  const [historyOpen, setHistoryOpen] = useState(false);
 
   const scroller = useRef<HTMLDivElement>(null);
   const picker = useRef<HTMLInputElement>(null);
@@ -104,15 +82,11 @@ export default function ChatPanel() {
   useEffect(() => {
     const element = scroller.current;
     if (element) element.scrollTop = element.scrollHeight;
-  }, [turns, steps]);
+  }, [turns, step]);
 
   function say(text: string) {
-    setTurns((current) => [...current, { id: newId(), role: 'planner', text, blocks: [] }]);
+    setTurns((current) => [...current, { id: newId(), role: 'planner', text }]);
   }
-
-  const loadSessions = useCallback(async () => {
-    setSessions(await planner.conversations(userId).catch(() => []));
-  }, [userId]);
 
   /** Drop the thread id as well as the turns — the same screen against a different memory. */
   function newSession() {
@@ -121,43 +95,7 @@ export default function ChatPanel() {
     setTurns([]);
     setConversationId(undefined);
     setDraft('');
-    setSteps([]);
-    setHistoryOpen(false);
-  }
-
-  /** Reopen a stored conversation, showing the blocks it was answered with rather than re-asking. */
-  async function openSession(id: string) {
-    if (busy) return;
-
-    setHistoryOpen(false);
-
-    try {
-      const detail = await planner.conversation(userId, id);
-
-      setTurns(
-        detail.messages.map((message) => ({
-          id: message.id,
-          role: message.role,
-          text: message.text,
-          blocks: message.blocks,
-          skill: message.skill,
-          calculators: message.calculator_versions,
-          conversationId: detail.id,
-        })),
-      );
-
-      setConversationId(detail.id);
-    } catch {
-      say('That conversation could not be opened.');
-    }
-  }
-
-  async function discardSession(id: string) {
-    await planner.discardConversation(userId, id).catch(() => undefined);
-
-    if (id === conversationId) newSession();
-
-    await loadSessions();
+    setStep(null);
   }
 
   function attach(files: FileList | null) {
@@ -170,15 +108,9 @@ export default function ChatPanel() {
         id: newId(),
         role: 'import' as const,
         text: file.name,
-        blocks: [],
         file,
       })),
     ]);
-  }
-
-  function compose(example: string) {
-    setDraft(example);
-    composer.current?.focus();
   }
 
   async function send(message: string) {
@@ -190,33 +122,23 @@ export default function ChatPanel() {
     setDraft('');
     setTurns((current) => [
       ...current,
-      { id: newId(), role: 'user', text: trimmed, blocks: [] },
-      { id: answerId, role: 'planner', text: '', blocks: [] },
+      { id: newId(), role: 'user', text: trimmed },
+      { id: answerId, role: 'planner', text: '' },
     ]);
     setBusy(true);
-    setSteps(['Thinking']);
+    setStep('Thinking');
 
     function amend(change: (turn: Turn) => Turn) {
       setTurns((current) => current.map((turn) => (turn.id === answerId ? change(turn) : turn)));
     }
 
     await streamMessage(userId, trimmed, conversationId, {
-      onProgress: (event) =>
-        setSteps((current) =>
-          current[current.length - 1] === event.label ? current : [...current, event.label],
-        ),
+      onProgress: (event) => setStep(event.label),
       onToken: (piece) => amend((turn) => ({ ...turn, text: turn.text + piece })),
       onDone: (response) => {
         setConversationId(response.conversation_id);
 
-        amend((turn) => ({
-          ...turn,
-          text: response.response,
-          blocks: response.blocks,
-          skill: response.skill,
-          calculators: response.calculator_versions,
-          conversationId: response.conversation_id,
-        }));
+        amend((turn) => ({ ...turn, text: response.response }));
       },
       onError: (message) => amend((turn) => ({ ...turn, text: message })),
     }).catch(() =>
@@ -226,29 +148,8 @@ export default function ChatPanel() {
       })),
     );
 
-    setSteps([]);
+    setStep(null);
     setBusy(false);
-  }
-
-  async function decide(turnId: string, decision: 'approve' | 'reject') {
-    const turn = turns.find((candidate) => candidate.id === turnId);
-    if (!turn?.conversationId) return;
-
-    const outcome = await planner.decide(userId, turn.conversationId, decision);
-
-    if (decision === 'approve') announceRecordsChanged();
-
-    setTurns((current) =>
-      current.map((candidate) =>
-        candidate.id === turnId
-          ? {
-              ...candidate,
-              text: outcome.response,
-              blocks: outcome.blocks.filter((block) => block.type !== 'approval_card'),
-            }
-          : candidate,
-      ),
-    );
   }
 
   return (
@@ -271,66 +172,12 @@ export default function ChatPanel() {
       <div className="relative z-20 flex items-center justify-end gap-2 border-b border-[#18312f]/6 px-5 py-2">
         <button
           type="button"
-          onClick={() => {
-            setHistoryOpen((open) => !open);
-            if (!historyOpen) void loadSessions();
-          }}
-          aria-expanded={historyOpen}
-          className="rounded-full border border-[#18312f]/12 bg-white/70 px-3 py-1.5 text-[11.5px] font-medium text-[#5d7470] transition hover:border-[#00947a] hover:text-[#18312f]"
-        >
-          Past chats
-        </button>
-
-        <button
-          type="button"
           onClick={newSession}
           disabled={busy || (turns.length === 0 && !conversationId)}
           className="rounded-full border border-[#18312f]/12 bg-white/70 px-3 py-1.5 text-[11.5px] font-medium text-[#5d7470] transition hover:border-[#00947a] hover:text-[#18312f] disabled:cursor-not-allowed disabled:opacity-40"
         >
           New chat
         </button>
-
-        {historyOpen && (
-          <div className="absolute right-5 top-full z-30 mt-1 max-h-[22rem] w-[min(24rem,calc(100vw-2.5rem))] overflow-y-auto rounded-xl border border-[#18312f]/10 bg-white p-1.5 shadow-[0_8px_24px_rgba(16,59,54,0.12)]">
-            {sessions.length === 0 ? (
-              <p className="px-2.5 py-3 text-[12px] leading-5 text-[#8ba09c]">
-                Nothing here yet. Every conversation you have is kept and listed here.
-              </p>
-            ) : (
-              sessions.map((session) => (
-                <div
-                  key={session.id}
-                  className={`group flex items-center gap-1 rounded-lg px-1 ${
-                    session.id === conversationId ? 'bg-[#00947a]/8' : 'hover:bg-[#f5f2e8]'
-                  }`}
-                >
-                  <button
-                    type="button"
-                    onClick={() => void openSession(session.id)}
-                    className="min-w-0 flex-1 px-1.5 py-2 text-left"
-                  >
-                    <span className="block truncate text-[12.5px] leading-4 text-[#18312f]">
-                      {session.title ?? 'Untitled conversation'}
-                    </span>
-                    <span className="mt-0.5 block text-[10.5px] leading-4 text-[#8ba09c]">
-                      {session.message_count} message{session.message_count === 1 ? '' : 's'} ·{' '}
-                      {when(session.last_message_at)}
-                    </span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => void discardSession(session.id)}
-                    aria-label="Delete this conversation"
-                    className="shrink-0 rounded-md px-1.5 py-1 text-[11px] text-[#a8b8b4] opacity-0 transition hover:text-[#8f4227] focus:opacity-100 group-hover:opacity-100"
-                  >
-                    Delete
-                  </button>
-                </div>
-              ))
-            )}
-          </div>
-        )}
       </div>
 
       {/* min-h-0 is load-bearing: without it a flex child will not shrink below its content, so this
@@ -344,8 +191,7 @@ export default function ChatPanel() {
               </h1>
 
               <p className="mt-2.5 max-w-[46ch] text-[14px] leading-6 text-[#4d6560]">
-                Every answer is built from your own records, and shows you which ones. Attach a
-                statement and it is read here too.
+                Ask about your money in your own words. Attach a statement and it is read here too.
               </p>
 
               <div className="mt-6 flex flex-wrap gap-2">
@@ -398,57 +244,22 @@ export default function ChatPanel() {
             }
 
             return (
-              <div key={turn.id} className="space-y-3">
-                {turn.text && (
-                  <p className="whitespace-pre-wrap text-[14px] leading-[1.65] text-[#22423e]">
-                    {turn.text}
-                  </p>
-                )}
-
-                {turn.blocks.length > 0 && (
-                  <BlockRenderer
-                    blocks={turn.blocks}
-                    onDecide={
-                      turn.blocks.some((block) => block.type === 'approval_card')
-                        ? (decision) => decide(turn.id, decision)
-                        : undefined
-                    }
-                    onCompose={compose}
-                  />
-                )}
-
-                {(turn.skill || turn.calculators?.length) && (
-                  <p className="text-[11px] text-[#a8b8b4]">
-                    {turn.skill && <span className="font-mono">{turn.skill}</span>}
-                    {turn.calculators?.length ? <span> · {turn.calculators.join(', ')}</span> : null}
-                  </p>
-                )}
-              </div>
+              turn.text && (
+                <p
+                  key={turn.id}
+                  className="whitespace-pre-wrap text-[14px] leading-[1.65] text-[#22423e]"
+                >
+                  {turn.text}
+                </p>
+              )
             );
           })}
 
-          {steps.length > 0 && (
-            <ol className="space-y-1">
-              {steps.map((step, index) => {
-                const current = index === steps.length - 1;
-
-                return (
-                  <li
-                    key={`${step}-${index}`}
-                    className={`flex items-center gap-2 text-[12.5px] ${
-                      current ? 'text-[#5d7470]' : 'text-[#c2ccca]'
-                    }`}
-                  >
-                    <span
-                      className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-                        current ? 'animate-pulse bg-[#e7a14d]' : 'bg-[#d6dedc]'
-                      }`}
-                    />
-                    {step}
-                  </li>
-                );
-              })}
-            </ol>
+          {step && (
+            <p className="flex items-center gap-2 text-[12.5px] text-[#5d7470]">
+              <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-[#e7a14d]" />
+              {step}
+            </p>
           )}
         </div>
       </div>
@@ -519,23 +330,6 @@ export default function ChatPanel() {
       )}
     </div>
   );
-}
-
-/** A date a person can place without doing arithmetic, which is all a chat list needs. */
-function when(timestamp: string): string {
-  const at = new Date(timestamp);
-
-  if (Number.isNaN(at.getTime())) return '';
-
-  const days = Math.floor((Date.now() - at.getTime()) / 86_400_000);
-
-  if (days === 0) return at.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
-
-  if (days === 1) return 'yesterday';
-
-  if (days < 7) return `${days} days ago`;
-
-  return at.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
 }
 
 function ClipIcon() {

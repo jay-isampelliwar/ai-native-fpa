@@ -14,6 +14,11 @@
  * tokens, and threading it through makes the eventual move to a session obvious: this is the only
  * file that changes.
  *
+ * There is no `planner` client here. The chat is one streaming endpoint, read by `lib/stream.ts`
+ * through `fetch` directly because it is a POST that returns server-sent events rather than JSON.
+ * The calls that used to sit here - send, approve, list, reopen and delete a conversation - were
+ * removed with the endpoints behind them, and come back with the features that need them.
+ *
  * Nothing here caches. Financial figures shown to a user must be the ones the backend just computed,
  * and a stale surplus rendered as current is exactly the failure the whole backend design avoids.
  */
@@ -21,14 +26,11 @@
 import type {
   AlertsResponse,
   CommitResponse,
-  Conversation,
-  ConversationDetail,
   GoalRead,
   HoldingsSummary,
   ImportRead,
   MappingProposal,
   MappingSheet,
-  MessageResponse,
   RecordCreated,
   StagedRow,
   StagedRowsPage,
@@ -91,49 +93,6 @@ export const users = {
       method: "POST",
       body: JSON.stringify({ user_id: userId }),
     });
-  },
-};
-
-export const planner = {
-  send(userId: number, message: string, conversationId?: string) {
-    return request<MessageResponse>("/api/v1/planner/messages", {
-      method: "POST",
-      body: JSON.stringify({
-        user_id: userId,
-        message,
-        conversation_id: conversationId ?? null,
-      }),
-    });
-  },
-
-  decide(userId: number, conversationId: string, decision: "approve" | "reject") {
-    return request<MessageResponse>("/api/v1/planner/approvals", {
-      method: "POST",
-      body: JSON.stringify({
-        user_id: userId,
-        conversation_id: conversationId,
-        decision,
-      }),
-    });
-  },
-
-  conversations(userId: number) {
-    return request<Conversation[]>(
-      `/api/v1/planner/conversations?user_id=${userId}`,
-    );
-  },
-
-  conversation(userId: number, conversationId: string) {
-    return request<ConversationDetail>(
-      `/api/v1/planner/conversations/${conversationId}?user_id=${userId}`,
-    );
-  },
-
-  discardConversation(userId: number, conversationId: string) {
-    return request<void>(
-      `/api/v1/planner/conversations/${conversationId}?user_id=${userId}`,
-      { method: "DELETE" },
-    );
   },
 };
 

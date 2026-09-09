@@ -5,7 +5,6 @@ import { useState } from 'react';
 import { INK, SERIES, STATUS } from '@/lib/chart';
 import { toNumber } from '@/lib/format';
 import type {
-  ApprovalCardBlock,
   Block,
   CalloutBlock,
   ChartBlock,
@@ -22,7 +21,10 @@ import type {
  *
  * Deliberately few, and closed. The backend describes what should be shown as typed blocks and this
  * file is the whole vocabulary that can render them — a model never emits markup, so nothing appears
- * on screen that a skill did not construct from computed figures.
+ * on screen that the backend did not construct from computed figures.
+ *
+ * The chat sends no blocks any more; the workspace panel is the only thing that does. The approval
+ * card was removed with the endpoint that answered it, which is why the union has no block that acts.
  *
  * Every block carries the record ids behind it and every one of them offers to show them. That is the
  * point of the backend's provenance design: a reader who disputes a number can see the exact rows it
@@ -412,95 +414,6 @@ export function Callout({ block }: { block: CalloutBlock }) {
   );
 }
 
-/**
- * The card a person approves, showing exactly what changes before anything does.
- *
- * The only block that acts. Before and after are rendered as literal values side by side rather than
- * summarised in a sentence, because someone approving a change to their own money should see the two
- * numbers rather than a description of them.
- *
- * Rejecting carries equal weight. The safe answer to a change you do not understand is no, and an
- * interface where yes is the only obvious action is nudging.
- */
-export function ApprovalCard({
-  block,
-  onDecide,
-}: {
-  block: ApprovalCardBlock;
-  onDecide?: (decision: 'approve' | 'reject') => Promise<void>;
-}) {
-  const [pending, setPending] = useState<'approve' | 'reject' | null>(null);
-  const [settled, setSettled] = useState(false);
-
-  async function decide(decision: 'approve' | 'reject') {
-    if (!onDecide || pending || settled) return;
-
-    setPending(decision);
-
-    try {
-      await onDecide(decision);
-      setSettled(true);
-    } finally {
-      setPending(null);
-    }
-  }
-
-  return (
-    <div className="rounded-2xl border border-[#e7a14d]/40 bg-[#e7a14d]/8 px-5 py-4">
-      <p className="text-[13.5px] font-semibold leading-5 text-[#18312f]">{block.title}</p>
-
-      <dl className="mt-3 space-y-2">
-        {block.changes.map((change) => (
-          <div
-            key={change.label}
-            className="flex flex-wrap items-baseline justify-between gap-2 border-b border-[#18312f]/8 pb-2 last:border-0 last:pb-0"
-          >
-            <dt className="text-[12.5px] text-[#4d6560]">{change.label}</dt>
-
-            <dd className="flex items-center gap-2 text-[13px] tabular-nums">
-              {change.before && (
-                <>
-                  <span className="text-[#8ba09c] line-through">{change.before}</span>
-                  <span aria-hidden="true" className="text-[#8ba09c]">
-                    →
-                  </span>
-                </>
-              )}
-              <span className="font-semibold text-[#18312f]">{change.after}</span>
-            </dd>
-          </div>
-        ))}
-      </dl>
-
-      {onDecide && !settled && (
-        <div className="mt-4 flex gap-2">
-          <button
-            type="button"
-            onClick={() => decide('approve')}
-            disabled={pending !== null}
-            className="rounded-full bg-[#183f3a] px-4 py-2 text-[12.5px] font-semibold text-white transition hover:bg-[#0d322e] disabled:opacity-50"
-          >
-            {pending === 'approve' ? 'Applying…' : 'Approve'}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => decide('reject')}
-            disabled={pending !== null}
-            className="rounded-full border border-[#18312f]/15 bg-white px-4 py-2 text-[12.5px] font-medium text-[#4d6560] transition hover:bg-white/70 disabled:opacity-50"
-          >
-            {pending === 'reject' ? 'Rejecting…' : 'Reject'}
-          </button>
-        </div>
-      )}
-
-      {settled && <p className="mt-3 text-[12.5px] text-[#5d7470]">Your decision has been recorded.</p>}
-
-      <Evidence ids={block.evidence_ids} />
-    </div>
-  );
-}
-
 function Text({ block }: { block: TextBlock }) {
   return (
     <div>
@@ -576,16 +489,14 @@ export function Prompt({
  * the backend without adding it here into a TypeScript error, rather than a silently missing element
  * on someone's screen.
  *
- * Order is the backend's decision, because the skill that produced the blocks knows which figure
- * leads. Re-sorting here would put the headline somewhere its author did not intend.
+ * Order is the backend's decision, because whatever produced the blocks knows which figure leads.
+ * Re-sorting here would put the headline somewhere its author did not intend.
  */
 export function BlockRenderer({
   blocks,
-  onDecide,
   onCompose,
 }: {
   blocks: Block[];
-  onDecide?: (decision: 'approve' | 'reject') => Promise<void>;
   onCompose?: (text: string) => void;
 }) {
   if (blocks.length === 0) return null;
@@ -593,17 +504,13 @@ export function BlockRenderer({
   return (
     <div className="space-y-3">
       {blocks.map((block, index) => (
-        <div key={`${block.type}-${index}`}>{render(block, onDecide, onCompose)}</div>
+        <div key={`${block.type}-${index}`}>{render(block, onCompose)}</div>
       ))}
     </div>
   );
 }
 
-function render(
-  block: Block,
-  onDecide?: (decision: 'approve' | 'reject') => Promise<void>,
-  onCompose?: (text: string) => void,
-) {
+function render(block: Block, onCompose?: (text: string) => void) {
   switch (block.type) {
     case 'text':
       return <Text block={block} />;
@@ -617,8 +524,6 @@ function render(
       return <Callout block={block} />;
     case 'prompt':
       return <Prompt block={block} onCompose={onCompose} />;
-    case 'approval_card':
-      return <ApprovalCard block={block} onDecide={onDecide} />;
     default: {
       const unhandled: never = block;
       return unhandled;

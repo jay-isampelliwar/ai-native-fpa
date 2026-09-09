@@ -10,9 +10,9 @@ import { useEffect, useState } from 'react';
  * invalidate — it is a fetch. What the client needs is therefore not a synchronisation layer but an
  * answer to one question: when is it worth fetching again?
  *
- * The answer is when something wrote. That moment is known precisely — an approval accepted, an import
- * committed — and it is known only by the component that did it, so that component says so and
- * everything reading records listens. A timer would either lag the change or ask a question nobody
+ * The answer is when something wrote. That moment is known precisely — an import committed — and it
+ * is known only by the component that did it, so that component says so and everything reading
+ * records listens. A timer would either lag the change or ask a question nobody
  * needed answered every few seconds, against figures that had not moved since the last time it asked.
  *
  * This lived inside `ChatPanel` before, with the event name written out in two files and the listener

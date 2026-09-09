@@ -20,9 +20,10 @@ backend chose - rupee grouping, no decimals for large sums - and ``value`` is th
 chart needs to scale an axis. Letting the frontend format from raw would put currency rendering
 in two places and guarantee they drift.
 
-``ApprovalCardBlock`` is the one block tied to a graph state rather than to a calculation. It
-renders what ``request_approval`` interrupted with, and its ``approval_id`` is what the client
-posts back - so a user approves the exact proposal they were shown rather than a fresh one.
+``ApprovalCardBlock`` was here and is gone. It rendered what ``request_approval`` interrupted with,
+and its ``approval_id`` was what the client posted back to ``/planner/approvals``. Both the interrupt
+and that endpoint were removed, so the block had no producer and no answer - and a block type nothing
+can emit is a promise to the frontend that the union will not keep.
 
 A chart may carry a ``marker`` and each point a ``tone``. The marker is one computed figure drawn
 across the plot - the corpus a retirement needs, the target a goal is aiming at - and without it a
@@ -156,26 +157,6 @@ class PromptBlock(BlockBase):
     caption: str | None = None
 
 
-class FieldChange(BaseModel):
-
-    """One field of a proposed change, showing the before and after a user is approving."""
-
-    label: str
-    before: str | None = None
-    after: str
-
-
-class ApprovalCardBlock(BlockBase):
-
-    """The proposed change a paused run is waiting on, rendered so the user can see exactly what alters."""
-
-    type: Literal["approval_card"] = "approval_card"
-    title: str
-    changes: list[FieldChange] = Field(default_factory=list)
-    approval_id: str | None = None
-    expires_in_seconds: int = 0
-
-
 Block = Annotated[
     Union[
         TextBlock,
@@ -184,9 +165,8 @@ Block = Annotated[
         ChartBlock,
         CalloutBlock,
         PromptBlock,
-        ApprovalCardBlock,
     ],
     Field(discriminator="type"),
 ]
 
-BLOCK_TYPES = frozenset({"text", "kpi", "table", "chart", "callout", "prompt", "approval_card"})
+BLOCK_TYPES = frozenset({"text", "kpi", "table", "chart", "callout", "prompt"})

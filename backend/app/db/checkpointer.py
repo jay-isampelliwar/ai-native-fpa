@@ -42,7 +42,6 @@ from app.core.config import settings
 
 ALLOWED_CHECKPOINT_TYPES = (
     ("app.core.security", "AuthenticatedUser"),
-    ("app.agent.state", "AgentContext"),
     ("app.ui.blocks", "TextBlock"),
     ("app.ui.blocks", "KpiBlock"),
     ("app.ui.blocks", "TableBlock"),
@@ -53,8 +52,6 @@ ALLOWED_CHECKPOINT_TYPES = (
     ("app.ui.blocks", "CalloutBlock"),
     ("app.ui.blocks", "PromptBlock"),
     ("app.ui.blocks", "PromptItem"),
-    ("app.ui.blocks", "ApprovalCardBlock"),
-    ("app.ui.blocks", "FieldChange"),
 )
 
 NONCE_BYTES = 12

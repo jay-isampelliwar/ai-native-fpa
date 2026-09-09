@@ -1,65 +1,28 @@
-"""Server sent events for the chat, so the interface shows progress rather than a spinner.
+"""Server sent events for the chat, so a person reads a reply forming instead of watching a spinner.
 
-A planner answer can take several seconds - a routing call, a repository read, a calculator, and
-for the investigation skill an agent loop. Returning nothing until all of it finishes makes a
-working system feel broken, and the graph already knows what it is doing at each step.
+The events are the three the frontend already listens for. ``token`` carries the words as the model
+writes them, ``done`` carries the finished answer, and ``error`` closes a failed stream with
+something a client can act on. ``progress`` is emitted once at the start and nowhere else: it used to
+name the node that had just finished, and with a single node there is nothing to narrate between
+"thinking" and the answer. It no longer carries a ``skill`` either - there are no skills to name.
 
-Events come from two of LangGraph's stream modes at once. ``updates`` yields one entry per node as
-it completes, so the client is told which skill was chosen the moment routing returns rather than
-after the skill has run. ``custom`` carries whatever a skill writes from inside its own run, which
-is how a tool call several frames deep - inside an agent loop, inside the conversation node - reaches
-the client at all. Without it the longest part of the longest answer is a single unchanging label.
+Tokens come from LangGraph's ``messages`` stream mode, which taps the model call inside the node
+rather than the node's return value. That is the only place the words exist before the node finishes,
+so streaming without it would emit one event holding the whole reply.
 
-Four nodes emit nothing. Authenticating, loading a definition, checking permissions and writing the
-audit record are steps in this system's own bookkeeping, and a person waiting on an answer about
-their money does not need to be told that permissions were checked - it reads as busywork and it
-buries the two lines that are actually about them. They still run, are still audited and still refuse
-what they should; they are simply not narrated.
+``done`` repeats the same text the tokens spelled out, and it is the authoritative one. Right now they
+are always identical - nothing rewrites the reply between the two - but a client that renders tokens
+and then replaces them with ``done`` stays correct when something does, which is what the figure check
+did before it was removed and what it will do again.
 
-The answer arrives twice, and the second one is the truth. ``token`` events carry the words as the
-model writes them, so a person reads a reply forming instead of watching a spinner for several
-seconds; the closing ``done`` event carries the finished body, after the figure check has decided
-whether that reply survives. A client renders the tokens as they come and replaces them with what
-``done`` says, which is identical except in the case the check exists for.
-
-"Thinking" is emitted before the graph starts rather than when a node finishes. ``updates`` fires on
-completion, so a label attached to the conversation node would arrive after the work it describes -
-after the tool events it emitted, which is exactly backwards from what a person is watching for.
-
-The skills name themselves as they are called, rather than being named here. ``updates`` fires when a
-node completes, and the whole conversation is one node - so labelling it could only say "thinking"
-before and "done" after, with the several seconds in between unexplained. Each skill tool writes its
-own line as it starts, which is why the interesting part of a long answer is visible while it
-happens.
-
-Only node names and finished results cross the wire. The graph's state carries the caller's
-scopes, the loaded skill definition and the raw denial reason, none of which a client should see,
-so each event is built explicitly rather than by dumping state.
-
-The stream ends with a single ``done`` event carrying the same body the non streaming endpoint
-returns. A client can therefore ignore every intermediate event and still be correct, which keeps
-the streaming path from becoming a second source of truth about what the answer was.
-
-Errors are emitted as an ``error`` event and then the stream closes normally. An SSE connection
-that drops without a terminal event leaves a client unable to tell a failure from a slow answer.
-
-The answer is written to the transcript here rather than in the endpoint, because on this path the
-endpoint has already returned by the time there is an answer to record. The question was recorded
-before the response was constructed, so the two halves of a turn are written from two places - which
-is the cost of streaming, and cheaper than a second code path that recomputes the body.
+Errors are emitted as an ``error`` event and then the stream closes normally. An SSE connection that
+drops without a terminal event leaves a client unable to tell a failure from a slow answer.
 """
 
 import json
 from collections.abc import AsyncIterator
 
-import orjson
-
 from app.api.v1.planner.schemas import MessageResponse
-
-SILENT = {
-    "authenticate_context",
-    "agent",
-}
 
 
 def event(name: str, payload: dict) -> str:
@@ -69,61 +32,58 @@ def event(name: str, payload: dict) -> str:
     return f"event: {name}\ndata: {json.dumps(payload)}\n\n"
 
 
-async def stream_planner_run(
+async def stream_chat(
     graph,
-    state: dict,
-    config: dict,
-    conversation_id: str,
     user_id: int,
+    conversation_id: str,
+    message: str,
     ) -> AsyncIterator[str]:
 
-    """Run the graph, emitting one progress event per completed node and one final result."""
+    """Run one graph invocation, emitting the model's words as they arrive and the answer at the end."""
 
-    final_state: dict = {}
+    state = {
+        "user_id": user_id,
+        "conversation_id": conversation_id,
+        "messages": [("user", message)],
+    }
 
-    yield event("progress", {"node": "start", "label": "Thinking", "skill": None})
+    config = {"configurable": {"thread_id": conversation_id}}
+
+    written: list[str] = []
+
+    yield event("progress", {"node": "start", "label": "Thinking"})
 
     try:
-        async for chunk in graph.astream(state, config=config, stream_mode="updates"):
+        async for chunk, _ in graph.astream(state, config=config, stream_mode="messages"):
 
-            for node_name, node_state in chunk.items():
+            text = text_of(chunk)
 
-                final_state.update(node_state or {})
+            if not text:
+                continue
 
-                if node_name in SILENT:
-                    continue
+            written.append(text)
 
-                yield event(
-                    "progress",
-                    {"node": node_name, "label": node_name, "skill": None},
-                )
+            yield event("token", {"text": text})
 
-        snapshot = await graph.aget_state(config)
+        body = MessageResponse(conversation_id=conversation_id, response="".join(written))
 
-        body = build_body(conversation_id, snapshot)
-
-        await remember_answer(user_id, body)
-
-        yield event("done", orjson.loads(body.model_dump_json()))
+        yield event("done", body.model_dump())
 
     except Exception as exc:
 
         yield event("error", {"error": type(exc).__name__, "message": "the request could not be completed"})
 
 
-async def remember_answer(user_id: int, body: MessageResponse) -> None:
+def text_of(chunk) -> str:
 
-    """Record the streamed answer through the same helper the non streaming path uses."""
+    """Take the plain text out of one streamed message chunk, ignoring anything that is not prose."""
 
-    from app.api.v1.planner.router import remember_answer as record
+    content = getattr(chunk, "content", "")
 
-    await record(user_id, body)
+    if isinstance(content, str):
+        return content
 
+    if isinstance(content, list):
+        return "".join(part.get("text", "") for part in content if isinstance(part, dict))
 
-def build_body(conversation_id: str, snapshot) -> MessageResponse:
-
-    """Build the same response the non streaming endpoint returns, from the finished graph state."""
-
-    from app.api.v1.planner.router import to_response
-
-    return to_response(conversation_id, dict(snapshot.values))
+    return ""

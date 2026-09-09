@@ -15,8 +15,13 @@
  * figure and see the rows behind that figure rather than the rows behind the whole answer.
  *
  * `PromptBlock` is the one block with nothing to trace: it asks for records instead of reporting
- * them, so its `evidence_ids` is always empty. Its `examples` are sentences the backend's capture
- * skill can parse, which is why the renderer can offer them as something to send.
+ * them, so its `evidence_ids` is always empty. Its `examples` come from the backend's list of asks,
+ * which is why the renderer can offer them as something to send.
+ *
+ * There is no `MessageResponse` beyond a thread id and the text, and no conversation or approval
+ * shape at all. The blocks, evidence ids, calculator versions, skill name and approval card that
+ * used to ride along with a chat reply described endpoints this branch removed, and a type for a
+ * field the backend cannot send is how a client ends up rendering an empty section forever.
  */
 
 export type BlockType =
@@ -25,8 +30,7 @@ export type BlockType =
   | "table"
   | "chart"
   | "callout"
-  | "prompt"
-  | "approval_card";
+  | "prompt";
 
 export interface BlockBase {
   evidence_ids: string[];
@@ -102,47 +106,17 @@ export interface PromptBlock extends BlockBase {
   caption: string | null;
 }
 
-export interface FieldChange {
-  label: string;
-  before: string | null;
-  after: string;
-}
-
-export interface ApprovalCardBlock extends BlockBase {
-  type: "approval_card";
-  title: string;
-  changes: FieldChange[];
-  approval_id: string | null;
-  expires_in_seconds: number;
-}
-
 export type Block =
   | TextBlock
   | KpiBlock
   | TableBlock
   | ChartBlock
   | CalloutBlock
-  | PromptBlock
-  | ApprovalCardBlock;
-
-export interface PendingApproval {
-  conversation_id: string;
-  skill: string | null;
-  summary: string;
-  evidence_ids: string[];
-  expires_in_seconds: number;
-}
+  | PromptBlock;
 
 export interface MessageResponse {
   conversation_id: string;
-  correlation_id: string | null;
-  skill: string | null;
-  status: string;
   response: string;
-  blocks: Block[];
-  evidence_ids: string[];
-  calculator_versions: string[];
-  pending_approval: PendingApproval | null;
 }
 
 export interface WorkspaceReadiness {
@@ -166,38 +140,9 @@ export interface Workspace {
   sections: WorkspaceSection[];
 }
 
-export interface ConversationMessage {
-  id: string;
-  position: number;
-  role: "user" | "planner";
-  text: string;
-  blocks: Block[];
-  skill: string | null;
-  status: string | null;
-  correlation_id: string | null;
-  evidence_ids: string[];
-  calculator_versions: string[];
-  created_at: string;
-}
-
-export interface Conversation {
-  id: string;
-  title: string | null;
-  message_count: number;
-  created_at: string;
-  last_message_at: string;
-}
-
-export interface ConversationDetail extends Conversation {
-  messages: ConversationMessage[];
-}
-
 export interface ProgressEvent {
   node: string;
   label: string;
-  skill: string | null;
-  /** Present only on an event a skill wrote from inside its own run, naming the tool it called. */
-  tool?: string | null;
 }
 
 export interface ImportRead {
