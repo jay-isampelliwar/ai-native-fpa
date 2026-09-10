@@ -72,6 +72,11 @@ export default function ChatPanel() {
     if (element) element.scrollTop = element.scrollHeight;
   }, [turns, step]);
 
+  /** Put the caret back in the composer the moment a turn finishes, so typing never needs a click. */
+  useEffect(() => {
+    if (!busy) composer.current?.focus();
+  }, [busy]);
+
   /** Drop the thread id as well as the turns — the same screen against a different memory. */
   function newSession() {
     if (busy) return;
@@ -89,6 +94,7 @@ export default function ChatPanel() {
     const answerId = newId();
 
     setDraft('');
+    composer.current?.focus();
     setTurns((current) => [
       ...current,
       { id: newId(), role: 'user', text: trimmed },
@@ -206,7 +212,6 @@ export default function ChatPanel() {
                 }
               }}
               rows={1}
-              disabled={busy}
               placeholder={busy ? 'One moment…' : 'Ask a question'}
               className="max-h-36 min-h-[36px] flex-1 resize-none bg-transparent px-1.5 py-2 text-[14px] leading-6 text-[#18312f] outline-none placeholder:text-[#a8b8b4] disabled:opacity-60"
             />
