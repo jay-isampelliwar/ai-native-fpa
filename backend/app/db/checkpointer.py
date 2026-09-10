@@ -1,33 +1,3 @@
-"""The production checkpointer, and the encryption layer that sits underneath it.
-
-A LangGraph checkpoint is the paused state of a real user's request. For this product
-that means a proposed SIP change, the surplus figures behind it and the record ids it
-cites, sitting in a table until someone answers. It is the one place where working
-financial state rests outside the application database, so it is encrypted at rest with a
-key this service holds rather than relying on the database's own encryption alone.
-
-``EncryptedSerializer`` wraps the serialiser LangGraph would otherwise use rather than
-replacing it. The inner serialiser still decides how objects become bytes - which is what
-keeps pydantic models, dates and Decimals round tripping correctly - and this class only
-encrypts the bytes that come out. Swapping in a different inner serialiser later changes
-nothing here.
-
-AES-GCM is used rather than plain AES because it authenticates as well as encrypts. A
-checkpoint that has been tampered with fails to decrypt instead of resuming as something
-slightly different, which matters when the object being restored is a pending instruction
-to move money. The nonce is generated per record and stored alongside the ciphertext.
-
-Rotating ``checkpoint_encryption_key`` invalidates every stored checkpoint, because old
-records cannot be decrypted with a new key. That is a migration - drain or expire pending
-approvals first - not a redeploy, which is why the key is a required setting with no
-default that could be silently regenerated.
-
-``ALLOWED_CHECKPOINT_TYPES`` is the closed list of our own classes that may be rebuilt
-from a checkpoint. Deserialisation reconstructs objects from stored bytes, so an open
-allowlist means whatever a row names gets imported and instantiated. Listing the types
-explicitly keeps that decision in this file, and a new type added to ``PlannerState``
-must be added here too or it will be refused rather than silently trusted.
-"""
 
 import os
 from contextlib import asynccontextmanager
@@ -42,16 +12,19 @@ from app.core.config import settings
 
 ALLOWED_CHECKPOINT_TYPES = (
     ("app.core.security", "AuthenticatedUser"),
-    ("app.ui.blocks", "TextBlock"),
-    ("app.ui.blocks", "KpiBlock"),
-    ("app.ui.blocks", "TableBlock"),
-    ("app.ui.blocks", "TableColumn"),
-    ("app.ui.blocks", "ChartBlock"),
-    ("app.ui.blocks", "ChartPoint"),
-    ("app.ui.blocks", "ChartMarker"),
-    ("app.ui.blocks", "CalloutBlock"),
-    ("app.ui.blocks", "PromptBlock"),
-    ("app.ui.blocks", "PromptItem"),
+    ("app.agent.user_data", "UserProfile"),
+    ("app.agent.user_data", "Income"),
+    ("app.agent.user_data", "Expense"),
+    ("app.agent.user_data", "Loan"),
+    ("app.agent.user_data", "Emi"),
+    ("app.agent.user_data", "Sip"),
+    ("app.agent.user_data", "MutualFund"),
+    ("app.agent.user_data", "Stock"),
+    ("app.agent.user_data", "Deposit"),
+    ("app.agent.user_data", "RetirementAsset"),
+    ("app.agent.user_data", "InsurancePolicy"),
+    ("app.agent.user_data", "Goal"),
+    ("app.agent.user_data", "Spend"),
 )
 
 NONCE_BYTES = 12
