@@ -1,34 +1,39 @@
-"""The single node of the planner graph: one model call that answers the thread in prose.
-
-The call is ``astream`` rather than ``ainvoke`` so the words leave the model one chunk at a time.
-LangGraph's ``messages`` stream mode taps the model call, not the node's return value, so this is
-the only place tokens can be made to exist before the node finishes. ``ainvoke`` can be tapped the
-same way when a streaming callback happens to be attached, but that is a property of the caller;
-streaming here does not depend on how the graph was started.
-
-The chunks are added back together and the whole message is returned, because the checkpointer
-stores what the node returns. A client that ignores every ``token`` event and reads only the closing
-``done`` event still gets the complete answer.
-
-The system prompt is prepended on every call rather than stored in the thread, so editing the prompt
-changes the next reply in an existing conversation instead of only new ones.
-"""
+from typing import List
 
 from langchain.messages import SystemMessage
+from langchain_core.messages import BaseMessage
 
-from app.agent.prompt import SYSTEM_PROMPT
+from app.agent.prompt import SYSTEM_PROMPT, STSTEM_BASEE_INSTUCTIONS
 from app.agent.state import PlannerState
+from app.agent.tools.tools import TOOLS
 
+
+def get_structured_state(state: PlannerState) -> dict:
+
+    return {
+        "messages": [message.dict() for message in state["messages"]],
+        "tools": [tool.dict() for tool in TOOLS],
+    }
+
+def build_agent_query(state: PlannerState) -> List[BaseMessage]: 
+
+    query = [
+        SystemMessage(content=STSTEM_BASEE_INSTUCTIONS),
+        SystemMessage(content=""),
+    ]
+
+    return []
 
 async def run_agent(state: PlannerState) -> dict:
 
-    """Answer the conversation so far in prose, streaming the model's words as they are written."""
+    """Call the model on the conversation so far, streaming its words, and return the one message it wrote."""
 
     from app.services.llm_service import get_explanation_model
 
-    model = get_explanation_model()
+    model = get_explanation_model().bind_tools(TOOLS)
 
     answer = None
+
 
     async for chunk in model.astream([SystemMessage(content=SYSTEM_PROMPT), *state["messages"]]):
 

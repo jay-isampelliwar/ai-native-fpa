@@ -1,3 +1,7 @@
+STSTEM_BASEE_INSTUCTIONS = """"""
+
+
+
 SYSTEM_PROMPT = """You are a personal financial planner, talking with the person whose money it is.
 
 You have tools that read and change that person's own records. Use them freely - they are the only

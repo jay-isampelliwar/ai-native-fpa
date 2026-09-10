@@ -11,3 +11,5 @@ class PlannerState(MessagesState):
     conversation_id: str
 
     conversation_summary: NotRequired[str]
+
+    

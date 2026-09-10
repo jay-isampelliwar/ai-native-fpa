@@ -1,6 +1,6 @@
 from langchain_core.tools import BaseTool, tool
 
-from app.agent.state import AgentContext, RunLog
+from app.agent.state import AgentContext, Run
 from app.repositories import get_cashflow_repository, get_expense_repository
 from app.repositories.goals_repository import goals_repository
 from app.repositories.holdings_repository import holdings_repository
@@ -10,7 +10,7 @@ DESCRIPTION_LIMIT = 120
 TRANSACTION_LIMIT = 50
 
 
-def build_read_tools(context: AgentContext, log: RunLog) -> list[BaseTool]:
+def build_read_tools() -> list[BaseTool]:
 
     """Build every lookup tool bound to this caller, leaving the model no way to name another."""
 
@@ -22,8 +22,6 @@ def build_read_tools(context: AgentContext, log: RunLog) -> list[BaseTool]:
     async def list_income() -> dict:
 
         """List this person's income records with their amounts and how often each arrives."""
-
-        log.used("list_income")
 
         records = await cashflow.get_cashflow_records(context.user_id)
 
@@ -49,8 +47,6 @@ def build_read_tools(context: AgentContext, log: RunLog) -> list[BaseTool]:
 
         """List this person's recurring expense records with their amounts and categories."""
 
-        log.used("list_expenses")
-
         records = await cashflow.get_cashflow_records(context.user_id)
 
         if not records.expenses:
@@ -73,9 +69,7 @@ def build_read_tools(context: AgentContext, log: RunLog) -> list[BaseTool]:
     @tool("list_emis")
     async def list_emis() -> dict:
 
-        """List this person's loan EMIs with the amount, interest rate and months remaining on each."""
-
-        log.used("list_emis")
+        """List this person's loan EMIs with the amount, interest rate and months remaining on each.""" 
 
         records = await cashflow.get_cashflow_records(context.user_id)
 
@@ -101,8 +95,6 @@ def build_read_tools(context: AgentContext, log: RunLog) -> list[BaseTool]:
 
         """List this person's SIPs with the scheme name, amount, frequency and which goal each funds."""
 
-        log.used("list_sips")
-
         records = await cashflow.get_cashflow_records(context.user_id)
 
         if not records.sips:
@@ -126,9 +118,7 @@ def build_read_tools(context: AgentContext, log: RunLog) -> list[BaseTool]:
     @tool("list_goals")
     async def list_goals() -> dict:
 
-        """List this person's savings goals with the target amount, target date and what is funding each."""
-
-        log.used("list_goals")
+        """List this person's savings goals with the target amount, target date and what is funding each.""" 
 
         snapshots = await goals_repository.list_snapshots(context.user_id)
 
@@ -155,8 +145,6 @@ def build_read_tools(context: AgentContext, log: RunLog) -> list[BaseTool]:
     async def list_holdings() -> dict:
 
         """List the positions this person owns, valued as their last imported statement stated."""
-
-        log.used("list_holdings")
 
         summary = await holdings_repository.summary(context.user_id)
 
@@ -193,8 +181,6 @@ def build_read_tools(context: AgentContext, log: RunLog) -> list[BaseTool]:
 
         """List this person's dated spends for one month, newest first, optionally filtered by category."""
 
-        log.used("list_transactions")
-
         rows = await expenses.list_transactions(
             context.user_id,
             year=year,
@@ -223,8 +209,6 @@ def build_read_tools(context: AgentContext, log: RunLog) -> list[BaseTool]:
     async def spending_by_category(year: int, month: int) -> dict:
 
         """Total this person's spending per category for one month, highest first."""
-
-        log.used("spending_by_category")
 
         totals = await expenses.category_totals(context.user_id, year, month)
 
