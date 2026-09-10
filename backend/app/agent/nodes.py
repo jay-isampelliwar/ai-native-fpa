@@ -1,21 +1,17 @@
-"""The one node the graph has: send the conversation to the model and keep what it says.
+"""The single node of the planner graph: one model call that answers the thread in prose.
 
-There is nothing else in here. ``authenticate_context`` was removed because it had become a node that
-returned the state it was given - identity is the ``user_id`` the request already carries, and a node
-that copies a field is a step in a diagram rather than a step in a program. ``run_agent`` no longer
-builds tools, a context object or a run log either, because none of those exist right now.
+The call is ``astream`` rather than ``ainvoke`` so the words leave the model one chunk at a time.
+LangGraph's ``messages`` stream mode taps the model call, not the node's return value, so this is
+the only place tokens can be made to exist before the node finishes. ``ainvoke`` can be tapped the
+same way when a streaming callback happens to be attached, but that is a property of the caller;
+streaming here does not depend on how the graph was started.
 
-The whole message list is sent, not just the newest message. ``PlannerState`` is a ``MessagesState``,
-so the checkpointer keyed by the conversation id has already loaded the earlier turns into it, and
-passing only the last one would give the model amnesia between messages while the state quietly grew.
+The chunks are added back together and the whole message is returned, because the checkpointer
+stores what the node returns. A client that ignores every ``token`` event and reads only the closing
+``done`` event still gets the complete answer.
 
-The system prompt goes in front of the list on every call rather than being stored in the thread. If
-it were appended to the state once, editing the prompt would leave every existing conversation on the
-old one until its checkpoint expired.
-
-``ainvoke`` rather than ``invoke``: the node is awaited inside an async graph, and a blocking model
-call there stalls the event loop that is meant to be pushing tokens to the browser. Nothing here
-streams explicitly - LangGraph's ``messages`` stream mode taps this call from the outside.
+The system prompt is prepended on every call rather than stored in the thread, so editing the prompt
+changes the next reply in an existing conversation instead of only new ones.
 """
 
 from langchain.messages import SystemMessage
@@ -26,12 +22,19 @@ from app.agent.state import PlannerState
 
 async def run_agent(state: PlannerState) -> dict:
 
-    """Answer the conversation so far in prose, with the system prompt in front of every call."""
+    """Answer the conversation so far in prose, streaming the model's words as they are written."""
 
     from app.services.llm_service import get_explanation_model
 
     model = get_explanation_model()
 
-    answer = await model.ainvoke([SystemMessage(content=SYSTEM_PROMPT), *state["messages"]])
+    answer = None
+
+    async for chunk in model.astream([SystemMessage(content=SYSTEM_PROMPT), *state["messages"]]):
+
+        answer = chunk if answer is None else answer + chunk
+
+    if answer is None:
+        return {"messages": []}
 
     return {"messages": [answer]}
