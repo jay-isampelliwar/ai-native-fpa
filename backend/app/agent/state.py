@@ -1,3 +1,4 @@
+"""What one chat turn carries through the graph."""
 
 from typing import NotRequired
 

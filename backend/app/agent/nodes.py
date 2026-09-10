@@ -1,28 +1,10 @@
-from typing import List
+"""The nodes of the planner graph: the model call that answers, and the compaction that follows it."""
 
-from langchain.messages import SystemMessage
-from langchain_core.messages import BaseMessage
-
-from app.agent.prompt import SYSTEM_PROMPT, STSTEM_BASEE_INSTUCTIONS
+from app.agent.context.compaction import compact_context
+from app.agent.context.query import build_agent_query
 from app.agent.state import PlannerState
 from app.agent.tools.tools import TOOLS
 
-
-def get_structured_state(state: PlannerState) -> dict:
-
-    return {
-        "messages": [message.dict() for message in state["messages"]],
-        "tools": [tool.dict() for tool in TOOLS],
-    }
-
-def build_agent_query(state: PlannerState) -> List[BaseMessage]: 
-
-    query = [
-        SystemMessage(content=STSTEM_BASEE_INSTUCTIONS),
-        SystemMessage(content=""),
-    ]
-
-    return []
 
 async def run_agent(state: PlannerState) -> dict:
 
@@ -34,8 +16,7 @@ async def run_agent(state: PlannerState) -> dict:
 
     answer = None
 
-
-    async for chunk in model.astream([SystemMessage(content=SYSTEM_PROMPT), *state["messages"]]):
+    async for chunk in model.astream(build_agent_query(state)):
 
         answer = chunk if answer is None else answer + chunk
 
@@ -43,3 +24,10 @@ async def run_agent(state: PlannerState) -> dict:
         return {"messages": []}
 
     return {"messages": [answer]}
+
+
+async def run_compaction(state: PlannerState) -> dict:
+
+    """Shrink the thread after the answer is written, returning nothing when everything already fits."""
+
+    return await compact_context(state)

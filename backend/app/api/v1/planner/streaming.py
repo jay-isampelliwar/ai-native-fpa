@@ -22,6 +22,8 @@ drops without a terminal event leaves a client unable to tell a failure from a s
 import json
 from collections.abc import AsyncIterator
 
+from app.agent.graph import AGENT_NODE
+from app.agent.user_data import UserProfile
 from app.api.v1.planner.schemas import MessageResponse
 
 
@@ -44,6 +46,7 @@ async def stream_chat(
     state = {
         "user_id": user_id,
         "conversation_id": conversation_id,
+        "profile": UserProfile(user_id=user_id),
         "messages": [("user", message)],
     }
 
@@ -54,7 +57,10 @@ async def stream_chat(
     yield event("progress", {"node": "start", "label": "Thinking"})
 
     try:
-        async for chunk, _ in graph.astream(state, config=config, stream_mode="messages"):
+        async for chunk, metadata in graph.astream(state, config=config, stream_mode="messages"):
+
+            if metadata.get("langgraph_node") != AGENT_NODE:
+                continue
 
             text = text_of(chunk)
 

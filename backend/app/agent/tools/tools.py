@@ -1,9 +1,7 @@
-from app.agent.tools.analysis import build_analysis_tools
-from app.agent.tools.reads import build_read_tools
-from app.agent.tools.writes import build_write_tools
+"""The one list of tools the agent is bound to, gathered from the three modules that define them."""
 
-TOOLS = [
-    *build_analysis_tools,
-    *build_read_tools,
-    *build_write_tools,
-    ]
+from app.agent.tools.analysis import ANALYSIS_TOOLS
+from app.agent.tools.reads import READ_TOOLS
+from app.agent.tools.writes import WRITE_TOOLS
+
+TOOLS = [*READ_TOOLS, *ANALYSIS_TOOLS, *WRITE_TOOLS]

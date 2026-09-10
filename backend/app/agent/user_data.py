@@ -1,3 +1,4 @@
+"""The plain objects a turn carries about a user's money, one class per kind of record."""
 
 from datetime import date
 from decimal import Decimal
