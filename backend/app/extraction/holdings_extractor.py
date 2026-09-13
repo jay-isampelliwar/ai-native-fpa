@@ -91,7 +91,13 @@ class HoldingsWorkbookExtractor:
 
         return any(marker in content_type for marker in WORKBOOK_CONTENT_TYPES) and head[:2] == b"PK"
 
-    async def extract(self, content: bytes, filename: str, user_id: int) -> ExtractionResult:
+    async def extract(
+        self,
+        content: bytes,
+        filename: str,
+        user_id: int,
+        password: str | None = None,
+        ) -> ExtractionResult:
 
         """Read the workbook with the most specific template that fits, or ask for a mapping instead."""
 

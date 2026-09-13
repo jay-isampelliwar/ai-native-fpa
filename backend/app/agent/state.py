@@ -23,7 +23,7 @@ from app.agent.user_data import (
 
 class PlannerState(MessagesState):
 
-    """One chat turn: the thread's messages, who is asking, and every record loaded about their money."""
+    """One chat turn: the thread's messages, who is asking, their records, and any documents attached."""
 
     user_id: int
     conversation_id: str
@@ -44,5 +44,7 @@ class PlannerState(MessagesState):
 
     goals: NotRequired[list[Goal]]
     recent_spends: NotRequired[list[Spend]]
+
+    import_ids: NotRequired[list[str]]
 
     conversation_summary: NotRequired[str]

@@ -17,6 +17,10 @@ did before it was removed and what it will do again.
 
 Errors are emitted as an ``error`` event and then the stream closes normally. An SSE connection that
 drops without a terminal event leaves a client unable to tell a failure from a slow answer.
+
+``import_ids`` is written into the state on every turn, empty list included. Graph state is last
+write wins per key, so a turn that simply omitted the field would inherit the previous turn's
+attachments from the checkpoint and the model would describe a document nobody had just sent.
 """
 
 import json
@@ -39,6 +43,7 @@ async def stream_chat(
     user_id: int,
     conversation_id: str,
     message: str,
+    import_ids: list[str] | None = None,
     ) -> AsyncIterator[str]:
 
     """Run one graph invocation, emitting the model's words as they arrive and the answer at the end."""
@@ -47,6 +52,7 @@ async def stream_chat(
         "user_id": user_id,
         "conversation_id": conversation_id,
         "profile": UserProfile(user_id=user_id),
+        "import_ids": import_ids or [],
         "messages": [("user", message)],
     }
 

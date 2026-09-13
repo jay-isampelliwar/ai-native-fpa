@@ -20,7 +20,13 @@ async def stream_message(request: MessageRequest) -> StreamingResponse:
     conversation_id = request.conversation_id or f"conv_{uuid4().hex}"
 
     return StreamingResponse(
-        stream_chat(planner.planner_graph, request.user_id, conversation_id, request.message),
+        stream_chat(
+            planner.planner_graph,
+            request.user_id,
+            conversation_id,
+            request.message,
+            request.import_ids,
+        ),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"},
     )

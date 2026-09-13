@@ -53,6 +53,7 @@ class Settings(BaseSettings):
     openai_api_key: SecretStr
     router_model: str = "gpt-4o-mini"
     explanation_model: str = "gpt-4o"
+    vision_model: str = "gpt-4o"
 
     langsmith_api_key: SecretStr | None = None
     langsmith_project: str = "ai-native-fpa"
@@ -67,6 +68,9 @@ class Settings(BaseSettings):
 
     upload_directory: str = "var/uploads"
     maximum_upload_bytes: int = 20 * 1024 * 1024
+    maximum_upload_files: int = Field(default=5, ge=1)
+    maximum_vision_pages: int = Field(default=8, ge=1)
+    vision_render_dpi: int = Field(default=150, ge=72)
 
     default_timezone: str = "Asia/Kolkata"
     default_currency: str = "INR"

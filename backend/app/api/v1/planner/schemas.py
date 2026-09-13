@@ -21,6 +21,10 @@ needs it.
 
 from pydantic import BaseModel, Field
 
+from app.core.config import settings
+
+MAXIMUM_ATTACHMENTS = settings.maximum_upload_files
+
 
 class MessageRequest(BaseModel):
 
@@ -29,6 +33,7 @@ class MessageRequest(BaseModel):
     user_id: int
     message: str = Field(min_length=1, max_length=2000)
     conversation_id: str | None = None
+    import_ids: list[str] = Field(default_factory=list, max_length=MAXIMUM_ATTACHMENTS)
 
 
 class MessageResponse(BaseModel):

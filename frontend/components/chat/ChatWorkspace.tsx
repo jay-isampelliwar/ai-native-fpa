@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { PROFILE } from '@/lib/mock/data';
 import { users } from '@/lib/api';
 import { streamMessage } from '@/lib/stream';
+import { useUploads } from '@/lib/useUploads';
 import ChatComposer from '@/components/chat/ChatComposer';
 import ChatHeader from '@/components/chat/ChatHeader';
 import MessageTimeline, { type Turn } from '@/components/chat/MessageTimeline';
@@ -32,6 +33,10 @@ import SuggestedPrompts from '@/components/chat/SuggestedPrompts';
  * not be answered is part of the record of what was asked, and dismissing it leaves
  * a gap the reader cannot account for.
  *
+ * Attachments are held by `useUploads` rather than in this component. They are uploaded when
+ * picked, so a file is usually read before the sentence about it is finished, and the composer
+ * holds Send until nothing is still being read.
+ *
  * Identity arrives as a prop rather than being read here, and the shell remounts
  * this component when it changes. That remount is the whole of switching user:
  * turns, draft and thread id all go with it. Clearing them by hand instead would
@@ -54,6 +59,8 @@ export default function ChatWorkspace({
   const [step, setStep] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [conversationId, setConversationId] = useState<string | undefined>();
+
+  const uploads = useUploads(userId);
 
   const scroller = useRef<HTMLDivElement>(null);
   const composer = useRef<HTMLTextAreaElement>(null);
@@ -82,15 +89,21 @@ export default function ChatWorkspace({
 
   async function send(message: string) {
     const trimmed = message.trim();
-    if (!trimmed || busy || typeof userId !== 'number') return;
+    if (!trimmed || busy || uploads.reading || typeof userId !== 'number') return;
 
     const answerId = newId();
 
+    // Read before clearing: the chips are emptied as the message is sent, and these ids are what
+    // ties the reply to the files it is about.
+    const importIds = uploads.importIds;
+    const attached = uploads.attachments.map((item) => item.name);
+
     setDraft('');
+    uploads.clear();
     setTurns((current) => [
       ...current,
-      { id: newId(), role: 'user', text: trimmed, at: new Date() },
-      { id: answerId, role: 'planner', text: '', at: new Date() },
+      { id: newId(), role: 'user', text: trimmed, at: new Date(), attached },
+      { id: answerId, role: 'planner', text: '', at: new Date(), importIds },
     ]);
     setBusy(true);
     setStep('Thinking');
@@ -99,7 +112,7 @@ export default function ChatWorkspace({
       setTurns((current) => current.map((turn) => (turn.id === answerId ? change(turn) : turn)));
     }
 
-    await streamMessage(userId, trimmed, conversationId, {
+    await streamMessage(userId, trimmed, conversationId, importIds, {
       onProgress: (event) => setStep(event.label),
       onToken: (piece) => amend((turn) => ({ ...turn, text: turn.text + piece })),
       onDone: (response) => {
@@ -147,7 +160,7 @@ export default function ChatWorkspace({
             <SuggestedPrompts onPick={send} />
           </div>
         ) : (
-          <MessageTimeline turns={turns} streamingId={streamingId} />
+          <MessageTimeline turns={turns} streamingId={streamingId} userId={userId} />
         )}
 
         {step && (
@@ -171,6 +184,10 @@ export default function ChatWorkspace({
         onSend={() => send(draft)}
         busy={busy}
         inputRef={composer}
+        attachments={uploads.attachments}
+        onAttach={(files) => void uploads.add(files)}
+        onRemoveAttachment={uploads.remove}
+        onUnlockAttachment={(key, password) => void uploads.unlock(key, password)}
       />
     </div>
   );

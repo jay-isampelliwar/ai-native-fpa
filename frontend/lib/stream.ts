@@ -17,6 +17,10 @@
  * a reply forming rather than watching a spinner. They are rendered as they arrive and then
  * overwritten by what `done` says — identical today, and correct on the day the backend checks the
  * finished reply before standing behind it.
+ *
+ * `import_ids` is sent on every turn, empty array included. The graph's state is last-write-wins per
+ * key, so omitting the field on a message with no attachments would leave the previous turn's files
+ * in the checkpoint and the planner would describe a document nobody had just sent.
  */
 
 import type { MessageResponse, ProgressEvent } from "@/lib/types";
@@ -33,6 +37,7 @@ export async function streamMessage(
   userId: number,
   message: string,
   conversationId: string | undefined,
+  importIds: string[],
   handlers: StreamHandlers,
   signal?: AbortSignal,
 ): Promise<void> {
@@ -43,6 +48,7 @@ export async function streamMessage(
       user_id: userId,
       message,
       conversation_id: conversationId ?? null,
+      import_ids: importIds,
     }),
     signal,
   });

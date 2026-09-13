@@ -2,6 +2,7 @@
 
 from langchain_core.messages import BaseMessage, SystemMessage
 
+from app.agent.context.attachments import render_attachments
 from app.agent.context.messages import recent_messages
 from app.agent.context.profile import render_profile
 from app.agent.context.structured_state import render_structured_state
@@ -19,13 +20,16 @@ def instructions() -> str:
 
 def context_blocks(state: PlannerState) -> list[str]:
 
-    """Render the four budgeted blocks in the order the model should read them."""
+    """Render the budgeted blocks in the order the model should read them, dropping any that are empty."""
 
-    return [
+    blocks = [
         render_profile(state),
         render_summary(state),
         render_structured_state(state),
+        render_attachments(state),
     ]
+
+    return [block for block in blocks if block]
 
 
 def build_agent_query(state: PlannerState) -> list[BaseMessage]:

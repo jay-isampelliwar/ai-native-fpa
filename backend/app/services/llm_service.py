@@ -53,3 +53,17 @@ def get_explanation_model() -> ChatOpenAI:
         timeout=float(settings.absolute_timeout_seconds),
         max_retries=2,
     )
+
+
+@lru_cache
+def get_vision_model() -> ChatOpenAI:
+
+    """Build the model shown pictures of statements, which must copy what it sees rather than compose."""
+
+    return ChatOpenAI(
+        model=settings.vision_model,
+        api_key=settings.openai_api_key.get_secret_value(),
+        temperature=0.0,
+        timeout=float(settings.absolute_timeout_seconds),
+        max_retries=2,
+    )

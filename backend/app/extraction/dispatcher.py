@@ -16,9 +16,9 @@ Only the first bytes are handed to ``can_handle``. Deciding a format should not 
 forty megabyte statement into memory, and an extractor that genuinely needs the whole document
 should decline and let something more general take it.
 
-Two extractors are registered: a deterministic bank CSV parser and a workbook reader that itself
-dispatches to template families. PDF and other formats slot in here without any other file changing,
-and the technique each of them uses is theirs to decide.
+Four extractors are registered: a deterministic bank CSV parser, a PDF reader that uses the document's
+own text layer, a workbook reader that dispatches to template families, and a vision reader for images.
+Further formats slot in here without any other file changing, and the technique each uses is its own.
 
 The workbook extractor is last because it claims broadly - any spreadsheet - while the CSV parser
 claims narrowly. Ordering specific before general is what stops a broad extractor from swallowing a
@@ -28,12 +28,16 @@ file a precise one would have read correctly.
 from app.extraction.base import DocumentExtractor, ExtractionResult
 from app.extraction.bank_csv import BankCsvExtractor
 from app.extraction.holdings_extractor import HoldingsWorkbookExtractor
+from app.extraction.pdf_text import PdfTextExtractor
+from app.extraction.vision import VisionExtractor
 
 HEAD_BYTES = 4096
 
 EXTRACTORS: list[DocumentExtractor] = [
     BankCsvExtractor(),
+    PdfTextExtractor(),
     HoldingsWorkbookExtractor(),
+    VisionExtractor(),
 ]
 
 
@@ -50,8 +54,13 @@ def choose_extractor(filename: str, content_type: str, content: bytes) -> Docume
 
     return None
 
-
-async def extract_document(filename: str, content_type: str, content: bytes, user_id: int) -> ExtractionResult:
+async def extract_document(
+    filename: str,
+    content_type: str,
+    content: bytes,
+    user_id: int,
+    password: str | None = None,
+    ) -> ExtractionResult:
 
     """Dispatch a document to its extractor, returning a stated refusal when no format matches."""
 
@@ -65,4 +74,4 @@ async def extract_document(filename: str, content_type: str, content: bytes, use
             error="this document format is not supported yet",
         )
 
-    return await extractor.extract(content, filename, user_id)
+    return await extractor.extract(content, filename, user_id, password)

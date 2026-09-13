@@ -68,6 +68,7 @@ class ExtractionResult(BaseModel):
     template_id: str | None = None
     statement_totals: dict[str, Decimal] = Field(default_factory=dict)
     needs_mapping: bool = False
+    needs_password: bool = False
     layout: dict | None = None
 
 
@@ -79,4 +80,10 @@ class DocumentExtractor(Protocol):
 
     def can_handle(self, filename: str, content_type: str, head: bytes) -> bool: ...
 
-    async def extract(self, content: bytes, filename: str, user_id: int) -> ExtractionResult: ...
+    async def extract(
+        self,
+        content: bytes,
+        filename: str,
+        user_id: int,
+        password: str | None = None,
+        ) -> ExtractionResult: ...

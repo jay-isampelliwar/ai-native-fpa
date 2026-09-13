@@ -1,9 +1,11 @@
 'use client';
 
 import { motion } from 'framer-motion';
+import { Paperclip } from 'lucide-react';
 
 import { clockTime } from '@/lib/format';
 import { PROFILE } from '@/lib/mock/data';
+import ImportReview from '@/components/chat/ImportReview';
 import Reply from '@/components/chat/Reply';
 
 /**
@@ -29,14 +31,20 @@ export interface Turn {
   at: Date;
   /** Set when the turn failed, so it can be styled as a problem rather than an answer. */
   failed?: boolean;
+  /** Filenames sent with a user turn, so the question keeps a record of what went with it. */
+  attached?: string[];
+  /** Imports this answer is about. The review cards for them are drawn under it. */
+  importIds?: string[];
 }
 
 export default function MessageTimeline({
   turns,
   streamingId,
+  userId,
 }: {
   turns: Turn[];
   streamingId?: string;
+  userId: number | null;
 }) {
   return (
     <div className="space-y-4 px-4 sm:px-5">
@@ -45,7 +53,12 @@ export default function MessageTimeline({
           <UserTurn key={turn.id} turn={turn} />
         ) : (
           turn.text && (
-            <PlannerTurn key={turn.id} turn={turn} streaming={turn.id === streamingId} />
+            <PlannerTurn
+              key={turn.id}
+              turn={turn}
+              streaming={turn.id === streamingId}
+              userId={userId}
+            />
           )
         ),
       )}
@@ -65,6 +78,13 @@ function UserTurn({ turn }: { turn: Turn }) {
         <p className="rounded-2xl rounded-br-md border border-line bg-panel-subtle px-3.5 py-2.5 text-[13.5px] leading-[1.55] whitespace-pre-wrap text-primary">
           {turn.text}
         </p>
+
+        {turn.attached && turn.attached.length > 0 && (
+          <p className="mt-1 pr-1 text-[11px] text-muted">
+            <Paperclip size={10} className="mr-1 inline-block align-[-1px]" aria-hidden="true" />
+            {turn.attached.join(', ')}
+          </p>
+        )}
         <time className="mt-1 pr-1 text-[10.5px] text-muted">{clockTime(turn.at)}</time>
       </div>
 
@@ -79,7 +99,15 @@ function UserTurn({ turn }: { turn: Turn }) {
   );
 }
 
-function PlannerTurn({ turn, streaming }: { turn: Turn; streaming: boolean }) {
+function PlannerTurn({
+  turn,
+  streaming,
+  userId,
+}: {
+  turn: Turn;
+  streaming: boolean;
+  userId: number | null;
+}) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 6 }}
@@ -111,6 +139,15 @@ function PlannerTurn({ turn, streaming }: { turn: Turn; streaming: boolean }) {
         >
           <Reply text={turn.text} streaming={streaming} />
         </div>
+
+        {/* One card per attached file, drawn under the answer that describes them. They are the
+            only way anything read from a document is saved, so they sit with the reply that asked
+            for the decision rather than anywhere else on the screen. */}
+        {!streaming &&
+          typeof userId === 'number' &&
+          turn.importIds?.map((importId) => (
+            <ImportReview key={importId} userId={userId} importId={importId} />
+          ))}
 
         <time className="mt-1 pl-1 block text-[10.5px] text-muted">{clockTime(turn.at)}</time>
       </div>

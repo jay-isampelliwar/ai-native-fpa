@@ -62,7 +62,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import uuid4
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import session_scope
@@ -144,14 +144,21 @@ class ImportService:
 
             return row, False
 
-    def start_extraction(self, import_id: str, filename: str, content_type: str, content: bytes) -> None:
+    def start_extraction(
+        self,
+        import_id: str,
+        filename: str,
+        content_type: str,
+        content: bytes,
+        password: str | None = None,
+        ) -> None:
 
         """Kick off extraction in the background so the upload request returns immediately."""
 
         async def work() -> None:
 
             try:
-                await self.run_extraction(import_id, filename, content_type, content)
+                await self.run_extraction(import_id, filename, content_type, content, password)
 
             except Exception as exc:
 
@@ -193,7 +200,14 @@ class ImportService:
 
         return len(stranded)
 
-    async def run_extraction(self, import_id: str, filename: str, content_type: str, content: bytes) -> None:
+    async def run_extraction(
+        self,
+        import_id: str,
+        filename: str,
+        content_type: str,
+        content: bytes,
+        password: str | None = None,
+        ) -> None:
 
         """Extract a document and stage every row it produced, recording a failure rather than raising."""
 
@@ -207,7 +221,7 @@ class ImportService:
 
             user_id = record.user_id
 
-        result = await extract_document(filename, content_type, content, user_id)
+        result = await extract_document(filename, content_type, content, user_id, password)
 
         async with session_scope() as session:
 
@@ -226,6 +240,13 @@ class ImportService:
 
             if result.layout:
                 record.proposed_mapping = {"layout": result.layout}
+
+            if result.needs_password:
+
+                record.status = "locked"
+                record.error = result.error
+
+                return
 
             if result.needs_mapping:
                 record.status = "needs_mapping"
@@ -458,6 +479,41 @@ class ImportService:
 
         return bool(existing)
 
+    async def unlock(
+        self,
+        user_id: int,
+        import_id: str,
+        password: str,
+        storage,
+        ) -> DocumentImportRow | None:
+
+        """Read a locked document again with the password a person just sent, holding it only in memory."""
+
+        async with session_scope() as session:
+
+            record = await session.scalar(
+                select(DocumentImportRow).where(
+                    DocumentImportRow.id == import_id,
+                    DocumentImportRow.user_id == user_id,
+                )
+            )
+
+            if record is None or record.status != "locked":
+                return None
+
+            record.status = "uploaded"
+            record.error = None
+
+            filename = record.filename
+            content_type = record.content_type
+            storage_key = record.storage_key
+
+        content = await storage.get(storage_key)
+
+        self.start_extraction(import_id, filename, content_type, content, password)
+
+        return record
+
     async def update_row(self, user_id: int, row_id: str, changes: dict) -> StagedRowRow | None:
 
         """Apply a person's correction to one staged row, marking it edited and no longer doubtful."""
@@ -499,6 +555,141 @@ class ImportService:
 
             return row
 
+    async def get_import(self, user_id: int, import_id: str) -> DocumentImportRow | None:
+
+        """Read one import back for its owner, returning nothing rather than someone else's document."""
+
+        async with session_scope() as session:
+
+            return await session.scalar(
+                select(DocumentImportRow).where(
+                    DocumentImportRow.id == import_id,
+                    DocumentImportRow.user_id == user_id,
+                )
+            )
+
+    async def list_pending(self, user_id: int) -> list[DocumentImportRow]:
+
+        """List the documents waiting on a decision, which is what a reopened tab has to be told about."""
+
+        async with session_scope() as session:
+
+            records = await session.scalars(
+                select(DocumentImportRow)
+                .where(
+                    DocumentImportRow.user_id == user_id,
+                    DocumentImportRow.status.in_(("uploaded", "extracting", "extracted", "locked", "needs_mapping")),
+                )
+                .order_by(DocumentImportRow.created_at.desc())
+            )
+
+            return list(records)
+
+    async def list_rows(self, user_id: int, import_id: str) -> list[StagedRowRow]:
+
+        """List everything staged from one document in the order it was read, for the review card."""
+
+        async with session_scope() as session:
+
+            rows = await session.scalars(
+                select(StagedRowRow)
+                .where(
+                    StagedRowRow.import_id == import_id,
+                    StagedRowRow.user_id == user_id,
+                )
+                .order_by(StagedRowRow.row_index)
+            )
+
+            return list(rows)
+
+    async def counts_by_status(self, user_id: int, import_id: str) -> dict[str, int]:
+
+        """Count staged rows by decision, so a card can say what is new without fetching every row."""
+
+        async with session_scope() as session:
+
+            counted = await session.execute(
+                select(StagedRowRow.status, func.count())
+                .where(
+                    StagedRowRow.import_id == import_id,
+                    StagedRowRow.user_id == user_id,
+                )
+                .group_by(StagedRowRow.status)
+            )
+
+            return {status: total for status, total in counted.all()}
+
+    async def accept_all(self, user_id: int, import_id: str) -> int:
+
+        """Mark every row still awaiting a decision as accepted, which is what one Approve press means."""
+
+        async with session_scope() as session:
+
+            result = await session.execute(
+                update(StagedRowRow)
+                .where(
+                    StagedRowRow.import_id == import_id,
+                    StagedRowRow.user_id == user_id,
+                    StagedRowRow.status == "pending",
+                )
+                .values(status="accepted")
+            )
+
+            return result.rowcount or 0
+
+    async def accept_duplicates(self, user_id: int, import_id: str) -> int:
+
+        """Accept the rows held back as already present, which only a person can say are genuinely twice."""
+
+        async with session_scope() as session:
+
+            result = await session.execute(
+                update(StagedRowRow)
+                .where(
+                    StagedRowRow.import_id == import_id,
+                    StagedRowRow.user_id == user_id,
+                    StagedRowRow.status == "duplicate",
+                )
+                .values(status="accepted")
+            )
+
+            return result.rowcount or 0
+
+    async def reject_import(self, user_id: int, import_id: str, storage) -> DocumentImportRow | None:
+
+        """Refuse a whole document, keeping what was read as history and deleting only the stored bytes."""
+
+        async with session_scope() as session:
+
+            record = await session.scalar(
+                select(DocumentImportRow).where(
+                    DocumentImportRow.id == import_id,
+                    DocumentImportRow.user_id == user_id,
+                )
+            )
+
+            if record is None or record.status == "committed":
+                return None
+
+            await session.execute(
+                update(StagedRowRow)
+                .where(
+                    StagedRowRow.import_id == import_id,
+                    StagedRowRow.user_id == user_id,
+                    StagedRowRow.status != "rejected",
+                )
+                .values(status="rejected")
+            )
+
+            record.status = "rejected"
+            record.error = None
+
+            storage_key = record.storage_key
+
+        await storage.delete(storage_key)
+
+        return record
+
     async def commit(self, user_id: int, import_id: str) -> dict:
 
         """Write every accepted row under one batch id in one transaction, or write none of them."""
@@ -515,10 +706,7 @@ class ImportService:
             if record is None:
                 return {"status": "not_found"}
 
-            if record.status == "committed":
-                return {"status": "already_committed", "import_batch_id": record.import_batch_id}
-
-            if record.status != "extracted":
+            if record.status not in {"extracted", "committed"}:
                 return {"status": "not_ready", "detail": f"this import is {record.status}"}
 
             rows = (
@@ -526,16 +714,22 @@ class ImportService:
                     select(StagedRowRow).where(
                         StagedRowRow.import_id == import_id,
                         StagedRowRow.status == "accepted",
+                        StagedRowRow.committed_record_id.is_(None),
                     )
                 )
             ).all()
 
+            if not rows and record.status == "committed":
+                return {"status": "already_committed", "import_batch_id": record.import_batch_id}
+
             if not rows:
                 return {"status": "nothing_accepted"}
 
-            batch_id = f"batch_{uuid4().hex[:12]}"
+            batch_id = record.import_batch_id or f"batch_{uuid4().hex[:12]}"
 
             written = 0
+
+            skipped = 0
 
             for row in rows:
 
@@ -583,6 +777,14 @@ class ImportService:
                 if row.target_table != "expense_transactions":
                     continue
 
+                if not row.payload.get("occurred_on"):
+
+                    row.issue = "this line has no readable date, so it was not saved"
+
+                    skipped += 1
+
+                    continue
+
                 created = await records_repository.create_transaction(
                     session,
                     user_id=user_id,
@@ -602,7 +804,12 @@ class ImportService:
             record.import_batch_id = batch_id
             record.committed_at = datetime.now(UTC)
 
-            return {"status": "committed", "import_batch_id": batch_id, "rows_written": written}
+            return {
+                "status": "committed",
+                "import_batch_id": batch_id,
+                "rows_written": written,
+                "rows_skipped": skipped,
+            }
 
 
 import_service = ImportService()

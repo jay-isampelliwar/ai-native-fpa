@@ -40,7 +40,16 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, RecordId
 
-IMPORT_STATUSES = ("uploaded", "extracting", "extracted", "committed", "failed")
+IMPORT_STATUSES = (
+    "uploaded",
+    "extracting",
+    "extracted",
+    "committed",
+    "failed",
+    "needs_mapping",
+    "locked",
+    "rejected",
+)
 
 STAGED_ROW_STATUSES = ("pending", "accepted", "rejected", "duplicate")
 

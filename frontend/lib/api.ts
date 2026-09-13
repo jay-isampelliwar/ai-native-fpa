@@ -23,6 +23,8 @@
  * and a stale surplus rendered as current is exactly the failure the whole backend design avoids.
  */
 
+import type { CommitResult, DocumentImport, StagedRows, UploadResponse } from "@/lib/types";
+
 export class ApiError extends Error {
   readonly status: number;
 
@@ -79,5 +81,83 @@ export const users = {
       method: "POST",
       body: JSON.stringify({ user_id: userId }),
     });
+  },
+};
+
+export const documents = {
+  /**
+   * Send files to be read, answered as soon as the bytes are stored.
+   *
+   * Extraction runs behind this call, so the response carries ids to poll rather than rows. A file
+   * this person has already imported comes back with `duplicate` set and nothing is read again.
+   */
+  upload(userId: number, files: File[]) {
+    const form = new FormData();
+
+    form.append('user_id', String(userId));
+    for (const file of files) form.append('files', file);
+
+    return request<UploadResponse>('/api/v1/documents', { method: 'POST', body: form });
+  },
+
+  /** Where one document has reached. Polled while it is being read. */
+  read(userId: number, importId: string) {
+    return request<DocumentImport>(`/api/v1/documents/${importId}?user_id=${userId}`);
+  },
+
+  /**
+   * Open a password-protected PDF and read it again.
+   *
+   * The password is sent for this call only. Nothing stores it, so a wrong one is simply retried.
+   */
+  unlock(userId: number, importId: string, password: string) {
+    return request<DocumentImport>(`/api/v1/documents/${importId}/password`, {
+      method: 'POST',
+      body: JSON.stringify({ user_id: userId, password }),
+    });
+  },
+
+  /**
+   * Refuse a document: its rows are kept as rejected and the stored file is deleted.
+   *
+   * This is what removing an attachment does, so a file dropped from the composer does not sit on
+   * the server forever waiting for a review that will never happen.
+   */
+  reject(userId: number, importId: string) {
+    return request<DocumentImport>(`/api/v1/documents/${importId}/reject?user_id=${userId}`, {
+      method: 'POST',
+    });
+  },
+};
+
+export const imports = {
+  /** Everything read from one document, in the order the document stated it. */
+  rows(userId: number, importId: string) {
+    return request<StagedRows>(`/api/v1/documents/${importId}/rows?user_id=${userId}`);
+  },
+
+  /**
+   * Accept everything read from this document and write it.
+   *
+   * This is the only path imported data takes into the record tables. The planner has no tool for
+   * it, so a record only exists because the person pressed this.
+   */
+  approve(userId: number, importId: string) {
+    return request<CommitResult>(`/api/v1/documents/${importId}/approve?user_id=${userId}`, {
+      method: 'POST',
+    });
+  },
+
+  /**
+   * Write the rows held back because they already appear in the person's records.
+   *
+   * Kept separate from `approve` because only the person can say that two identical charges on one
+   * day are genuinely two charges rather than the same statement imported twice.
+   */
+  approveDuplicates(userId: number, importId: string) {
+    return request<CommitResult>(
+      `/api/v1/documents/${importId}/approve-duplicates?user_id=${userId}`,
+      { method: 'POST' },
+    );
   },
 };
