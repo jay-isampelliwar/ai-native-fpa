@@ -1,10 +1,5 @@
-import ChatPanel from '@/components/ChatPanel';
-import Shell from '@/components/Shell';
+import PlannerShell from '@/components/PlannerShell';
 
 export default function Page() {
-  return (
-    <Shell>
-      <ChatPanel />
-    </Shell>
-  );
+  return <PlannerShell />;
 }

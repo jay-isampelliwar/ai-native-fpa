@@ -1,328 +1,358 @@
 @import 'tailwindcss';
 
-:root {
-  --background: #f5f2e8;
-  --foreground: #18312f;
+/* ============================================================================
+   MOSAIC — a calm financial cockpit.
+
+   Every colour is a semantic variable, so a component never names a hue. The two
+   themes then differ only in what the variables resolve to, and a card written
+   once is correct in both. That is also what makes the theme toggle a class on
+   the root rather than a second set of components.
+   ========================================================================= */
+
+:root,
+:root[data-theme='light'] {
+  --background: #f5f6f2;
+  --panel: #ffffff;
+  --panel-subtle: #f8faf7;
+  --panel-elevated: #ffffff;
+
+  --text-primary: #111713;
+  --text-secondary: #647067;
+  --text-muted: #8c968f;
+
+  --border: #e2e7e1;
+  --border-strong: #ccd4cd;
+
+  --accent: #20c763;
+  --accent-bright: #bdf000;
+  --accent-soft: #e6f8ec;
+  --on-accent: #0b1a11;
+
+  --blue: #3478f6;
+  --orange: #ff6517;
+  --yellow: #ffbe0b;
+
+  --positive: #16a85a;
+  --positive-soft: #e6f8ec;
+  --negative: #ef3e46;
+  --negative-soft: #fdebec;
+  --warning: #e99a13;
+  --warning-soft: #fff4df;
+
+  --shadow-card: 0 8px 28px rgba(20, 32, 24, 0.06);
+
+  /* The track a gauge or progress bar sits in, which needs to read as empty
+     rather than as a fifth category colour. */
+  --track: #e8ece7;
+
+  color-scheme: light;
 }
 
+:root[data-theme='dark'] {
+  --background: #090c0a;
+  --panel: #151a17;
+  --panel-subtle: #111613;
+  --panel-elevated: #1b211d;
+
+  --text-primary: #f4f7f4;
+  --text-secondary: #aab4ac;
+  --text-muted: #778078;
+
+  --border: #2b332d;
+  --border-strong: #3a443d;
+
+  --accent: #44e36f;
+  --accent-bright: #c8f500;
+  --accent-soft: #163d23;
+  --on-accent: #06170d;
+
+  --blue: #5686ff;
+  --orange: #ff6a32;
+  --yellow: #f8c62e;
+
+  --positive: #43dc76;
+  --positive-soft: #14301f;
+  --negative: #ff535d;
+  --negative-soft: #442126;
+  --warning: #ffb83e;
+  --warning-soft: #3d3018;
+
+  --shadow-card: 0 12px 36px rgba(0, 0, 0, 0.28);
+
+  --track: #262e29;
+
+  color-scheme: dark;
+}
+
+/* Tailwind needs the tokens as theme colours so `bg-panel` and friends exist. */
 @theme inline {
   --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-manrope);
-  --font-serif: var(--font-newsreader);
+  --color-panel: var(--panel);
+  --color-panel-subtle: var(--panel-subtle);
+  --color-panel-elevated: var(--panel-elevated);
+
+  --color-primary: var(--text-primary);
+  --color-secondary: var(--text-secondary);
+  --color-muted: var(--text-muted);
+
+  --color-line: var(--border);
+  --color-line-strong: var(--border-strong);
+
+  --color-accent: var(--accent);
+  --color-accent-bright: var(--accent-bright);
+  --color-accent-soft: var(--accent-soft);
+  --color-on-accent: var(--on-accent);
+
+  --color-blue: var(--blue);
+  --color-orange: var(--orange);
+  --color-yellow: var(--yellow);
+
+  --color-positive: var(--positive);
+  --color-positive-soft: var(--positive-soft);
+  --color-negative: var(--negative);
+  --color-negative-soft: var(--negative-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+
+  --color-track: var(--track);
+
+  --font-sans: var(--font-inter);
+  --radius-card: 18px;
 }
 
 * { box-sizing: border-box; }
-html { scroll-behavior: smooth; }
-body {
-  margin: 0;
+
+html {
+  height: 100%;
   background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-manrope), Arial, Helvetica, sans-serif;
 }
 
-.font-serif { font-family: var(--font-newsreader), Georgia, 'Times New Roman', serif; }
+body {
+  margin: 0;
+  min-height: 100%;
+  background: var(--background);
+  color: var(--text-primary);
+  font-family: var(--font-inter), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
 
-::selection { background: rgba(231, 161, 77, 0.32); color: #18312f; }
+/* Currency, percentages and any figure that sits in a column need fixed-width
+   digits, or the numbers jitter as they count up and columns stop lining up. */
+.tabular {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
 
-:where(a, button, input, textarea):focus-visible {
-  outline: 3px solid rgba(231, 161, 77, 0.8);
-  outline-offset: 3px;
+::selection { background: var(--accent-soft); color: var(--text-primary); }
+
+/* One visible focus ring for the whole app. Every interactive element gets it,
+   so a keyboard user is never left guessing where they are. */
+:where(a, button, input, textarea, select, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 8px;
 }
 
 button, a { -webkit-tap-highlight-color: transparent; }
 
-/* Scroll without the bar.
-   The content still scrolls by wheel, trackpad, keyboard and touch — only the
-   chrome is hidden. Applied to the app's own panes, never to the document, so a
-   page that overflows the window keeps its native affordance. */
-.no-scrollbar {
-  scrollbar-width: none;          /* Firefox */
-  -ms-overflow-style: none;       /* legacy Edge */
-}
-.no-scrollbar::-webkit-scrollbar {
-  width: 0;
-  height: 0;
-  display: none;                  /* WebKit / Blink */
-}
+/* A number field that is styled rather than native: the spinners belong to a
+   quantity control, and this is an identifier. The border lights on focus, so the
+   global ring is suppressed here too — otherwise it draws a second frame outside
+   the first. */
+.num-field::-webkit-outer-spin-button,
+.num-field::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.num-field { -moz-appearance: textfield; appearance: textfield; }
+.num-field:focus-visible { outline: none; }
 
-.ambient-grid {
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  background:
-    radial-gradient(circle at 74% 42%, rgba(94, 170, 151, 0.2), transparent 28%),
-    radial-gradient(circle at 15% 84%, rgba(231, 161, 77, 0.13), transparent 27%),
-    linear-gradient(rgba(30, 67, 61, 0.035) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(30, 67, 61, 0.035) 1px, transparent 1px);
-  background-size: auto, auto, 56px 56px, 56px 56px;
-  mask-image: linear-gradient(to bottom, black, rgba(0, 0, 0, 0.24));
-}
+/* The composer frames itself on focus, so the field inside must not also draw the
+   global ring — two rings, one within the other, is what that produced. */
+.composer-shell:focus-within { border-color: var(--accent); }
+.composer-shell textarea:focus-visible { outline: none; }
 
-.brand-mark {
-  position: relative;
-  display: inline-grid;
-  height: 30px;
-  width: 30px;
-  place-items: center;
-  border: 1px solid rgba(24, 49, 47, 0.28);
-  border-radius: 50%;
-}
-.brand-mark::before {
-  content: '';
-  position: absolute;
-  left: 6px;
-  top: 15px;
-  height: 1.5px;
-  width: 17px;
-  background: #183f3a;
-  transform: rotate(-34deg);
-}
-.brand-mark span,
-.brand-mark::after {
-  content: '';
-  position: absolute;
-  height: 5px;
-  width: 5px;
-  border: 1.5px solid #183f3a;
-  border-radius: 50%;
-  background: #f5f2e8;
-}
-.brand-mark span { left: 5px; top: 17px; }
-.brand-mark::after {
-  right: 5px;
-  top: 7px;
-  background: #e7a14d;
-  border-color: #e7a14d;
-}
-
-.trust-dot {
-  display: inline-block;
-  height: 5px;
-  width: 5px;
-  border-radius: 50%;
-  background: #4f8f79;
-  box-shadow: 0 0 0 3px rgba(79, 143, 121, 0.12);
-}
-
-.life-chart {
-  position: relative;
-  min-height: 300px;
-  overflow: hidden;
-  border: 1px solid rgba(24, 49, 47, 0.09);
-  border-radius: 22px;
-  background: linear-gradient(180deg, rgba(223, 237, 229, 0.72), rgba(252, 249, 241, 0.8));
-}
-.life-chart__grid {
-  position: absolute;
-  inset: 0;
-  background:
-    linear-gradient(rgba(23, 61, 57, 0.055) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(23, 61, 57, 0.045) 1px, transparent 1px);
-  background-size: 100% 60px, 16.666% 100%;
-  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.78), transparent);
-}
-.life-chart__range {
-  position: absolute;
-  inset: 12% 2% 18%;
-  background: linear-gradient(120deg, rgba(66, 144, 119, 0.04), rgba(66, 144, 119, 0.22));
-  clip-path: polygon(0 82%, 25% 66%, 52% 48%, 76% 24%, 100% 0, 100% 30%, 76% 44%, 52% 65%, 25% 80%, 0 94%);
-}
-.path-segment {
-  position: absolute;
-  z-index: 4;
-  height: 2px;
-  transform-origin: left center;
-  border-radius: 999px;
-  background: #1c6b5a;
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.85);
-}
-.path-segment--one { left: 5%; top: 72%; width: 28%; transform: rotate(-19deg); }
-.path-segment--two { left: 31%; top: 58%; width: 30%; transform: rotate(-18deg); }
-.path-segment--three { left: 58%; top: 43%; width: 32%; transform: rotate(-27deg); }
-.milestone-dot {
-  display: block;
-  height: 13px;
-  width: 13px;
-  border: 3px solid #fffdf8;
-  border-radius: 50%;
-  box-shadow: 0 0 0 1px rgba(20, 55, 50, 0.18), 0 4px 12px rgba(20, 55, 50, 0.16);
-}
-.milestone-dot--ink { background: #183f3a; }
-.milestone-dot--teal { background: #419b7f; }
-.milestone-dot--coral { background: #b7604c; }
-.milestone-dot--gold { background: #e7a14d; }
-
-.section-shell {
-  width: min(100% - 40px, 1344px);
-  margin-inline: auto;
-}
-
-.eyebrow {
-  font-size: 10px;
-  font-weight: 750;
-  letter-spacing: 0.13em;
-  line-height: 1.4;
-  text-transform: uppercase;
-  color: #667b76;
-}
-
-.eyebrow--light { color: rgba(255, 255, 255, 0.48); }
-
-.life-decision {
-  position: relative;
-  overflow: hidden;
-  min-height: 340px;
-  padding: 24px;
-  border: 1px solid rgba(24, 49, 47, 0.1);
-  border-radius: 24px;
-  background: #f8f5ed;
-}
-
-.life-decision::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  opacity: 0.55;
-  background:
-    radial-gradient(circle at 90% 10%, var(--decision-mist), transparent 35%),
-    repeating-radial-gradient(ellipse at 110% -10%, transparent 0 17px, rgba(24, 49, 47, 0.045) 18px 19px);
-}
-
-.life-decision > * { position: relative; }
-.life-decision--teal { --decision-mist: rgba(89, 161, 143, 0.34); }
-.life-decision--amber { --decision-mist: rgba(231, 161, 77, 0.32); }
-.life-decision--plum { --decision-mist: rgba(117, 109, 145, 0.28); }
-
-.decision-node {
-  height: 11px;
-  width: 11px;
-  border: 3px solid #f8f5ed;
-  border-radius: 50%;
-  background: #2d746b;
-  box-shadow: 0 0 0 1px rgba(24, 49, 47, 0.18), 0 0 0 7px rgba(45, 116, 107, 0.08);
-}
-
-.life-decision--amber .decision-node { background: #e7a14d; box-shadow: 0 0 0 1px rgba(24,49,47,.16), 0 0 0 7px rgba(231,161,77,.1); }
-.life-decision--plum .decision-node { background: #756d91; box-shadow: 0 0 0 1px rgba(24,49,47,.16), 0 0 0 7px rgba(117,109,145,.1); }
-
-.guide-light {
-  display: inline-block;
-  height: 12px;
-  width: 12px;
-  border: 2px solid #fff7e8;
-  border-radius: 50%;
-  background: #e7a14d;
-  box-shadow: 0 0 0 1px rgba(153, 97, 31, 0.2), 0 0 0 7px rgba(231, 161, 77, 0.13);
-}
-
-.dark-contours {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  opacity: 0.65;
-  background:
-    radial-gradient(circle at 85% 25%, rgba(83, 155, 139, 0.18), transparent 30%),
-    repeating-radial-gradient(ellipse at 100% 50%, transparent 0 34px, rgba(255,255,255,.028) 35px 36px);
-}
-
-.step-line {
-  position: absolute;
-  left: 7%;
-  right: 7%;
-  top: 37px;
-  height: 1px;
-  background: linear-gradient(90deg, rgba(45,116,107,.15), rgba(45,116,107,.6), rgba(231,161,77,.45));
-}
-
-.app-brand-mark {
-  position: relative;
-  display: inline-grid;
-  height: 34px;
-  width: 34px;
-  place-items: center;
-  border: 1px solid rgba(255,255,255,.22);
-  border-radius: 50%;
-}
-
-.app-brand-mark::before {
-  content: '';
-  position: absolute;
-  left: 7px;
-  top: 17px;
-  height: 1.5px;
-  width: 19px;
-  background: rgba(255,255,255,.8);
-  transform: rotate(-34deg);
-}
-
-.app-brand-mark span,
-.app-brand-mark::after {
-  content: '';
-  position: absolute;
-  height: 5px;
-  width: 5px;
-  border-radius: 50%;
-}
-
-.app-brand-mark span { left: 6px; top: 20px; background: #f7f3e9; }
-.app-brand-mark::after { right: 6px; top: 8px; background: #e7a14d; }
-
-.progress-ring {
-  --progress: 0deg;
-  --ring: #2d746b;
-  position: relative;
-  display: grid;
-  height: 44px;
-  width: 44px;
-  place-items: center;
-  border-radius: 50%;
-  background: conic-gradient(var(--ring) var(--progress), rgba(24,49,47,.1) 0);
-}
-
-.progress-ring::before {
-  content: '';
-  position: absolute;
-  inset: 5px;
-  border-radius: 50%;
-  background: #f9f7ef;
-}
-
-.progress-ring span {
-  position: relative;
-  font-size: 9px;
-  font-weight: 700;
-}
-
-.planner-scroll {
+/* Panes scroll without a visible bar; the document keeps its native one. */
+.quiet-scroll {
   scrollbar-width: thin;
-  scrollbar-color: rgba(24,49,47,.18) transparent;
-  scroll-behavior: smooth;
+  scrollbar-color: var(--border-strong) transparent;
+}
+.quiet-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+.quiet-scroll::-webkit-scrollbar-track { background: transparent; }
+.quiet-scroll::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-clip: content-box;
+  background-color: var(--border-strong);
+}
+.quiet-scroll::-webkit-scrollbar-thumb:hover { background-color: var(--text-muted); }
+
+/* ── Card ───────────────────────────────────────────────────────────────────
+   The dashboard's one surface. Hover lifts 2px and firms the border, per the
+   doc; nothing scales, because a financial figure that grows under the pointer
+   reads as the number changing. */
+
+.card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--panel);
+  box-shadow: var(--shadow-card);
+  transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease;
 }
 
-.tabular-nums { font-variant-numeric: tabular-nums; }
-
-@media (max-width: 639px) {
-  .life-chart { min-height: 280px; }
-  .milestone--teal { display: none; }
-  .section-shell { width: min(100% - 32px, 1344px); }
-  .metric-card:last-child { grid-column: 1 / -1; }
+.card-interactive:hover {
+  transform: translateY(-2px);
+  border-color: var(--border-strong);
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  .life-chart__range { animation: breathe 5s ease-in-out infinite; }
+/* Keyboard focus has to do what hover does, or the same affordance exists for
+   only half the people using it. */
+.card-interactive:focus-within {
+  border-color: var(--border-strong);
 }
 
+/* ── Split pane ─────────────────────────────────────────────────────────────
+   The divider is a 1px line with a much wider invisible grab area, because a
+   1px drag target is unusable with a trackpad. */
+
+.split-handle {
+  position: relative;
+  width: 1px;
+  flex: none;
+  background: var(--border);
+  cursor: col-resize;
+  transition: background .15s ease;
+}
+.split-handle::before {
+  content: '';
+  position: absolute;
+  inset: 0 -5px;
+}
+.split-handle:hover,
+.split-handle[data-dragging='true'] { background: var(--accent); }
+.split-handle:focus-visible { outline-offset: 0; background: var(--accent); }
+
+/* While a drag is live the cursor must not flicker as it crosses the panes, and
+   text must not select under it. */
+body[data-resizing='true'] {
+  cursor: col-resize;
+  user-select: none;
+}
+
+/* ── Chat prose ─────────────────────────────────────────────────────────────
+   The planner answers in markdown; these are the elements `Reply` emits. */
+
+.reply { font-size: 13.5px; line-height: 1.62; color: var(--text-primary); }
+.reply strong { font-weight: 600; }
+.reply em { color: var(--text-secondary); }
+
+.reply code {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--panel-subtle);
+  border: 1px solid var(--border);
+  font-family: ui-monospace, 'SF Mono', monospace;
+  font-size: .88em;
+}
+
+/* A rupee figure inside prose, so the eye can find the numbers without reading. */
+.reply .amount {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.reply h3 {
+  margin: 14px 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.reply h3:first-child { margin-top: 0; }
+
+.reply ul, .reply ol { margin: 7px 0; padding: 0; list-style: none; }
+.reply ol { counter-reset: step; }
+.reply li { position: relative; margin: 4px 0; padding-left: 17px; }
+
+.reply ul li::before {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: .6em;
+  height: 5px;
+  width: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.reply ol li::before {
+  content: counter(step) '.';
+  counter-increment: step;
+  position: absolute;
+  left: 0;
+  top: 0;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.reply p { margin: 7px 0; }
+.reply p:first-child { margin-top: 0; }
+.reply p:last-child { margin-bottom: 0; }
+
+/* The block caret that trails the words while a reply is still arriving. It sits
+   inside the last block rather than after the container, so it stays on the same
+   line as the sentence it belongs to. */
+.caret {
+  display: inline-block;
+  height: 1em;
+  width: 6px;
+  margin-left: 3px;
+  vertical-align: text-bottom;
+  background: var(--accent);
+  border-radius: 1px;
+  animation: caret-blink 1.05s steps(2, start) infinite;
+}
+
+@keyframes caret-blink { 50% { opacity: 0; } }
+
+/* ── Chart surface ──────────────────────────────────────────────────────────
+   Recharts renders its own DOM, so the few pieces that must follow the theme are
+   reached here rather than through props on every axis. */
+
+.chart-surface .recharts-cartesian-grid line {
+  stroke: var(--border);
+  stroke-dasharray: 3 5;
+}
+
+.chart-surface .recharts-text { fill: var(--text-muted); font-size: 11px; }
+
+.chart-surface .recharts-curve.recharts-tooltip-cursor { stroke: var(--border-strong); }
+
+/* The path draws itself left to right on entry. The dash length is set generously
+   in JS from the real path length; this is only the motion. */
+@keyframes draw-path { to { stroke-dashoffset: 0; } }
+
+/* ── Motion ─────────────────────────────────────────────────────────────────
+   Entrances are handled by Framer Motion. What remains here is the one effect
+   that has to survive a re-render without remounting: the flash on a figure that
+   just changed. */
+
+@keyframes value-settle {
+  0%   { background-color: var(--accent-soft); }
+  100% { background-color: transparent; }
+}
+
+.value-settled {
+  animation: value-settle .9s ease-out;
+  border-radius: 6px;
+}
+
+/* Everything decorative stops for a reader who asked for less motion. The doc
+   requires count-up, path drawing and pulsing to be replaced by plain state. */
 @media (prefers-reduced-motion: reduce) {
-  html { scroll-behavior: auto; }
   *, *::before, *::after {
-    animation-duration: 0.01ms !important;
+    animation-duration: .01ms !important;
     animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
   }
-}
-@keyframes breathe {
-  0%, 100% { opacity: 0.72; }
-  50% { opacity: 1; }
+  .card-interactive:hover { transform: none; }
 }
