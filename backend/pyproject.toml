@@ -17,7 +17,6 @@ dependencies = [
     "pydantic-settings",
     "pycryptodome",
     "tenacity",
-    "structlog",
     "orjson",
     "langsmith",
     "fastapi[standard]",

@@ -21,7 +21,7 @@ confirmation, and the confirmation itself is a person's judgement.
 
 from uuid import uuid4
 
-from sqlalchemy import select, update
+from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import session_scope
@@ -33,9 +33,9 @@ class TemplatesRepository:
 
     """Stores and retrieves the column mappings people have confirmed for particular layouts."""
 
-    async def by_fingerprint(self, fingerprint: str) -> TemplateSpec | None:
+    async def by_fingerprint(self, fingerprint: str, user_id: int) -> TemplateSpec | None:
 
-        """Find a confirmed template for this exact layout, which is how a known file skips the mapping step."""
+        """Find this person's confirmed template for a layout, or a built in one, and nobody else's."""
 
         async with session_scope() as session:
 
@@ -43,6 +43,10 @@ class TemplatesRepository:
                 select(ImportTemplateRow).where(
                     ImportTemplateRow.fingerprint == fingerprint,
                     ImportTemplateRow.confirmed.is_(True),
+                    or_(
+                        ImportTemplateRow.created_by_user_id == user_id,
+                        ImportTemplateRow.builtin.is_(True),
+                    ),
                 )
             )
 

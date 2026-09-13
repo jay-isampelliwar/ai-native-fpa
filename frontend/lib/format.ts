@@ -1,33 +1,150 @@
 /**
- * Rupee formatting for the few places the client has a number rather than a string.
+ * Money, percentages and dates, formatted the way an Indian reader expects them.
  *
- * Almost everything the backend sends is already formatted — a block's `display` field is the
- * backend's own rendering and is what should be shown, because formatting currency in two codebases
- * guarantees they eventually disagree and the one on screen will be the wrong one.
+ * Every figure on screen goes through this file. A dashboard that formats a rupee
+ * amount in two places will eventually format it two ways, and on a financial
+ * screen that reads as two different numbers rather than one number typeset badly.
  *
- * These exist for the cases where the client genuinely holds a number: an axis tick it computed, a
- * total it summed across staged rows for a reconciliation screen. `rupees` matches what the backend
- * produces so a computed subtotal sits beside a returned figure without looking foreign.
+ * The grouping is the lakh/crore system, not thousands: `₹5,00,000`, not
+ * `₹500,000`. `Intl` does this correctly under the `en-IN` locale, so the digits
+ * are never grouped by hand.
+ *
+ * Large totals are abbreviated because a card headline has room for `₹48.5L` and
+ * not for `₹48,49,000`. The full figure is still available through `rupees` and is
+ * what the legend rows and tables use, so the precise number is always one line
+ * away from the abbreviated one.
  */
 
-export const rupees = (value: number): string =>
-  `INR ${Math.round(value).toLocaleString('en-IN')}`;
+const INR = new Intl.NumberFormat('en-IN', {
+  style: 'currency',
+  currency: 'INR',
+  maximumFractionDigits: 0,
+});
 
-export const rupeesExact = (value: number): string =>
-  `INR ${value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const PLAIN = new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 });
 
-/** A compact axis tick: ₹1.2Cr, ₹45L, ₹8k. */
-export const axisRupee = (value: number): string => {
-  const abs = Math.abs(value);
-  if (abs >= 1e7) return `₹${(value / 1e7).toFixed(abs >= 1e8 ? 0 : 1)}Cr`;
-  if (abs >= 1e5) return `₹${(value / 1e5).toFixed(0)}L`;
-  if (abs >= 1e3) return `₹${(value / 1e3).toFixed(0)}k`;
-  return `₹${Math.round(value)}`;
-};
+/** `₹5,00,000` — the exact amount, grouped in the Indian system. */
+export function rupees(amount: number): string {
+  return INR.format(Math.round(amount));
+}
 
-/** Decimal strings arrive from the backend; parse only for geometry, never for display. */
-export const toNumber = (value: string | null | undefined): number => {
-  if (!value) return 0;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : 0;
-};
+/** `5,00,000` — the same grouping without the symbol, for count-up animation. */
+export function groupedDigits(amount: number): string {
+  return PLAIN.format(Math.round(amount));
+}
+
+/**
+ * `₹48.5L`, `₹1.42Cr` — shortened for headline positions.
+ *
+ * The threshold is a lakh rather than a thousand: Indian financial writing leaves
+ * five- and six-digit figures in full and only abbreviates from a lakh upward.
+ */
+export function rupeesShort(amount: number): string {
+  const absolute = Math.abs(amount);
+
+  if (absolute >= 10_000_000) return `₹${trim(amount / 10_000_000)}Cr`;
+  if (absolute >= 100_000) return `₹${trim(amount / 100_000)}L`;
+
+  return rupees(amount);
+}
+
+/** One decimal, but only when it says something: `48.5`, and `20` rather than `20.0`. */
+function trim(value: number): string {
+  return value.toFixed(1).replace(/\.0$/, '');
+}
+
+/**
+ * Axis ticks, all in the same unit.
+ *
+ * A scale that abbreviates only the values above a lakh prints `₹60,000` beside
+ * `₹1L`, and the reader has to convert one of them to compare the two. The unit is
+ * therefore chosen once from the largest value on the axis and applied to every
+ * tick, so the column reads as one scale.
+ */
+export function rupeesAxis(value: number, largest: number): string {
+  if (largest >= 10_000_000) return `₹${(value / 10_000_000).toFixed(1)}Cr`;
+  if (largest >= 100_000) return `₹${(value / 100_000).toFixed(1)}L`;
+
+  return `₹${PLAIN.format(Math.round(value))}`;
+}
+
+/** `+4.6%` / `−4.6%`, with a true minus sign rather than a hyphen. */
+export function signedPercent(value: number, digits = 1): string {
+  const sign = value > 0 ? '+' : value < 0 ? '−' : '';
+
+  return `${sign}${Math.abs(value).toFixed(digits)}%`;
+}
+
+/** `12%` — a share of a whole, which is never signed. */
+export function percent(value: number, digits = 0): string {
+  return `${value.toFixed(digits)}%`;
+}
+
+/** The month-over-month change between two totals, as a percentage. */
+export function changeBetween(current: number, previous: number): number {
+  if (!previous) return 0;
+
+  return ((current - previous) / previous) * 100;
+}
+
+/**
+ * Split a whole into percentages that add up to exactly 100.
+ *
+ * Rounding each share on its own gives 99 or 101 often enough to matter, and the
+ * doc is explicit that the distribution must total 100. The largest-remainder
+ * method hands the leftover points to the slices that lost the most to rounding,
+ * so the figures stay honest and the row order never changes.
+ */
+export function sharesOf(amounts: number[]): number[] {
+  const total = amounts.reduce((sum, amount) => sum + amount, 0);
+
+  if (!total) return amounts.map(() => 0);
+
+  const exact = amounts.map((amount) => (amount / total) * 100);
+  const floored = exact.map(Math.floor);
+
+  let remaining = 100 - floored.reduce((sum, share) => sum + share, 0);
+
+  const byRemainder = exact
+    .map((value, index) => ({ index, remainder: value - Math.floor(value) }))
+    .sort((a, b) => b.remainder - a.remainder);
+
+  const shares = [...floored];
+
+  for (const { index } of byRemainder) {
+    if (remaining <= 0) break;
+    shares[index] += 1;
+    remaining -= 1;
+  }
+
+  return shares;
+}
+
+/** `January 2026` from `2026-01`. */
+export function monthLabel(periodId: string): string {
+  const [year, month] = periodId.split('-').map(Number);
+
+  return new Date(year, month - 1, 1).toLocaleDateString('en-IN', {
+    month: 'long',
+    year: 'numeric',
+  });
+}
+
+/** `Jan 2026` — the axis and selector form. */
+export function monthLabelShort(periodId: string): string {
+  const [year, month] = periodId.split('-').map(Number);
+
+  return new Date(year, month - 1, 1).toLocaleDateString('en-IN', {
+    month: 'short',
+    year: 'numeric',
+  });
+}
+
+/** `10:24 AM` — chat timestamps. */
+export function clockTime(at: Date): string {
+  // `en-IN` renders the meridiem lowercase; the reference and the rest of the app
+  // set it in caps, and a locale is not the place to argue about that.
+  return at
+    .toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true })
+    .toUpperCase();
+}

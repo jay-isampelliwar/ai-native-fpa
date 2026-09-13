@@ -1,10 +1,5 @@
-import Console from '@/components/Console';
-import Shell from '@/components/Shell';
+import PlannerShell from '@/components/PlannerShell';
 
 export default function Page() {
-  return (
-    <Shell>
-      <Console />
-    </Shell>
-  );
+  return <PlannerShell />;
 }

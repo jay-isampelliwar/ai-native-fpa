@@ -19,8 +19,6 @@ Type comparison is enabled so a column changing from ``NUMERIC(14,2)`` to someth
 caught. For a financial schema that is the drift most worth failing on.
 """
 
-from logging.config import fileConfig
-
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
@@ -30,9 +28,6 @@ from app.db.base import Base
 import app.models.orm  # noqa: F401
 
 config = context.config
-
-if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
 
 def migration_url() -> str:
 

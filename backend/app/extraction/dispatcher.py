@@ -51,7 +51,7 @@ def choose_extractor(filename: str, content_type: str, content: bytes) -> Docume
     return None
 
 
-async def extract_document(filename: str, content_type: str, content: bytes) -> ExtractionResult:
+async def extract_document(filename: str, content_type: str, content: bytes, user_id: int) -> ExtractionResult:
 
     """Dispatch a document to its extractor, returning a stated refusal when no format matches."""
 
@@ -65,4 +65,4 @@ async def extract_document(filename: str, content_type: str, content: bytes) -> 
             error="this document format is not supported yet",
         )
 
-    return await extractor.extract(content, filename)
+    return await extractor.extract(content, filename, user_id)

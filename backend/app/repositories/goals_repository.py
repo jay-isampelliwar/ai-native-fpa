@@ -22,12 +22,12 @@ projection someone will act on.
 Every read filters on ``user_id`` and skips archived goals, exactly as the other repositories do.
 """
 
-from datetime import date
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import session_scope
@@ -254,6 +254,38 @@ class GoalsRepository:
             return Decimal("0"), sip.amount
 
         return Decimal("0"), Decimal("0")
+
+    async def update_goal(
+        self,
+        session: AsyncSession,
+        user_id: int,
+        goal_id: str,
+        changes: dict,
+        ) -> bool:
+
+        """Apply changes to one goal this user owns, reporting whether anything matched."""
+
+        if not changes:
+            return False
+
+        result = await session.execute(
+            update(GoalRow)
+            .where(GoalRow.id == goal_id, GoalRow.user_id == user_id, GoalRow.archived_at.is_(None))
+            .values(**changes)
+        )
+
+        return result.rowcount > 0
+
+    async def archive_goal(
+        self,
+        session: AsyncSession,
+        user_id: int,
+        goal_id: str,
+        ) -> bool:
+
+        """Retire a goal from every future projection while leaving it readable as history."""
+
+        return await self.update_goal(session, user_id, goal_id, {"archived_at": datetime.now(UTC)})
 
 
 goals_repository = GoalsRepository()

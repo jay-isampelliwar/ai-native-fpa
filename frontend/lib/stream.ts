@@ -9,15 +9,22 @@
  * whatever does not yet end in a delimiter. Parsing per chunk instead would silently drop the tail of
  * any event unlucky enough to straddle a boundary - rare locally, common over a real network.
  *
- * The terminal `done` event carries exactly what the non-streaming endpoint returns. A caller may
- * ignore every progress event and still be correct, which is what keeps the streaming path from
- * becoming a second, subtly different source of truth about what the answer was.
+ * The terminal `done` event carries the authoritative answer. A caller may ignore every progress and
+ * token event and still be correct, which is what lets the chat be one endpoint rather than a stream
+ * beside a plain POST that could disagree with it.
+ *
+ * That matters most for `token`. Those are the words as the model writes them, sent so a person reads
+ * a reply forming rather than watching a spinner. They are rendered as they arrive and then
+ * overwritten by what `done` says — identical today, and correct on the day the backend checks the
+ * finished reply before standing behind it.
  */
 
 import type { MessageResponse, ProgressEvent } from "@/lib/types";
 
 interface StreamHandlers {
   onProgress?: (event: ProgressEvent) => void;
+  /** A piece of the answer as the model writes it. A preview: `onDone` carries the authoritative text. */
+  onToken?: (text: string) => void;
   onDone: (response: MessageResponse) => void;
   onError: (message: string) => void;
 }
@@ -87,6 +94,8 @@ function dispatch(chunk: string, handlers: StreamHandlers): void {
 
     if (name === "progress") {
       handlers.onProgress?.(parsed as ProgressEvent);
+    } else if (name === "token") {
+      handlers.onToken?.((parsed as { text: string }).text);
     } else if (name === "done") {
       handlers.onDone(parsed as MessageResponse);
     } else if (name === "error") {

@@ -36,11 +36,22 @@ from fastapi import FastAPI
 
 from app.api.v1.router import api_router
 from app.core.config import settings
-from app.core.logging import configure_logging, get_logger
 from app.db.checkpointer import postgres_checkpointer
 from app.db.session import dispose_engine
-from app.graphs.orchestrator.graph import build_planner_graph, set_planner_graph
-from app.graphs.skills.bootstrap import register_skills
+from app.agent import graph as planner
+
+
+async def abandon_unfinished_imports() -> None:
+
+    """Fail imports a stopped process left mid read, so nothing polls a background job that no longer exists."""
+
+    from app.services.import_service import import_service
+
+    try:
+        await import_service.abandon_unfinished()
+
+    except Exception:
+        pass
 
 
 @asynccontextmanager
@@ -48,19 +59,11 @@ async def lifespan(app: FastAPI):
 
     """Open the checkpointer, register skills and compile the graph before the first request is served."""
 
-    configure_logging()
-
-    register_skills()
+    await abandon_unfinished_imports()
 
     async with postgres_checkpointer() as checkpointer:
 
-        set_planner_graph(build_planner_graph(checkpointer))
-
-        get_logger("startup").info(
-            "planner ready",
-            environment=settings.environment,
-            repository_backend=settings.repository_backend,
-        )
+        planner.planner_graph = planner.build_planner_graph(checkpointer)
 
         yield
 

@@ -21,6 +21,17 @@ and a PAN in rows four to six, and those must never reach a mapping prompt, a lo
 
 Nothing here interprets a column's meaning. This module says where the table is; deciding that
 "Qty Available" means quantity is the adapter's or the mapping's job.
+
+``open_workbook`` exists so a caller can do both halves in one place, and off the event loop. openpyxl
+is synchronous and the two calls used to be made one after the other in an async function, which
+parsed the same file twice and blocked every other request in the process while it did - 0.45s for a
+twenty thousand row workbook, during which no other person could be answered.
+
+Personal details are recognised by identifiers, not by the word "name". A single ``Name`` column was
+enough to have a sheet withheld, and every table has one - a fund name, a stock name, the name of a
+goal - so a person's financial goals were being classified as their personal details and silently
+never read. A PAN, a mobile number, an email or an Aadhaar identifies somebody on its own; a name
+only does so next to something else about the person, so two of those together is the test.
 """
 
 import hashlib
@@ -36,7 +47,11 @@ MAXIMUM_HEADER_SCAN_ROWS = 40
 SAMPLE_ROW_COUNT = 3
 MINIMUM_HEADER_CELLS = 3
 
-PII_HEADERS = frozenset({"pan", "mobile", "mobile number", "phone", "email", "aadhaar", "aadhar", "name", "address"})
+IDENTIFYING_HEADERS = frozenset({"pan", "mobile", "mobile number", "phone", "email", "aadhaar", "aadhar"})
+
+PERSONAL_HEADERS = frozenset(
+    {"name", "address", "date of birth", "dob", "gender", "marital status", "age", "role"}
+)
 
 
 class SheetProfile(BaseModel):
@@ -171,6 +186,23 @@ def read_sheets(content: bytes) -> dict[str, list[list[object]]]:
     return sheets
 
 
+def open_workbook(content: bytes) -> tuple[dict[str, list[list[object]]], "WorkbookProfile"]:
+
+    """Read the cells and describe the layout in one pass, which is the whole blocking part of an import."""
+
+    sheets = read_sheets(content)
+
+    profiles = [profile_sheet(name, rows) for name, rows in sheets.items()]
+
+    profile = WorkbookProfile(
+        sheet_names=list(sheets),
+        sheets=profiles,
+        fingerprint=fingerprint_of(profiles, list(sheets)),
+    )
+
+    return sheets, profile
+
+
 def profile_workbook(content: bytes) -> WorkbookProfile:
 
     """Describe a workbook's tables and compute the fingerprint that recognises this layout again."""
@@ -203,6 +235,11 @@ def fingerprint_of(profiles: list[SheetProfile], sheet_names: list[str]) -> str:
 
 def carries_personal_details(profile: SheetProfile) -> bool:
 
-    """Report whether a detected table is actually a personal details block rather than holdings."""
+    """Report whether a detected table is somebody's personal details rather than a table of their money."""
 
-    return bool({normalise_header(header) for header in profile.headers} & PII_HEADERS)
+    headers = {normalise_header(header) for header in profile.headers}
+
+    if headers & IDENTIFYING_HEADERS:
+        return True
+
+    return len(headers & PERSONAL_HEADERS) > 1

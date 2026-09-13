@@ -21,14 +21,17 @@ Nothing here writes. Rows are staged with their sheet, row number and original c
 looks wrong later can be traced to the line it came from.
 """
 
+import asyncio
+
 import re
 from datetime import date
 
 from app.extraction.base import ExtractedRow, ExtractionResult
 from app.extraction.builtin_templates import BUILTIN_TEMPLATES
 from app.extraction.holdings import to_payload
+from app.extraction.sheets import read_without_a_template
 from app.extraction.templates import TemplateSpec, parse_with_template
-from app.extraction.workbook import profile_workbook, read_sheets
+from app.extraction.workbook import open_workbook
 from app.extraction.values import to_date
 
 WORKBOOK_SUFFIXES = (".xlsx", ".xlsm")
@@ -88,13 +91,12 @@ class HoldingsWorkbookExtractor:
 
         return any(marker in content_type for marker in WORKBOOK_CONTENT_TYPES) and head[:2] == b"PK"
 
-    async def extract(self, content: bytes, filename: str) -> ExtractionResult:
+    async def extract(self, content: bytes, filename: str, user_id: int) -> ExtractionResult:
 
         """Read the workbook with the most specific template that fits, or ask for a mapping instead."""
 
         try:
-            sheets = read_sheets(content)
-            profile = profile_workbook(content)
+            sheets, profile = await asyncio.to_thread(open_workbook, content)
 
         except Exception as exc:
             return ExtractionResult(
@@ -106,7 +108,7 @@ class HoldingsWorkbookExtractor:
 
         as_of = as_of_from(filename, sheets)
 
-        template = await self.find_template(profile.fingerprint)
+        template = await self.find_template(profile.fingerprint, user_id)
 
         if template is not None:
             return self.parse(template, sheets, as_of, profile.fingerprint)
@@ -118,23 +120,16 @@ class HoldingsWorkbookExtractor:
             if result.rows:
                 return result
 
-        return ExtractionResult(
-            extractor=self.name,
-            detected_format="workbook",
-            document_kind="holdings_statement",
-            needs_mapping=True,
-            layout=profile.model_dump(),
-            error="this layout is not recognised yet and needs a column mapping",
-        )
+        return await read_without_a_template(profile, sheets, self.name)
 
-    async def find_template(self, fingerprint: str) -> TemplateSpec | None:
+    async def find_template(self, fingerprint: str, user_id: int) -> TemplateSpec | None:
 
-        """Look for a mapping someone already confirmed for this exact layout."""
+        """Look for a mapping this person already confirmed for this exact layout."""
 
         from app.repositories.templates_repository import templates_repository
 
         try:
-            return await templates_repository.by_fingerprint(fingerprint)
+            return await templates_repository.by_fingerprint(fingerprint, user_id)
 
         except Exception:
             return None
