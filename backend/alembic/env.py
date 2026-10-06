@@ -22,10 +22,7 @@ caught. For a financial schema that is the drift most worth failing on.
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
-from app.core.config import settings
-from app.db.base import Base
-
-import app.models.orm  # noqa: F401
+from app.core.config import get_settings
 
 config = context.config
 
@@ -33,7 +30,7 @@ def migration_url() -> str:
 
     """Put the configured URL on the psycopg 3 driver, the same client the application connects with."""
 
-    url = settings.database_url.get_secret_value()
+    url = get_settings().DATABASE_URL
 
     if url.startswith("postgresql+"):
         return url
@@ -43,7 +40,7 @@ def migration_url() -> str:
 
 config.set_main_option("sqlalchemy.url", migration_url())
 
-target_metadata = Base.metadata
+target_metadata = None
 
 
 def run_migrations_offline() -> None:

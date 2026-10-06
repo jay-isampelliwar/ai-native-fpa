@@ -107,18 +107,16 @@ def upgrade() -> None:
     )
     op.create_foreign_key("fk_tool_calls_run_id", "tool_calls", "agent_runs", ["run_id"], ["id"])
     op.create_index("ix_tool_calls_run_id", "tool_calls", ["run_id"])
-    op.create_index("uq_tool_calls_operation_key", "tool_calls", ["operation_key"], unique=True)
 
 
 def downgrade() -> None:
 
     """Remove the run links and new columns, shrink tool_call_status back, then drop agent_runs."""
 
-    op.drop_index("uq_tool_calls_operation_key", table_name="tool_calls")
     op.drop_index("ix_tool_calls_run_id", table_name="tool_calls")
     op.drop_constraint("fk_tool_calls_run_id", "tool_calls", type_="foreignkey")
 
-    for column in ("provider_receipt", "provider_request_id", "operation_key", "updated_at", "started_at", "run_id"):
+    for column in ("updated_at", "started_at", "run_id"):
         op.drop_column("tool_calls", column)
 
     op.execute(
