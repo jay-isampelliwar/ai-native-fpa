@@ -9,47 +9,30 @@
  * whatever does not yet end in a delimiter. Parsing per chunk instead would silently drop the tail of
  * any event unlucky enough to straddle a boundary - rare locally, common over a real network.
  *
- * The terminal `done` event carries the authoritative answer. A caller may ignore every progress and
- * token event and still be correct, which is what lets the chat be one endpoint rather than a stream
- * beside a plain POST that could disagree with it.
- *
- * That matters most for `token`. Those are the words as the model writes them, sent so a person reads
- * a reply forming rather than watching a spinner. They are rendered as they arrive and then
- * overwritten by what `done` says — identical today, and correct on the day the backend checks the
- * finished reply before standing behind it.
- *
- * `import_ids` is sent on every turn, empty array included. The graph's state is last-write-wins per
- * key, so omitting the field on a message with no attachments would leave the previous turn's files
- * in the checkpoint and the planner would describe a document nobody had just sent.
+ * `token` events are the words as the model writes them, and they are the whole answer: the closing
+ * `done` event carries only the thread id. The request body is just the message, because the backend
+ * keeps one fixed thread and takes nothing else.
  */
 
 import type { MessageResponse, ProgressEvent } from "@/lib/types";
 
 interface StreamHandlers {
   onProgress?: (event: ProgressEvent) => void;
-  /** A piece of the answer as the model writes it. A preview: `onDone` carries the authoritative text. */
+  /** A piece of the answer as the model writes it. Together they make the full reply. */
   onToken?: (text: string) => void;
   onDone: (response: MessageResponse) => void;
   onError: (message: string) => void;
 }
 
 export async function streamMessage(
-  userId: number,
   message: string,
-  conversationId: string | undefined,
-  importIds: string[],
   handlers: StreamHandlers,
   signal?: AbortSignal,
 ): Promise<void> {
-  const response = await fetch("/api/v1/planner/messages/stream", {
+  const response = await fetch("/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      user_id: userId,
-      message,
-      conversation_id: conversationId ?? null,
-      import_ids: importIds,
-    }),
+    body: JSON.stringify({ message }),
     signal,
   });
 
@@ -101,7 +84,7 @@ function dispatch(chunk: string, handlers: StreamHandlers): void {
     if (name === "progress") {
       handlers.onProgress?.(parsed as ProgressEvent);
     } else if (name === "token") {
-      handlers.onToken?.((parsed as { text: string }).text);
+      handlers.onToken?.((parsed as { content: string }).content);
     } else if (name === "done") {
       handlers.onDone(parsed as MessageResponse);
     } else if (name === "error") {

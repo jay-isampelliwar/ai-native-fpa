@@ -7,17 +7,15 @@
  * removed, and a type for a field the backend cannot send is how a client ends up rendering an empty
  * section forever.
  *
- * `MessageResponse` is what the stream's closing `done` event carries. The thread id comes back on
- * every turn because the first one invents it, and sending it again is what continues the same
- * conversation.
+ * `MessageResponse` is what the stream's closing `done` event carries: only the thread id. The
+ * backend holds one fixed thread for now, so there is nothing for the client to send back.
  *
  * `ProgressEvent` is one line of "what is happening" while the answer is being written. It carries no
  * skill name any more; there is one node in the graph, so there is nothing to name.
  */
 
 export interface MessageResponse {
-  conversation_id: string;
-  response: string;
+  thread_id: string;
 }
 
 export interface ProgressEvent {

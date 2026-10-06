@@ -1,24 +1,22 @@
+"""The FastAPI app: builds the planner graph on startup and mounts the API routes."""
+
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-from app.agent import graph as planner
+from langgraph.checkpoint.memory import InMemorySaver
 
+from app.agent import graph as planner
+from app.api.router import api_router
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
 
-    """Open the checkpointer, register skills and compile the graph before the first request is served."""
+    """Compile the graph against an in-memory checkpointer before the first request is served."""
 
-    await abandon_unfinished_imports()
+    planner.planner_graph = planner.build_planner_graph(InMemorySaver())
 
-    async with postgres_checkpointer() as checkpointer:
-
-        planner.planner_graph = planner.build_planner_graph(checkpointer)
-
-        yield
-
-    await dispose_engine()
+    yield
 
 
 app = FastAPI(

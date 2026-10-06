@@ -11,40 +11,6 @@ import ChatHeader from '@/components/chat/ChatHeader';
 import MessageTimeline, { type Turn } from '@/components/chat/MessageTimeline';
 import SuggestedPrompts from '@/components/chat/SuggestedPrompts';
 
-/**
- * The left pane, and the only part of this screen wired to a real backend.
- *
- * One graph run per message, streamed. The dashboard beside it is mock data and
- * the two do not touch: this build's planner answers in prose, so there is nothing
- * structured in a reply for a card to act on, and inventing a change the model did
- * not propose would put a number on screen that nothing stands behind.
- *
- * The conversation id is held from the first reply and sent with every later
- * message. It is the graph's thread id, which is what makes the model remember
- * earlier turns. Reloading starts a new thread — the turns on screen are the only
- * copy, since the transcript endpoints do not exist.
- *
- * The answer's turn is created empty and filled as tokens arrive, then overwritten
- * with what the closing event carries. The two are identical today; the swap is
- * what keeps this correct on the day the backend checks a reply before standing
- * behind it.
- *
- * A failure becomes a turn rather than a toast. A question about money that could
- * not be answered is part of the record of what was asked, and dismissing it leaves
- * a gap the reader cannot account for.
- *
- * Attachments are held by `useUploads` rather than in this component. They are uploaded when
- * picked, so a file is usually read before the sentence about it is finished, and the composer
- * holds Send until nothing is still being read.
- *
- * Identity arrives as a prop rather than being read here, and the shell remounts
- * this component when it changes. That remount is the whole of switching user:
- * turns, draft and thread id all go with it. Clearing them by hand instead would
- * mean remembering to add every new piece of state to a reset function, and the one
- * that gets forgotten leaves one person's conversation on screen under another
- * person's id.
- */
-
 const newId = () => Math.random().toString(36).slice(2, 10);
 
 export default function ChatWorkspace({
@@ -58,7 +24,6 @@ export default function ChatWorkspace({
   const [draft, setDraft] = useState('');
   const [step, setStep] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [conversationId, setConversationId] = useState<string | undefined>();
 
   const uploads = useUploads(userId);
 
@@ -112,13 +77,10 @@ export default function ChatWorkspace({
       setTurns((current) => current.map((turn) => (turn.id === answerId ? change(turn) : turn)));
     }
 
-    await streamMessage(userId, trimmed, conversationId, importIds, {
+    await streamMessage(trimmed, {
       onProgress: (event) => setStep(event.label),
       onToken: (piece) => amend((turn) => ({ ...turn, text: turn.text + piece })),
-      onDone: (response) => {
-        setConversationId(response.conversation_id);
-        amend((turn) => ({ ...turn, text: response.response }));
-      },
+      onDone: () => {},
       onError: (message) => amend((turn) => ({ ...turn, text: message, failed: true })),
     }).catch(() =>
       amend((turn) => ({
