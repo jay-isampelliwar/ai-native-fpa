@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: SecretStr
     CHAT_MODEL: str = "gpt-4o-mini"
     DATABASE_URL: str | None = None
+    DEV_USER_ID: int = 1
 
 
 @lru_cache

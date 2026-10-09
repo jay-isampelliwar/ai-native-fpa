@@ -30,6 +30,29 @@ class RunRepository:
 
         self.session = session
 
+    async def get_conversation(self, conversation_id: int, user_id: int) -> Conversation | None:
+
+        """Return the conversation only when it exists and belongs to this user."""
+
+        query = select(Conversation).where(
+            Conversation.id == conversation_id,
+            Conversation.user_id == user_id,
+            )
+
+        return await self.session.scalar(query)
+
+    async def create_conversation(self, user_id: int) -> Conversation:
+
+        """Add a new empty conversation for this user and flush it so its id is known."""
+
+        conversation = Conversation(user_id=user_id)
+
+        self.session.add(conversation)
+
+        await self.session.flush()
+
+        return conversation
+
     async def find_run_by_request(
         self,
         conversation_id: int,

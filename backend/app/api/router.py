@@ -3,8 +3,10 @@
 from fastapi import APIRouter
 
 from app.features.chat.router import router as chat_router
+from app.features.runs.router import router as runs_router
 
 
 api_router = APIRouter(prefix="/api")
 
 api_router.include_router(chat_router)
+api_router.include_router(runs_router)

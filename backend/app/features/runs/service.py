@@ -1,0 +1,101 @@
+"""Business rules for starting a run: find or create the conversation, then reuse or create the run."""
+
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.db.models import Conversation
+from app.features.runs.exceptions import ConversationNotFound, RunAlreadyActive
+from app.features.runs.repository import RunRepository
+from app.features.runs.schemas import CreateRunRequest, RunResponse
+
+
+DUPLICATE_REQUEST_CONSTRAINT = "uq_agent_runs_conversation_client_request"
+ONE_ACTIVE_RUN_CONSTRAINT = "uq_agent_runs_one_active"
+
+
+def violated_constraint(exc: IntegrityError) -> str | None:
+
+    """Read the name of the unique constraint Postgres says the insert broke."""
+
+    diag = getattr(exc.orig, "diag", None)
+
+    return getattr(diag, "constraint_name", None)
+
+
+class RunService:
+
+    """The steps behind POST /runs for one request, sharing that request's session."""
+
+    def __init__(self, session: AsyncSession) -> None:
+
+        """Keep the request's session and build the repository on top of it."""
+
+        self.session = session
+        self.repo = RunRepository(session)
+
+    async def resolve_conversation(self, conversation_id: int | None, user_id: int) -> Conversation:
+
+        """Create a conversation when none is given, otherwise load it and refuse one this user does not own."""
+
+        if conversation_id is None:
+            return await self.repo.create_conversation(user_id)
+
+        conversation = await self.repo.get_conversation(conversation_id, user_id)
+
+        if conversation is None:
+            raise ConversationNotFound(conversation_id)
+
+        return conversation
+
+    async def create_run(self, body: CreateRunRequest, user_id: int) -> RunResponse:
+
+        """Return the existing run for a retried request, or save a new run with its two messages and commit."""
+
+        conversation = await self.resolve_conversation(body.conversation_id, user_id)
+
+        conversation_id = conversation.id
+
+        existing = await self.repo.find_run_by_request(conversation_id, body.client_request_id)
+
+        if existing is not None:
+            return RunResponse.from_run(existing)
+
+        try:
+            run, _, _ = await self.repo.create_run_with_messages(
+                conversation_id,
+                body.client_request_id,
+                body.message,
+                )
+
+            await self.session.commit()
+
+        except IntegrityError as exc:
+
+            await self.session.rollback()
+
+            return await self.recover_from_conflict(exc, conversation_id, body.client_request_id)
+
+        return RunResponse.from_run(run)
+
+    async def recover_from_conflict(
+        self,
+        exc: IntegrityError,
+        conversation_id: int,
+        client_request_id: str,
+        ) -> RunResponse:
+
+        """Turn a lost insert race into the winning run, or into RunAlreadyActive when another run is still going."""
+
+        constraint = violated_constraint(exc)
+
+        if constraint == DUPLICATE_REQUEST_CONSTRAINT:
+
+            winner = await self.repo.find_run_by_request(conversation_id, client_request_id)
+
+            if winner is not None:
+                return RunResponse.from_run(winner)
+
+        if constraint == ONE_ACTIVE_RUN_CONSTRAINT:
+            raise RunAlreadyActive(conversation_id) from exc
+
+        raise exc
