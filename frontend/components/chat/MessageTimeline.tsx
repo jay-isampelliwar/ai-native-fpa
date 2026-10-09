@@ -1,12 +1,14 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { Paperclip } from 'lucide-react';
+import { Check, Copy, Download, Paperclip, PenLine, RefreshCw, ThumbsDown, ThumbsUp } from 'lucide-react';
+import { useState } from 'react';
 
 import { clockTime } from '@/lib/format';
 import { PROFILE } from '@/lib/mock/data';
 import ImportReview from '@/components/chat/ImportReview';
 import Reply from '@/components/chat/Reply';
+import Orb from '@/components/ui/Orb';
 
 /**
  * The conversation so far.
@@ -22,6 +24,10 @@ import Reply from '@/components/chat/Reply';
  *
  * Timestamps are muted and small. They are needed to place a turn in a session and
  * never needed at a glance, so they sit under the message rather than in it.
+ *
+ * Each finished answer gets a row of round buttons, as in the reference. Copy and
+ * Regenerate work. Like, Dislike, Edit and Download are drawn but do nothing yet —
+ * the backend has no feedback table and no export route for them to call.
  */
 
 export interface Turn {
@@ -43,13 +49,17 @@ export default function MessageTimeline({
   turns,
   streamingId,
   userId,
+  busy,
+  onRegenerate,
 }: {
   turns: Turn[];
   streamingId?: string;
   userId: number | null;
+  busy: boolean;
+  onRegenerate: (answerId: string) => void;
 }) {
   return (
-    <div className="space-y-4 px-4 sm:px-5">
+    <div className="space-y-5 px-4 pt-1 sm:px-5">
       {turns.map((turn) =>
         turn.role === 'user' ? (
           <UserTurn key={turn.id} turn={turn} />
@@ -60,6 +70,8 @@ export default function MessageTimeline({
               turn={turn}
               streaming={turn.id === streamingId}
               userId={userId}
+              busy={busy}
+              onRegenerate={() => onRegenerate(turn.id)}
             />
           )
         ),
@@ -77,7 +89,10 @@ function UserTurn({ turn }: { turn: Turn }) {
       className="flex justify-end gap-2.5"
     >
       <div className="flex max-w-[88%] flex-col items-end">
-        <p className="rounded-2xl rounded-br-md border border-line bg-panel-subtle px-3.5 py-2.5 text-[13.5px] leading-[1.55] whitespace-pre-wrap text-primary">
+        <p
+          className="rounded-2xl rounded-br-md border border-[var(--pane-border)] px-3.5 py-2.5 text-[13.5px] leading-[1.55] whitespace-pre-wrap text-primary"
+          style={{ background: 'var(--gradient-user)' }}
+        >
           {turn.text}
         </p>
 
@@ -92,8 +107,12 @@ function UserTurn({ turn }: { turn: Turn }) {
 
       <span
         aria-hidden="true"
-        className="mt-0.5 grid h-7 w-7 flex-none place-items-center rounded-full text-[10px] font-bold"
-        style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}
+        className="mt-0.5 grid h-8 w-8 flex-none place-items-center rounded-full text-[10.5px] font-bold"
+        style={{
+          background: 'var(--accent-soft)',
+          color: 'var(--accent)',
+          boxShadow: '0 0 0 2px var(--pane), 0 0 0 3px var(--accent-soft)',
+        }}
       >
         {PROFILE.initials}
       </span>
@@ -105,10 +124,14 @@ function PlannerTurn({
   turn,
   streaming,
   userId,
+  busy,
+  onRegenerate,
 }: {
   turn: Turn;
   streaming: boolean;
   userId: number | null;
+  busy: boolean;
+  onRegenerate: () => void;
 }) {
   return (
     <motion.div
@@ -117,26 +140,15 @@ function PlannerTurn({
       transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
       className="flex gap-2.5"
     >
-      <span
-        aria-hidden="true"
-        className="mt-0.5 grid h-7 w-7 flex-none place-items-center rounded-full"
-        style={{ background: 'var(--accent-soft)' }}
-      >
-        <svg viewBox="0 0 20 20" className="h-3.5 w-3.5" fill="none">
-          <rect x="2" y="11" width="6" height="7" rx="2" fill="var(--accent)" opacity="0.55" />
-          <rect x="2" y="2" width="6" height="7" rx="2" fill="var(--accent)" opacity="0.3" />
-          <rect x="12" y="11" width="6" height="7" rx="2" fill="var(--accent)" opacity="0.3" />
-          <rect x="12" y="2" width="6" height="7" rx="2" fill="var(--accent)" />
-        </svg>
-      </span>
+      <Orb size={30} className="mt-0.5" />
 
-      <div className="min-w-0 max-w-[92%]">
+      <div className="min-w-0 max-w-[90%]">
         <div
           className="rounded-2xl rounded-tl-md border px-3.5 py-3"
           style={
             turn.failed
               ? { borderColor: 'var(--negative)', background: 'var(--negative-soft)' }
-              : { borderColor: 'var(--border)', background: 'var(--panel)' }
+              : { borderColor: 'var(--pane-border)', background: 'var(--bubble)' }
           }
         >
           <Reply text={turn.text} streaming={streaming} />
@@ -151,11 +163,86 @@ function PlannerTurn({
             <ImportReview key={importId} userId={userId} importId={importId} />
           ))}
 
-        <time className="mt-1 pl-1 block text-[10.5px] text-muted">
+        {!streaming && (
+          <ReplyActions text={turn.text} busy={busy} onRegenerate={onRegenerate} />
+        )}
+
+        <time className="mt-1.5 pl-1 block text-[10.5px] text-muted">
           {clockTime(turn.at)}
           {turn.stopped && ' · Response stopped'}
         </time>
       </div>
     </motion.div>
+  );
+}
+
+/** The round buttons under a finished answer. */
+function ReplyActions({
+  text,
+  busy,
+  onRegenerate,
+}: {
+  text: string;
+  busy: boolean;
+  onRegenerate: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard access can be refused by the browser. Nothing useful to show.
+    }
+  }
+
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+      <ActionButton label={copied ? 'Copied' : 'Copy'} onClick={copy}>
+        {copied ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}
+      </ActionButton>
+      <ActionButton label="Good response">
+        <ThumbsUp size={13} aria-hidden="true" />
+      </ActionButton>
+      <ActionButton label="Bad response">
+        <ThumbsDown size={13} aria-hidden="true" />
+      </ActionButton>
+      <ActionButton label="Edit">
+        <PenLine size={13} aria-hidden="true" />
+      </ActionButton>
+      <ActionButton label="Download">
+        <Download size={13} aria-hidden="true" />
+      </ActionButton>
+      <ActionButton label="Regenerate" onClick={onRegenerate} disabled={busy}>
+        <RefreshCw size={13} aria-hidden="true" />
+      </ActionButton>
+    </div>
+  );
+}
+
+function ActionButton({
+  label,
+  onClick,
+  disabled = false,
+  children,
+}: {
+  label: string;
+  onClick?: () => void;
+  disabled?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      disabled={disabled}
+      className="icon-pill h-7 w-7 disabled:cursor-not-allowed disabled:opacity-40"
+    >
+      {children}
+    </button>
   );
 }

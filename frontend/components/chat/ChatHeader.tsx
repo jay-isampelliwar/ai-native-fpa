@@ -1,78 +1,85 @@
 'use client';
 
-import { Moon, PanelLeftClose, Sun } from 'lucide-react';
+import { EllipsisVertical, History, Moon, Sun } from 'lucide-react';
 
 import { useTheme } from '@/lib/theme';
+import Orb from '@/components/ui/Orb';
 
 /**
- * The chat pane's header: the mark, the product, and the theme control.
+ * The chat pane's header: the assistant badge, the theme switch, and two menus.
  *
- * No navigation. The doc is explicit that this application has two regions and no
- * third rail, so the only control here is the one that belongs to the frame rather
- * than to the conversation.
+ * Before the first message the header shows only the badge, as the reference does.
+ * Once a conversation starts it reads "AI Chat", so the pane says what it holds.
  *
- * The toggle says what it will do, not what is currently true. A button labelled
- * "Dark" in dark mode reads as a statement; labelled "Switch to light theme" it
- * reads as an action, which is what a button is.
+ * The theme switch is a two-sided pill, sun and moon, with the current side lit.
+ * Each side is a button that names the theme it turns on.
+ *
+ * History and the more menu are drawn but do nothing yet. There is no route that
+ * lists past conversations, so there is nothing for them to open.
  */
-export default function ChatHeader({ onCollapse }: { onCollapse?: () => void }) {
+export default function ChatHeader({ started }: { started: boolean }) {
   const { theme, toggle } = useTheme();
 
-  const next = theme === 'dark' ? 'light' : 'dark';
-  const Icon = theme === 'dark' ? Sun : Moon;
-
   return (
-    <header className="flex items-center gap-3 px-4 pt-5 pb-4 sm:px-5">
-      <Logo />
-
-      <div className="min-w-0">
-        <p className="truncate text-[17px] leading-none font-bold tracking-[-0.01em] text-primary">
-          Mosaic
-        </p>
-        <p className="mt-1 truncate text-[11.5px] text-secondary">Your AI financial planner</p>
-      </div>
+    <header className="flex items-center gap-3 px-4 pt-4 pb-3 sm:px-5">
+      {started ? (
+        <h1 className="text-[18px] font-semibold tracking-[-0.01em] text-primary">AI Chat</h1>
+      ) : (
+        <span className="inline-flex items-center gap-2 rounded-full border border-[var(--pane-border)] bg-panel-subtle py-1 pr-3.5 pl-1">
+          <Orb size={26} />
+          <span className="text-[12.5px] font-medium text-primary">Mosaic AI</span>
+        </span>
+      )}
 
       <div className="ml-auto flex flex-none items-center gap-1.5">
-        <button
-          type="button"
-          onClick={toggle}
-          aria-label={`Switch to ${next} theme`}
-          title={`Switch to ${next} theme`}
-          className="grid h-8 w-8 place-items-center rounded-full border border-line bg-panel-subtle text-secondary transition hover:border-line-strong hover:text-primary"
-        >
-          <Icon size={15} aria-hidden="true" />
+        <div className="flex items-center gap-0.5 rounded-full border border-[var(--pane-border)] bg-panel-subtle p-0.5">
+          <ThemeSide active={theme === 'light'} label="Switch to light theme" onPick={toggle}>
+            <Sun size={14} aria-hidden="true" />
+          </ThemeSide>
+          <ThemeSide active={theme === 'dark'} label="Switch to dark theme" onPick={toggle}>
+            <Moon size={14} aria-hidden="true" />
+          </ThemeSide>
+        </div>
+
+        <button type="button" aria-label="Chat history" title="Chat history" className="icon-pill h-8 w-8">
+          <History size={15} aria-hidden="true" />
         </button>
 
-        {onCollapse && (
-          <button
-            type="button"
-            onClick={onCollapse}
-            aria-label="Reset panel width"
-            title="Reset panel width"
-            className="hidden h-8 w-8 place-items-center rounded-full border border-line bg-panel-subtle text-secondary transition hover:border-line-strong hover:text-primary lg:grid"
-          >
-            <PanelLeftClose size={15} aria-hidden="true" />
-          </button>
-        )}
+        <button type="button" aria-label="More options" title="More options" className="icon-pill h-8 w-8">
+          <EllipsisVertical size={15} aria-hidden="true" />
+        </button>
       </div>
     </header>
   );
 }
 
-/** The mark: four tiles, one lit — a mosaic, and the shape of a rising bar chart. */
-function Logo() {
+/** One side of the theme pill. Pressing the side that is already lit does nothing. */
+function ThemeSide({
+  active,
+  label,
+  onPick,
+  children,
+}: {
+  active: boolean;
+  label: string;
+  onPick: () => void;
+  children: React.ReactNode;
+}) {
   return (
-    <span
-      aria-hidden="true"
-      className="grid h-9 w-9 flex-none place-items-center rounded-xl"
-      style={{ background: 'var(--accent-soft)' }}
+    <button
+      type="button"
+      aria-label={label}
+      aria-pressed={active}
+      title={label}
+      onClick={active ? undefined : onPick}
+      className="grid h-7 w-7 place-items-center rounded-full transition"
+      style={
+        active
+          ? { background: 'var(--panel-elevated)', color: 'var(--accent)', boxShadow: '0 0 0 1px var(--accent-soft)' }
+          : { color: 'var(--text-muted)' }
+      }
     >
-      <svg viewBox="0 0 20 20" className="h-5 w-5" fill="none">
-        <rect x="2" y="11" width="6" height="7" rx="2" fill="var(--accent)" opacity="0.55" />
-        <rect x="2" y="2" width="6" height="7" rx="2" fill="var(--accent)" opacity="0.3" />
-        <rect x="12" y="11" width="6" height="7" rx="2" fill="var(--accent)" opacity="0.3" />
-        <rect x="12" y="2" width="6" height="7" rx="2" fill="var(--accent)" />
-      </svg>
-    </span>
+      {children}
+    </button>
   );
 }

@@ -153,7 +153,7 @@ export default function Reply({ text, streaming = false }: { text: string; strea
   const caret = <span className="caret" key="caret" aria-hidden="true" />;
 
   return (
-    <div className="reply text-[14.5px] leading-[1.72] text-[#b9d9ee]">
+    <div className="reply text-[14px] leading-[1.68]">
       {parsed.map((block, index) => {
         const tail = streaming && index === last;
 

@@ -160,3 +160,23 @@ export function selectablePeriods(): { id: PeriodId; label: string }[] {
     .reverse()
     .map((period) => ({ id: period.id, label: monthLabel(period.id) }));
 }
+
+export type Metric = 'income' | 'expense' | 'cashFlow' | 'investment';
+
+function metricAt(index: number, metric: Metric): number {
+  if (metric === 'income') return incomeOf(index);
+  if (metric === 'expense') return PERIODS[index].expenseTotal;
+  if (metric === 'investment') return PERIODS[index].investmentTotal;
+
+  return cashFlowAt(index);
+}
+
+/** One figure for the last `size` months ending at the selected one, oldest first. For sparklines. */
+export function trendUpTo(periodId: PeriodId, metric: Metric, size = 7): number[] {
+  const end = indexOf(periodId);
+  const values: number[] = [];
+
+  for (let at = Math.max(0, end - size + 1); at <= end; at += 1) values.push(metricAt(at, metric));
+
+  return values;
+}

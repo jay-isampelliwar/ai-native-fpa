@@ -1,10 +1,10 @@
 'use client';
 
-import { Bell, EllipsisVertical, Search } from 'lucide-react';
+import { ArrowDownLeft, ArrowUpRight, Bell, Mic, PiggyBank, Search, Wallet } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-import { cashFlowSeries, periodView, selectablePeriods } from '@/lib/mock/derive';
-import { DEFAULT_PERIOD_ID } from '@/lib/mock/data';
+import { cashFlowSeries, PERIOD_IDS, periodView, selectablePeriods, trendUpTo } from '@/lib/mock/derive';
+import { DEFAULT_PERIOD_ID, PROFILE } from '@/lib/mock/data';
 import MonthSelect from '@/components/ui/MonthSelect';
 import UserMenu from '@/components/ui/UserMenu';
 import CashFlowTrendCard from '@/components/dashboard/CashFlowTrendCard';
@@ -13,6 +13,8 @@ import GoalsCard from '@/components/dashboard/GoalsCard';
 import HoldingsCard from '@/components/dashboard/HoldingsCard';
 import IncomeSummaryCard from '@/components/dashboard/IncomeSummaryCard';
 import InvestmentDetailCard from '@/components/dashboard/InvestmentDetailCard';
+import KpiSparkCard from '@/components/dashboard/KpiSparkCard';
+import MonthPulseCard from '@/components/dashboard/MonthPulseCard';
 import RiskScoreCard from '@/components/dashboard/RiskScoreCard';
 
 /**
@@ -27,6 +29,9 @@ import RiskScoreCard from '@/components/dashboard/RiskScoreCard';
  * layer, which today reads a local ledger and tomorrow reads an API, and nothing
  * in this file would change.
  *
+ * The layout follows the reference: a row of four figure cards with sparklines, then
+ * the big chart with three small month cards beside it, then the detail cards.
+ *
  * `Updated just now` appears after a month switch and then stands down. It is in
  * an `aria-live` region so the change is announced rather than only seen — with a
  * month's worth of figures moving at once, a reader who cannot see them move needs
@@ -39,6 +44,15 @@ export default function FinancialDashboard({ userId }: { userId: number | null }
   const periods = useMemo(() => selectablePeriods(), []);
   const series = useMemo(() => cashFlowSeries(), []);
   const period = useMemo(() => periodView(selected), [selected]);
+
+  // The selected month and the two before it, newest first, for the side cards.
+  const recent = useMemo(() => {
+    const at = PERIOD_IDS.indexOf(period.id);
+
+    return PERIOD_IDS.slice(Math.max(0, at - 2), at + 1)
+      .reverse()
+      .map((id) => periodView(id));
+  }, [period.id]);
 
   const lastSeen = useRef(selected);
 
@@ -68,33 +82,85 @@ export default function FinancialDashboard({ userId }: { userId: number | null }
         userId={userId}
       />
 
-      <div className="grid grid-cols-1 gap-3.5 px-4 pt-1 pb-6 sm:px-6 xl:grid-cols-2">
-        {/* The lead card spans the pane at every width. */}
-        <div className="xl:col-span-2">
-          <CashFlowTrendCard series={series} period={period} index={0} />
+      <div className="space-y-3.5 px-4 pt-1 pb-6 sm:px-6">
+        <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 2xl:grid-cols-4">
+          <KpiSparkCard
+            icon={<ArrowDownLeft size={15} strokeWidth={2.4} />}
+            title="Income"
+            value={period.income.total}
+            delta={period.income.delta}
+            trend={trendUpTo(period.id, 'income')}
+            color="var(--accent)"
+            index={0}
+          />
+          <KpiSparkCard
+            icon={<ArrowUpRight size={15} strokeWidth={2.4} />}
+            title="Expense"
+            value={period.expense.total}
+            delta={period.expense.delta}
+            trend={trendUpTo(period.id, 'expense')}
+            color="var(--yellow)"
+            index={1}
+          />
+          <KpiSparkCard
+            icon={<Wallet size={15} />}
+            title="Cash flow"
+            value={period.cashFlow.total}
+            delta={period.cashFlow.delta}
+            trend={trendUpTo(period.id, 'cashFlow')}
+            color="var(--violet)"
+            index={2}
+          />
+          <KpiSparkCard
+            icon={<PiggyBank size={15} />}
+            title="Investments"
+            value={period.investment.total}
+            delta={period.investment.delta}
+            trend={trendUpTo(period.id, 'investment')}
+            color="var(--blue)"
+            index={3}
+          />
         </div>
 
-        <IncomeSummaryCard
-          period={period}
-          periods={periods}
-          onPeriodChange={setSelected}
-          index={1}
-        />
+        <div className="grid grid-cols-1 gap-3.5 xl:grid-cols-[minmax(0,1fr)_250px]">
+          <CashFlowTrendCard series={series} period={period} index={4} />
 
-        <ExpenseSummaryCard
-          period={period}
-          periods={periods}
-          onPeriodChange={setSelected}
-          index={2}
-        />
+          <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-3 xl:grid-cols-1">
+            {recent.map((month, at) => (
+              <MonthPulseCard
+                key={month.id}
+                period={month}
+                series={series}
+                color={['var(--accent)', 'var(--yellow)', 'var(--violet)'][at]}
+                index={5 + at}
+              />
+            ))}
+          </div>
+        </div>
 
-        <InvestmentDetailCard period={period} index={3} />
+        <div className="grid grid-cols-1 gap-3.5 xl:grid-cols-2">
+          <IncomeSummaryCard
+            period={period}
+            periods={periods}
+            onPeriodChange={setSelected}
+            index={8}
+          />
 
-        <RiskScoreCard risk={period.risk} index={4} />
+          <ExpenseSummaryCard
+            period={period}
+            periods={periods}
+            onPeriodChange={setSelected}
+            index={9}
+          />
 
-        <HoldingsCard holdings={period.holdings} index={5} />
+          <InvestmentDetailCard period={period} index={10} />
 
-        <GoalsCard goals={period.goals} index={6} />
+          <RiskScoreCard risk={period.risk} index={11} />
+
+          <HoldingsCard holdings={period.holdings} index={12} />
+
+          <GoalsCard goals={period.goals} index={13} />
+        </div>
       </div>
     </div>
   );
@@ -114,15 +180,15 @@ function DashboardHeader({
   userId: number | null;
 }) {
   return (
-    <header className="sticky top-0 z-30 bg-background/95 px-4 pt-5 pb-3 backdrop-blur-xl sm:px-6">
+    <header className="sticky top-0 z-30 bg-[var(--pane)] px-4 pt-5 pb-4 backdrop-blur-xl sm:px-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <h1 className="text-[24px] leading-tight font-bold tracking-[-0.02em] text-primary sm:text-[27px]">
-            Financial overview
+            Welcome back, {PROFILE.firstName}!
           </h1>
 
           <p className="mt-1 flex flex-wrap items-center gap-2 text-[13px] text-secondary">
-            Your complete financial picture, powered by AI.
+            Here&apos;s your financial picture for {periods.find((option) => option.id === selected)?.label}.
             {/* Polite, so it waits for a pause rather than interrupting. */}
             <span aria-live="polite" className="contents">
               {justUpdated && (
@@ -143,16 +209,30 @@ function DashboardHeader({
         </div>
 
         <div className="flex flex-none items-center gap-1.5">
-          <MonthSelect options={periods} value={selected} onChange={onSelect} />
+          {/* Search and voice are drawn only. There is no search route or speech-to-text yet. */}
+          <label className="hidden h-9 items-center gap-2 rounded-full border border-[var(--pane-border)] bg-panel-subtle px-3 text-secondary lg:flex">
+            <Search size={14} aria-hidden="true" />
+            <span className="sr-only">Search</span>
+            <input
+              type="search"
+              placeholder="Search"
+              className="w-28 bg-transparent text-[12.5px] text-primary outline-none placeholder:text-muted xl:w-36"
+            />
+          </label>
 
-          <IconButton label="Search"><Search size={16} /></IconButton>
+          <button
+            type="button"
+            aria-label="Ask by voice"
+            title="Ask by voice"
+            className="send-gradient grid h-9 w-9 place-items-center rounded-full"
+          >
+            <Mic size={15} aria-hidden="true" />
+          </button>
+
+          <MonthSelect options={periods} value={selected} onChange={onSelect} />
 
           <IconButton label="Notifications" dot>
             <Bell size={16} />
-          </IconButton>
-
-          <IconButton label="Dashboard preferences">
-            <EllipsisVertical size={16} />
           </IconButton>
 
           <UserMenu userId={userId} />
@@ -176,7 +256,7 @@ function IconButton({
       type="button"
       aria-label={label}
       title={label}
-      className="relative grid h-8 w-8 place-items-center rounded-full border border-line bg-panel-subtle text-secondary transition hover:border-line-strong hover:text-primary"
+      className="icon-pill relative h-9 w-9"
     >
       {children}
       {dot && (

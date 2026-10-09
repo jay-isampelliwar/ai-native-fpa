@@ -153,17 +153,17 @@ export default function PlannerShell() {
     <ThemeProvider>
       <div
         ref={frame}
-        className="flex h-dvh min-h-0 flex-col"
+        className="app-backdrop flex h-dvh min-h-0 flex-col"
         style={{ ['--chat-width' as string]: `${DEFAULT}%` }}
       >
-        <div className="flex min-h-0 flex-1">
+        <div className="flex min-h-0 flex-1 p-2 md:p-3">
           <main
             {...paneRole('chat')}
-            className={`min-h-0 w-full shrink-0 md:w-[var(--chat-width)] md:border-r md:border-line ${
+            className={`glass-pane min-h-0 w-full shrink-0 overflow-hidden md:w-[var(--chat-width)] ${
               tab === 'chat' ? '' : 'max-md:hidden'
             }`}
           >
-            <ChatWorkspace key={userId ?? 'anonymous'} userId={userId} onResetWidth={() => setWidth(DEFAULT)} />
+            <ChatWorkspace key={userId ?? 'anonymous'} userId={userId} />
           </main>
 
           <div
@@ -183,7 +183,7 @@ export default function PlannerShell() {
 
           <main
             {...paneRole('overview')}
-            className={`min-h-0 w-full flex-1 md:w-auto ${
+            className={`glass-pane min-h-0 w-full flex-1 overflow-hidden md:w-auto ${
               tab === 'overview' ? '' : 'max-md:hidden'
             }`}
           >
@@ -194,7 +194,7 @@ export default function PlannerShell() {
         <nav
           role="tablist"
           aria-label="Sections"
-          className="flex flex-none items-center gap-1 border-t border-line bg-background px-3 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:hidden"
+          className="flex flex-none items-center gap-1 px-3 pt-1 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:hidden"
         >
           <Tab id="chat" current={tab} onSelect={setTab} icon={<MessageSquare size={15} />}>
             Chat

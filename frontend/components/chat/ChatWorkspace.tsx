@@ -10,16 +10,21 @@ import ChatComposer from '@/components/chat/ChatComposer';
 import ChatHeader from '@/components/chat/ChatHeader';
 import MessageTimeline, { type Turn } from '@/components/chat/MessageTimeline';
 import SuggestedPrompts from '@/components/chat/SuggestedPrompts';
+import Orb from '@/components/ui/Orb';
 
 const newId = () => Math.random().toString(36).slice(2, 10);
 
-export default function ChatWorkspace({
-  userId,
-  onResetWidth,
-}: {
-  userId: number | null;
-  onResetWidth?: () => void;
-}) {
+/** "Good morning" before noon, "Good afternoon" until five, "Good evening" after. */
+function greeting(now: Date): string {
+  const hour = now.getHours();
+
+  if (hour < 12) return 'Good morning';
+  if (hour < 17) return 'Good afternoon';
+
+  return 'Good evening';
+}
+
+export default function ChatWorkspace({ userId }: { userId: number | null }) {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [draft, setDraft] = useState('');
   const [step, setStep] = useState<string | null>(null);
@@ -113,35 +118,66 @@ export default function ChatWorkspace({
     if (runId.current !== null) void cancelRun(runId.current);
   }
 
+  /**
+   * Ask the same question again. The answer is a new run in the same conversation, so
+   * the old reply stays on screen and the fresh one is added below it.
+   */
+  function regenerate(answerId: string) {
+    const at = turns.findIndex((turn) => turn.id === answerId);
+    const question = turns
+      .slice(0, at)
+      .findLast((turn) => turn.role === 'user');
+
+    if (question) void send(question.text);
+  }
+
   const streamingId = busy ? turns.at(-1)?.id : undefined;
   const empty = turns.length === 0;
 
+  const composerProps = {
+    value: draft,
+    onChange: setDraft,
+    onSend: () => send(draft),
+    onStop: stop,
+    busy,
+    inputRef: composer,
+    attachments: uploads.attachments,
+    onAttach: (files: File[]) => void uploads.add(files),
+    onRemoveAttachment: uploads.remove,
+    onUnlockAttachment: (key: string, password: string) => void uploads.unlock(key, password),
+  };
+
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <ChatHeader onCollapse={onResetWidth} />
+      <ChatHeader started={!empty} />
 
       {/* min-h-0 is load-bearing: without it this flex child will not shrink below
           its content, so it never scrolls and the column grows past the viewport. */}
       <div ref={scroller} className="quiet-scroll min-h-0 flex-1 overflow-y-auto pb-4">
         {empty ? (
-          <div className="space-y-6">
-            <div className="px-4 pt-2 sm:px-5">
-              <h2 className="text-[21px] leading-[1.25] font-bold tracking-[-0.015em] text-primary">
-                Hi {PROFILE.firstName},
-                <br />
-                How can I help you today?
-              </h2>
+          <div className="flex min-h-full flex-col items-center justify-center px-4 py-8 sm:px-8">
+            <Orb size={76} />
 
-              <p className="mt-2 text-[13px] leading-[1.55] text-secondary">
-                Get personalised insights, plan smarter, and stay on track with your financial
-                goals.
-              </p>
+            <h2 className="mt-6 max-w-[22ch] text-center text-[22px] leading-[1.3] font-semibold tracking-[-0.015em] text-primary">
+              {greeting(new Date())}, {PROFILE.firstName}! How can I assist you?
+            </h2>
+
+            <div className="mt-7 w-full max-w-[560px]">
+              <ChatComposer {...composerProps} variant="hero" />
             </div>
 
-            <SuggestedPrompts onPick={send} />
+            <div className="mt-6 w-full max-w-[560px]">
+              <SuggestedPrompts onPick={send} />
+            </div>
           </div>
         ) : (
-          <MessageTimeline turns={turns} streamingId={streamingId} userId={userId} />
+          <MessageTimeline
+            turns={turns}
+            streamingId={streamingId}
+            userId={userId}
+            busy={busy}
+            onRegenerate={regenerate}
+          />
         )}
 
         {step && (
@@ -159,18 +195,7 @@ export default function ChatWorkspace({
         )}
       </div>
 
-      <ChatComposer
-        value={draft}
-        onChange={setDraft}
-        onSend={() => send(draft)}
-        onStop={stop}
-        busy={busy}
-        inputRef={composer}
-        attachments={uploads.attachments}
-        onAttach={(files) => void uploads.add(files)}
-        onRemoveAttachment={uploads.remove}
-        onUnlockAttachment={(key, password) => void uploads.unlock(key, password)}
-      />
+      {!empty && <ChatComposer {...composerProps} />}
     </div>
   );
 }

@@ -168,7 +168,23 @@ export default function CashFlowTrendCard({ series, period, index = 0 }: Props) 
 
         {!reduced && <PathReveal deps={[windowed, period.id]} />}
       </div>
+
+      <dl className="mt-4 grid grid-cols-3 divide-x divide-[var(--pane-border)] border-t border-[var(--pane-border)] pt-3.5">
+        <Stat label="High" value={Math.max(...windowed.map((point) => point.value))} />
+        <Stat label="Avg" value={windowed.reduce((total, point) => total + point.value, 0) / windowed.length} />
+        <Stat label="Low" value={Math.min(...windowed.map((point) => point.value))} />
+      </dl>
     </Card>
+  );
+}
+
+/** One cell of the footer strip under the chart: the range the window covers. */
+function Stat({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="px-3 first:pl-0">
+      <dt className="text-[12px] text-secondary">{label}:</dt>
+      <dd className="tabular mt-1 text-[15px] font-semibold text-primary">{rupeesShort(value)}</dd>
+    </div>
   );
 }
 

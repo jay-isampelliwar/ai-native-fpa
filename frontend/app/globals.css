@@ -45,11 +45,21 @@
      rather than as a fifth category colour. */
   --track: #e8ece7;
 
+  /* The glass look from the reference: panes float over a soft glow. */
+  --pane: rgba(255, 255, 255, 0.78);
+  --pane-border: rgba(17, 23, 19, 0.08);
+  --bubble: #f1f4f0;
+  --glow-1: rgba(32, 199, 99, 0.16);
+  --glow-2: rgba(189, 240, 0, 0.14);
+  --gradient-send: linear-gradient(135deg, #c8f500 0%, #20c763 100%);
+  --gradient-user: linear-gradient(115deg, #d6f3df 0%, #eef8c9 100%);
+  --violet: #7c5cf0;
+
   color-scheme: light;
 }
 
 :root[data-theme='dark'] {
-  --background: #090c0a;
+  --background: #040605;
   --panel: #151a17;
   --panel-subtle: #111613;
   --panel-elevated: #1b211d;
@@ -80,6 +90,15 @@
   --shadow-card: 0 12px 36px rgba(0, 0, 0, 0.28);
 
   --track: #262e29;
+
+  --pane: rgba(8, 11, 9, 0.72);
+  --pane-border: rgba(255, 255, 255, 0.07);
+  --bubble: rgba(30, 38, 33, 0.9);
+  --glow-1: rgba(68, 227, 111, 0.17);
+  --glow-2: rgba(200, 245, 0, 0.1);
+  --gradient-send: linear-gradient(135deg, #d4ff3a 0%, #44e36f 100%);
+  --gradient-user: linear-gradient(115deg, #1d4a2b 0%, #3d5a1b 100%);
+  --violet: #a78bfa;
 
   color-scheme: dark;
 }
@@ -115,6 +134,8 @@
   --color-warning-soft: var(--warning-soft);
 
   --color-track: var(--track);
+  --color-violet: var(--violet);
+  --color-bubble: var(--bubble);
 
   --font-sans: var(--font-inter);
   --radius-card: 18px;
@@ -190,9 +211,9 @@ button, a { -webkit-tap-highlight-color: transparent; }
    reads as the number changing. */
 
 .card {
-  border: 1px solid var(--border);
+  border: 1px solid var(--pane-border);
   border-radius: var(--radius-card);
-  background: var(--panel);
+  background: linear-gradient(160deg, var(--panel-elevated) 0%, var(--panel) 100%);
   box-shadow: var(--shadow-card);
   transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease;
 }
@@ -209,25 +230,31 @@ button, a { -webkit-tap-highlight-color: transparent; }
 }
 
 /* ── Split pane ─────────────────────────────────────────────────────────────
-   The divider is a 1px line with a much wider invisible grab area, because a
-   1px drag target is unusable with a trackpad. */
+   The panes float with a gap between them, so the divider is that gap. A short
+   grip in the middle lights up on hover, which is the only part that is drawn. */
 
 .split-handle {
   position: relative;
-  width: 1px;
+  width: 12px;
   flex: none;
-  background: var(--border);
   cursor: col-resize;
-  transition: background .15s ease;
 }
 .split-handle::before {
   content: '';
   position: absolute;
-  inset: 0 -5px;
+  top: 50%;
+  left: 50%;
+  height: 44px;
+  width: 3px;
+  border-radius: 999px;
+  background: var(--border);
+  transform: translate(-50%, -50%);
+  transition: background .15s ease, height .15s ease;
 }
-.split-handle:hover,
-.split-handle[data-dragging='true'] { background: var(--accent); }
-.split-handle:focus-visible { outline-offset: 0; background: var(--accent); }
+.split-handle:hover::before,
+.split-handle[data-dragging='true']::before,
+.split-handle:focus-visible::before { height: 72px; background: var(--accent); }
+.split-handle:focus-visible { outline: none; }
 
 /* While a drag is live the cursor must not flicker as it crosses the panes, and
    text must not select under it. */
@@ -235,6 +262,84 @@ body[data-resizing='true'] {
   cursor: col-resize;
   user-select: none;
 }
+
+/* ── Glass ──────────────────────────────────────────────────────────────────
+   The reference's look: a dark page lit by a green and lime glow from the top
+   left, with each pane a rounded sheet of frosted glass floating over it. */
+
+.app-backdrop {
+  background:
+    radial-gradient(55% 45% at 4% 6%, var(--glow-1), transparent 70%),
+    radial-gradient(35% 35% at 22% 18%, var(--glow-2), transparent 70%),
+    radial-gradient(40% 40% at 96% 100%, var(--glow-1), transparent 75%),
+    var(--background);
+}
+
+.glass-pane {
+  border: 1px solid var(--pane-border);
+  border-radius: 26px;
+  background: var(--pane);
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+}
+
+/* A round icon button, the reference's most repeated control. */
+.icon-pill {
+  display: grid;
+  place-items: center;
+  flex: none;
+  border: 1px solid var(--pane-border);
+  border-radius: 999px;
+  background: var(--panel-subtle);
+  color: var(--text-secondary);
+  transition: border-color .15s ease, color .15s ease, background .15s ease;
+}
+.icon-pill:hover { border-color: var(--border-strong); color: var(--text-primary); }
+
+/* The lime-to-green send button. */
+.send-gradient {
+  background: var(--gradient-send);
+  color: var(--on-accent);
+  box-shadow: 0 0 18px rgba(68, 227, 111, 0.35);
+}
+
+/* ── Orb ────────────────────────────────────────────────────────────────────
+   The assistant's mark: two glowing rings turning in opposite directions around
+   a dark core. Drawn with a conic gradient masked down to a ring, so it is one
+   element at any size and needs no image. */
+
+.orb {
+  position: relative;
+  display: inline-block;
+  flex: none;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(68, 227, 111, 0.35) 0 14%, #030604 46%);
+  box-shadow: 0 0 calc(var(--orb-size) * 0.45) rgba(68, 227, 111, 0.35);
+}
+
+.orb::before,
+.orb::after {
+  content: '';
+  position: absolute;
+  border-radius: 50%;
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - var(--orb-ring)), #000 calc(100% - var(--orb-ring) + 1px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - var(--orb-ring)), #000 calc(100% - var(--orb-ring) + 1px));
+}
+
+.orb::before {
+  inset: 0;
+  background: conic-gradient(from 0deg, transparent 0 10%, #44e36f 30%, #c8f500 45%, transparent 62%, #44e36f 82%, transparent 96%);
+  animation: orb-spin 5s linear infinite;
+}
+
+.orb::after {
+  inset: 18%;
+  background: conic-gradient(from 180deg, transparent 0 20%, #44e36f 50%, transparent 75%);
+  opacity: .75;
+  animation: orb-spin 7s linear infinite reverse;
+}
+
+@keyframes orb-spin { to { transform: rotate(360deg); } }
 
 /* ── Chat prose ─────────────────────────────────────────────────────────────
    The planner answers in markdown; these are the elements `Reply` emits. */
