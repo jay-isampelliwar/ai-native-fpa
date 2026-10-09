@@ -7,16 +7,19 @@ from langgraph.checkpoint.memory import InMemorySaver
 
 from app.agent import graph as planner
 from app.api.router import api_router
+from app.db.session import engine
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
 
-    """Compile the graph against an in-memory checkpointer before the first request is served."""
+    """Compile the graph before the first request, and close the database pool on shutdown."""
 
     planner.planner_graph = planner.build_planner_graph(InMemorySaver())
 
     yield
+
+    await engine.dispose()
 
 
 app = FastAPI(
