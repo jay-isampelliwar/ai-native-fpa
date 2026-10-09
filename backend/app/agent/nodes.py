@@ -1,7 +1,9 @@
 """The nodes of the planner graph: the model call that answers, and the compaction that follows it."""
 
+from langchain_core.messages import SystemMessage
 from langchain_openai import ChatOpenAI
 
+from app.agent.prompt import SYSTEM_BASE_INSTRUCTIONS
 from app.agent.state import PlannerState
 from app.core.config import get_settings
 
@@ -18,7 +20,7 @@ async def run_agent(state: PlannerState) -> dict:
 
     """Stream one model answer for the conversation so far and add it to the messages."""
 
-    messages = state["messages"]
+    messages = [SystemMessage(SYSTEM_BASE_INSTRUCTIONS), *state["messages"]]
     answer = None
 
     async for chunk in llm.astream(messages):
