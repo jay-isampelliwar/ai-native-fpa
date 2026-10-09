@@ -46,10 +46,10 @@ def upgrade() -> None:
 
     op.create_table(
         "agent_runs",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
+        sa.Column("id", sa.BigInteger(), sa.Identity(), primary_key=True),
         sa.Column(
             "conversation_id",
-            postgresql.UUID(as_uuid=True),
+            sa.BigInteger(),
             sa.ForeignKey("conversations.id"),
             nullable=False,
         ),
@@ -87,7 +87,7 @@ def upgrade() -> None:
         postgresql_where=sa.text(f"status IN ({quoted(ACTIVE_RUN_STATUSES)})"),
     )
 
-    op.add_column("messages", sa.Column("run_id", postgresql.UUID(as_uuid=True), nullable=True))
+    op.add_column("messages", sa.Column("run_id", sa.BigInteger(), nullable=True))
     op.add_column(
         "messages",
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
@@ -99,7 +99,7 @@ def upgrade() -> None:
     for status in NEW_TOOL_CALL_STATUSES:
         op.execute(f"ALTER TYPE tool_call_status ADD VALUE IF NOT EXISTS '{status}'")
 
-    op.add_column("tool_calls", sa.Column("run_id", postgresql.UUID(as_uuid=True), nullable=True))
+    op.add_column("tool_calls", sa.Column("run_id", sa.BigInteger(), nullable=True))
     op.add_column("tool_calls", sa.Column("started_at", sa.DateTime(timezone=True), nullable=True))
     op.add_column(
         "tool_calls",

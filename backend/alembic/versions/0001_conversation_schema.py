@@ -62,8 +62,8 @@ def upgrade() -> None:
 
     op.create_table(
         "conversations",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
-        sa.Column("user_id", postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column("id", sa.BigInteger(), sa.Identity(), primary_key=True),
+        sa.Column("user_id", sa.BigInteger(), nullable=False),
         sa.Column("title", sa.String(255), nullable=True),
         sa.Column("status", CONVERSATION_STATUS, nullable=False, server_default="active"),
         sa.Column("current_sequence", sa.BigInteger(), nullable=False, server_default="0"),
@@ -77,10 +77,10 @@ def upgrade() -> None:
 
     op.create_table(
         "messages",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
+        sa.Column("id", sa.BigInteger(), sa.Identity(), primary_key=True),
         sa.Column(
             "conversation_id",
-            postgresql.UUID(as_uuid=True),
+            sa.BigInteger(),
             sa.ForeignKey("conversations.id"),
             nullable=False,
         ),
@@ -96,16 +96,16 @@ def upgrade() -> None:
 
     op.create_table(
         "tool_calls",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
+        sa.Column("id", sa.BigInteger(), sa.Identity(), primary_key=True),
         sa.Column(
             "conversation_id",
-            postgresql.UUID(as_uuid=True),
+            sa.BigInteger(),
             sa.ForeignKey("conversations.id"),
             nullable=False,
         ),
         sa.Column(
             "message_id",
-            postgresql.UUID(as_uuid=True),
+            sa.BigInteger(),
             sa.ForeignKey("messages.id"),
             nullable=False,
         ),

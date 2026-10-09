@@ -1,12 +1,11 @@
 """The table models for conversations, messages, agent runs and tool calls."""
 
-import uuid
 from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func, text
-from sqlalchemy.dialects.postgresql import ENUM, JSONB, UUID
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Identity, Index, Integer, String, Text, UniqueConstraint, func, text
+from sqlalchemy.dialects.postgresql import ENUM, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.enums import ConversationStatus, MessageRole, MessageStatus, RunStatus, ToolCallStatus
@@ -54,8 +53,8 @@ class Conversation(Base):
         Index("ix_conversations_user_id", "user_id"),
         )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     title: Mapped[str | None] = mapped_column(String(255))
     status: Mapped[ConversationStatus] = mapped_column(
         db_enum(ConversationStatus, "conversation_status"),
@@ -81,14 +80,14 @@ class Message(Base):
         Index("ix_messages_run_id", "run_id"),
         )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    conversation_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    conversation_id: Mapped[int] = mapped_column(
+        BigInteger,
         ForeignKey("conversations.id"),
         nullable=False,
         )
-    run_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True),
+    run_id: Mapped[int | None] = mapped_column(
+        BigInteger,
         ForeignKey("agent_runs.id", name="fk_messages_run_id"),
         )
     sequence_number: Mapped[int] = mapped_column(BigInteger, nullable=False)
@@ -123,9 +122,9 @@ class AgentRun(Base):
             ),
         )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    conversation_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    conversation_id: Mapped[int] = mapped_column(
+        BigInteger,
         ForeignKey("conversations.id"),
         nullable=False,
         )
@@ -159,19 +158,19 @@ class ToolCall(Base):
         Index("ix_tool_calls_run_id", "run_id"),
         )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    conversation_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    conversation_id: Mapped[int] = mapped_column(
+        BigInteger,
         ForeignKey("conversations.id"),
         nullable=False,
         )
-    message_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    message_id: Mapped[int] = mapped_column(
+        BigInteger,
         ForeignKey("messages.id"),
         nullable=False,
         )
-    run_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True),
+    run_id: Mapped[int | None] = mapped_column(
+        BigInteger,
         ForeignKey("agent_runs.id", name="fk_tool_calls_run_id"),
         )
     tool_call_id: Mapped[str] = mapped_column(String(255), nullable=False)
