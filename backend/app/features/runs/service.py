@@ -5,8 +5,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Conversation
 from app.features.runs.exceptions import ConversationNotFound, RunAlreadyActive
+from app.features.runs.registry import run_registry
 from app.features.runs.repository import RunRepository
 from app.features.runs.schemas import CreateRunRequest, RunResponse
+from app.features.runs.worker import execute_run
 
 
 DUPLICATE_REQUEST_CONSTRAINT = "uq_agent_runs_conversation_client_request"
@@ -49,7 +51,7 @@ class RunService:
 
     async def create_run(self, body: CreateRunRequest, user_id: int) -> RunResponse:
 
-        """Return the existing run for a retried request, or save a new run with its two messages and commit."""
+        """Return the existing run for a retried request, or save a new run with its two messages, commit, and start it."""
 
         conversation = await self.resolve_conversation(body.conversation_id, user_id)
 
@@ -61,7 +63,7 @@ class RunService:
             return RunResponse.from_run(existing)
 
         try:
-            run, _, _ = await self.repo.create_run_with_messages(
+            run, _, assistant_message = await self.repo.create_run_with_messages(
                 conversation_id,
                 body.client_request_id,
                 body.message,
@@ -74,6 +76,11 @@ class RunService:
             await self.session.rollback()
 
             return await self.recover_from_conflict(exc, conversation_id, body.client_request_id)
+
+        run_registry.start(
+            run.id,
+            execute_run(run.id, conversation_id, assistant_message.id, body.message),
+            )
 
         return RunResponse.from_run(run)
 

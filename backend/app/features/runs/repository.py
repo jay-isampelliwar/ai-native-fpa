@@ -221,3 +221,34 @@ class RunRepository:
         await self.session.execute(message_query)
 
         return True
+
+    async def fail_active_runs(self, failure_code: str) -> list[int]:
+
+        """Fail every run still queued, running or cancelling, fail their streaming messages, and return the run ids."""
+
+        run_query = (
+            update(AgentRun)
+            .where(AgentRun.status.in_(ACTIVE_RUN_STATUSES))
+            .values(
+                status=RunStatus.failed,
+                version=AgentRun.version + 1,
+                finished_at=func.now(),
+                failure_code=failure_code,
+                )
+            .returning(AgentRun.id)
+            )
+
+        run_ids = list(await self.session.scalars(run_query))
+
+        if not run_ids:
+            return []
+
+        message_query = (
+            update(Message)
+            .where(Message.run_id.in_(run_ids), Message.status == MessageStatus.streaming)
+            .values(status=MessageStatus.failed, completed_at=func.now())
+            )
+
+        await self.session.execute(message_query)
+
+        return run_ids

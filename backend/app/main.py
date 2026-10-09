@@ -8,14 +8,17 @@ from langgraph.checkpoint.memory import InMemorySaver
 from app.agent import graph as planner
 from app.api.router import api_router
 from app.db.session import engine
+from app.features.runs.worker import fail_orphaned_runs
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
 
-    """Compile the graph before the first request, and close the database pool on shutdown."""
+    """Compile the graph and fail runs a crashed process left active, then close the database pool on shutdown."""
 
     planner.planner_graph = planner.build_planner_graph(InMemorySaver())
+
+    await fail_orphaned_runs()
 
     yield
 
