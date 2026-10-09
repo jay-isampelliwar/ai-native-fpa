@@ -1,26 +1,23 @@
 /**
  * The shapes the backend actually returns, mirrored by hand rather than generated.
  *
- * There are two of them, because the backend has two endpoints: registering an id, and one streaming
- * chat turn. Everything else this file held - typed blocks, the workspace panel, imports and their
- * staged rows, alerts, goals, holdings, conversations, approvals - described routes that have been
- * removed, and a type for a field the backend cannot send is how a client ends up rendering an empty
- * section forever.
- *
- * `MessageResponse` is what the stream's closing `done` event carries: only the thread id. The
- * backend holds one fixed thread for now, so there is nothing for the client to send back.
- *
- * `ProgressEvent` is one line of "what is happening" while the answer is being written. It carries no
- * skill name any more; there is one node in the graph, so there is nothing to name.
+ * `RunResponse` is what `POST /api/runs` answers with: the run that will write the reply, and the
+ * conversation it belongs to. The conversation id is sent back with the next message so the agent
+ * continues the same thread.
  */
 
-export interface MessageResponse {
-  thread_id: string;
-}
+export type RunStatus =
+  | 'queued'
+  | 'running'
+  | 'cancel_requested'
+  | 'cancelled'
+  | 'completed'
+  | 'failed';
 
-export interface ProgressEvent {
-  node: string;
-  label: string;
+export interface RunResponse {
+  run_id: number;
+  conversation_id: number;
+  status: RunStatus;
 }
 
 /**

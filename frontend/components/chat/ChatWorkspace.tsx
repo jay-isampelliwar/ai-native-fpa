@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 
 import { PROFILE } from '@/lib/mock/data';
 import { users } from '@/lib/api';
-import { streamMessage } from '@/lib/stream';
+import { cancelRun, streamMessage } from '@/lib/stream';
 import { useUploads } from '@/lib/useUploads';
 import ChatComposer from '@/components/chat/ChatComposer';
 import ChatHeader from '@/components/chat/ChatHeader';
@@ -24,8 +24,13 @@ export default function ChatWorkspace({
   const [draft, setDraft] = useState('');
   const [step, setStep] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [conversationId, setConversationId] = useState<number | null>(null);
 
   const uploads = useUploads(userId);
+
+  // The run writing the current reply, and whether Stop was pressed before its id arrived.
+  const runId = useRef<number | null>(null);
+  const stopWanted = useRef(false);
 
   const scroller = useRef<HTMLDivElement>(null);
   const composer = useRef<HTMLTextAreaElement>(null);
@@ -77,11 +82,17 @@ export default function ChatWorkspace({
       setTurns((current) => current.map((turn) => (turn.id === answerId ? change(turn) : turn)));
     }
 
-    await streamMessage(trimmed, {
-      onProgress: (event) => setStep(event.label),
+    await streamMessage(conversationId, trimmed, {
+      onRun: (run) => {
+        setConversationId(run.conversation_id);
+        runId.current = run.run_id;
+        if (stopWanted.current) void cancelRun(run.run_id);
+      },
+      onSnapshot: (text) => amend((turn) => ({ ...turn, text })),
       onToken: (piece) => amend((turn) => ({ ...turn, text: turn.text + piece })),
-      onDone: () => {},
-      onError: (message) => amend((turn) => ({ ...turn, text: message, failed: true })),
+      onDone: (text) => amend((turn) => ({ ...turn, text })),
+      onCancelled: (text) => amend((turn) => ({ ...turn, text: text || turn.text, stopped: true })),
+      onError: (message) => amend((turn) => ({ ...turn, text: turn.text || message, failed: true })),
     }).catch(() =>
       amend((turn) => ({
         ...turn,
@@ -90,8 +101,16 @@ export default function ChatWorkspace({
       })),
     );
 
+    runId.current = null;
+    stopWanted.current = false;
     setStep(null);
     setBusy(false);
+  }
+
+  /** Stop the reply being written. If the run id has not arrived yet, stop it as soon as it does. */
+  function stop() {
+    stopWanted.current = true;
+    if (runId.current !== null) void cancelRun(runId.current);
   }
 
   const streamingId = busy ? turns.at(-1)?.id : undefined;
@@ -144,6 +163,7 @@ export default function ChatWorkspace({
         value={draft}
         onChange={setDraft}
         onSend={() => send(draft)}
+        onStop={stop}
         busy={busy}
         inputRef={composer}
         attachments={uploads.attachments}

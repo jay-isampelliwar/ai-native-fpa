@@ -14,8 +14,8 @@
  * tokens, and threading it through makes the eventual move to a session obvious: this is the only
  * file that changes.
  *
- * There is one call left. The chat does not appear here because it is a POST that returns
- * server-sent events rather than JSON, so `lib/stream.ts` reads it from `fetch` directly. The
+ * There is one call left. The chat does not appear here because a turn is a run whose reply is read
+ * as server-sent events rather than JSON, so `lib/stream.ts` handles both of its calls. The
  * clients that used to sit here - planner, documents, records, goals, assets, alerts, workspace -
  * were removed with the endpoints behind them, and each comes back with the feature that needs it.
  *

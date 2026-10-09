@@ -4,11 +4,14 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Conversation
-from app.features.runs.exceptions import ConversationNotFound, RunAlreadyActive
+from app.db.enums import RunStatus
+from app.features.runs.events import RUN_CANCELLED, RunEvent, run_events
+from app.features.runs.exceptions import ConversationNotFound, RunAlreadyActive, RunNotFound
 from app.features.runs.registry import run_registry
 from app.features.runs.repository import RunRepository
 from app.features.runs.schemas import CreateRunRequest, RunResponse
 from app.features.runs.worker import execute_run
+
 
 
 DUPLICATE_REQUEST_CONSTRAINT = "uq_agent_runs_conversation_client_request"
@@ -83,6 +86,55 @@ class RunService:
             )
 
         return RunResponse.from_run(run)
+
+    async def cancel_run(self, run_id: int, user_id: int) -> RunResponse:
+
+        """Stop the run: end a queued one at once, ask a running one's task to stop, and leave an ended one alone."""
+
+        run = await self.repo.get_run_for_user(run_id, user_id)
+
+        if run is None:
+            raise RunNotFound(run_id)
+
+        if run.status == RunStatus.queued and await self.cancel_queued(run_id):
+            await self.session.refresh(run)
+
+            return RunResponse.from_run(run)
+
+        moved = await self.repo.set_run_status(run_id, [RunStatus.running], RunStatus.cancel_requested)
+
+        await self.session.commit()
+
+        await self.session.refresh(run)
+
+        if moved or run.status == RunStatus.cancel_requested:
+            run_registry.cancel(run_id)
+
+        return RunResponse.from_run(run)
+
+    async def cancel_queued(self, run_id: int) -> bool:
+
+        """End a run that has not started yet as cancelled, and say whether it was still queued."""
+
+        message = await self.repo.get_assistant_message(run_id)
+
+        ended = await self.repo.finish_run(
+            run_id,
+            message.id,
+            RunStatus.cancelled,
+            from_statuses=[RunStatus.queued],
+            )
+
+        await self.session.commit()
+
+        if not ended:
+            return False
+
+        run_registry.cancel(run_id)
+
+        run_events.publish(run_id, RunEvent(RUN_CANCELLED, {"text": ""}))
+
+        return True
 
     async def recover_from_conflict(
         self,

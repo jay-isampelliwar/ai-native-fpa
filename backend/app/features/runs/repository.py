@@ -53,6 +53,26 @@ class RunRepository:
 
         return conversation
 
+    async def get_run_for_user(self, run_id: int, user_id: int) -> AgentRun | None:
+
+        """Return the run only when its conversation belongs to this user."""
+
+        query = (
+            select(AgentRun)
+            .join(Conversation, Conversation.id == AgentRun.conversation_id)
+            .where(AgentRun.id == run_id, Conversation.user_id == user_id)
+            )
+
+        return await self.session.scalar(query)
+
+    async def get_assistant_message(self, run_id: int) -> Message | None:
+
+        """Return the assistant message this run is writing or wrote."""
+
+        query = select(Message).where(Message.run_id == run_id, Message.role == MessageRole.assistant)
+
+        return await self.session.scalar(query)
+
     async def find_run_by_request(
         self,
         conversation_id: int,
@@ -182,16 +202,17 @@ class RunRepository:
         final_text: str | None = None,
         failure_code: str | None = None,
         failure_message: str | None = None,
+        from_statuses: Iterable[RunStatus] = ACTIVE_RUN_STATUSES,
         ) -> bool:
 
-        """End an active run and its streaming assistant message with the same final status, and say whether it ended."""
+        """End the run, if it is in one of from_statuses, and its streaming assistant message with the same final status."""
 
         if final_status not in FINAL_RUN_STATUSES:
             raise ValueError(f"{final_status} is not a final run status")
 
         run_query = (
             update(AgentRun)
-            .where(AgentRun.id == run_id, AgentRun.status.in_(ACTIVE_RUN_STATUSES))
+            .where(AgentRun.id == run_id, AgentRun.status.in_(list(from_statuses)))
             .values(
                 status=final_status,
                 version=AgentRun.version + 1,

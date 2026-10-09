@@ -1,5 +1,6 @@
 """The background work for one run: mark it running, stream the agent's reply, save it, and end the run."""
 
+import asyncio
 import logging
 import time
 from collections.abc import AsyncIterator
@@ -9,6 +10,14 @@ from langchain_core.messages import AIMessageChunk, HumanMessage
 from app.agent import graph as planner
 from app.db.enums import RunStatus
 from app.db.session import SessionLocal
+from app.features.runs.events import (
+    ASSISTANT_DELTA,
+    RUN_CANCELLED,
+    RUN_COMPLETED,
+    RUN_FAILED,
+    RunEvent,
+    run_events,
+    )
 from app.features.runs.repository import RunRepository
 
 
@@ -90,25 +99,37 @@ async def execute_run(
     user_text: str,
     ) -> None:
 
-    """Take a queued run, stream the reply while saving it every second, then end it as completed or failed."""
-
-    if not await mark_running(run_id):
-        return
+    """Take a queued run, stream and publish the reply while saving it every second, then end it as completed, failed or cancelled."""
 
     reply = ""
     last_saved_at = time.monotonic()
 
     try:
 
+        if not await mark_running(run_id):
+            return
+
         async for piece in stream_reply(conversation_id, user_text):
 
             reply += piece
+
+            run_events.publish(run_id, RunEvent(ASSISTANT_DELTA, {"text": piece}))
 
             if time.monotonic() - last_saved_at >= SAVE_INTERVAL_SECONDS:
 
                 await save_partial(assistant_message_id, reply)
 
                 last_saved_at = time.monotonic()
+
+    except asyncio.CancelledError:
+
+        log.info("run %s cancelled on conversation %s", run_id, conversation_id)
+
+        await end_run(run_id, assistant_message_id, RunStatus.cancelled, reply)
+
+        run_events.publish(run_id, RunEvent(RUN_CANCELLED, {"text": reply}))
+
+        raise
 
     except Exception as exc:
 
@@ -123,9 +144,13 @@ async def execute_run(
             failure_message=str(exc)[:1000],
             )
 
+        run_events.publish(run_id, RunEvent(RUN_FAILED, {"message": "The agent could not answer. Please try again."}))
+
         return
 
     await end_run(run_id, assistant_message_id, RunStatus.completed, reply)
+
+    run_events.publish(run_id, RunEvent(RUN_COMPLETED, {"text": reply}))
 
 
 async def fail_orphaned_runs() -> list[int]:

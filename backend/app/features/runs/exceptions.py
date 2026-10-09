@@ -9,3 +9,8 @@ class ConversationNotFound(Exception):
 class RunAlreadyActive(Exception):
 
     """The conversation already has a run that is queued, running or being cancelled."""
+
+
+class RunNotFound(Exception):
+
+    """The run does not exist or its conversation belongs to another user."""

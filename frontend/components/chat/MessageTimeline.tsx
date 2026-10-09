@@ -31,6 +31,8 @@ export interface Turn {
   at: Date;
   /** Set when the turn failed, so it can be styled as a problem rather than an answer. */
   failed?: boolean;
+  /** Set when the person stopped the reply, so the partial text is shown as cut short. */
+  stopped?: boolean;
   /** Filenames sent with a user turn, so the question keeps a record of what went with it. */
   attached?: string[];
   /** Imports this answer is about. The review cards for them are drawn under it. */
@@ -149,7 +151,10 @@ function PlannerTurn({
             <ImportReview key={importId} userId={userId} importId={importId} />
           ))}
 
-        <time className="mt-1 pl-1 block text-[10.5px] text-muted">{clockTime(turn.at)}</time>
+        <time className="mt-1 pl-1 block text-[10.5px] text-muted">
+          {clockTime(turn.at)}
+          {turn.stopped && ' · Response stopped'}
+        </time>
       </div>
     </motion.div>
   );

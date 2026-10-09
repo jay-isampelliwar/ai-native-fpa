@@ -1,6 +1,6 @@
 'use client';
 
-import { Paperclip, SendHorizontal } from 'lucide-react';
+import { Paperclip, SendHorizontal, Square } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 
 import FileChips from '@/components/chat/FileChips';
@@ -26,6 +26,9 @@ import type { Attachment } from '@/lib/useUploads';
  * attachment the backend has not finished with would be answered without it, and
  * "one moment" is a better answer than a confident one about nothing.
  *
+ * While a reply is being written the send button becomes a stop button, so the person can cut a
+ * long answer short and keep what was already written.
+ *
  * The picker's value is cleared after every pick, so choosing the same file twice
  * in a row still fires a change event.
  */
@@ -38,6 +41,7 @@ export default function ChatComposer({
   value,
   onChange,
   onSend,
+  onStop,
   busy,
   inputRef,
   attachments,
@@ -48,6 +52,7 @@ export default function ChatComposer({
   value: string;
   onChange: (next: string) => void;
   onSend: () => void;
+  onStop: () => void;
   busy: boolean;
   inputRef: React.RefObject<HTMLTextAreaElement | null>;
   attachments: Attachment[];
@@ -129,16 +134,29 @@ export default function ChatComposer({
           className="max-h-[132px] min-h-[36px] flex-1 resize-none bg-transparent py-2 text-[13.5px] leading-[1.5] text-primary outline-none placeholder:text-muted"
         />
 
-        <button
-          type="button"
-          onClick={onSend}
-          disabled={busy || reading || !value.trim()}
-          aria-label="Send message"
-          className="mb-0.5 grid h-9 w-9 flex-none place-items-center rounded-xl transition disabled:cursor-not-allowed disabled:opacity-40"
-          style={{ background: 'var(--accent)', color: 'var(--on-accent)' }}
-        >
-          <SendHorizontal size={16} strokeWidth={2.4} aria-hidden="true" />
-        </button>
+        {busy ? (
+          <button
+            type="button"
+            onClick={onStop}
+            aria-label="Stop response"
+            title="Stop response"
+            className="mb-0.5 grid h-9 w-9 flex-none place-items-center rounded-xl transition"
+            style={{ background: 'var(--accent)', color: 'var(--on-accent)' }}
+          >
+            <Square size={13} fill="currentColor" aria-hidden="true" />
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={onSend}
+            disabled={reading || !value.trim()}
+            aria-label="Send message"
+            className="mb-0.5 grid h-9 w-9 flex-none place-items-center rounded-xl transition disabled:cursor-not-allowed disabled:opacity-40"
+            style={{ background: 'var(--accent)', color: 'var(--on-accent)' }}
+          >
+            <SendHorizontal size={16} strokeWidth={2.4} aria-hidden="true" />
+          </button>
+        )}
       </div>
 
       <p className="mt-2 text-center text-[11px] text-muted">
