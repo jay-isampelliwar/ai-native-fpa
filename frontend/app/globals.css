@@ -399,6 +399,46 @@ body[data-resizing='true'] {
 }
 
 .reply p { margin: 7px 0; }
+
+/* A table scrolls sideways inside the bubble rather than squeezing its columns,
+   because a portfolio table has five or six of them and the chat pane is narrow. */
+.reply-table {
+  margin: 10px 0;
+  overflow-x: auto;
+  border: 1px solid var(--pane-border);
+  border-radius: 12px;
+}
+.reply-table:first-child { margin-top: 0; }
+.reply-table:last-child { margin-bottom: 0; }
+
+.reply table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.reply th,
+.reply td {
+  padding: 7px 11px;
+  border-bottom: 1px solid var(--pane-border);
+  white-space: nowrap;
+}
+
+.reply th {
+  background: var(--panel-subtle);
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.reply tbody tr:last-child td { border-bottom: 0; }
+.reply tbody tr:hover td { background: var(--panel-subtle); }
+
+.reply hr {
+  margin: 12px 0;
+  border: 0;
+  border-top: 1px solid var(--pane-border);
+}
 .reply p:first-child { margin-top: 0; }
 .reply p:last-child { margin-bottom: 0; }
 

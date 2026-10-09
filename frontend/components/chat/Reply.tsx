@@ -11,9 +11,11 @@ import type { ReactNode } from 'react';
  * that got lost, and the noise landed on the one line the reader came for.
  *
  * This is a deliberately small subset - paragraphs, the two kinds of list, a
- * heading, bold, italic, inline code - because that is the whole of what the
- * planner actually emits. A full markdown library would add a dependency and a
- * sanitiser's worth of risk to render tables and images nothing sends.
+ * heading, tables, a rule, bold, italic, inline code - because that is the whole
+ * of what the planner actually emits. Tables were added once the planner began
+ * answering portfolio questions with them; before that, every `|` row was joined
+ * into one paragraph. A full markdown library would add a dependency and a
+ * sanitiser's worth of risk to render images nothing sends.
  *
  * Nothing here interprets HTML. The model's text is only ever placed as text
  * nodes, so a reply that happens to contain a tag is shown, not run.
@@ -77,6 +79,28 @@ function inline(text: string, depth = 0): ReactNode[] {
 const BULLET = /^\s*[-*•]\s+/;
 const NUMBERED = /^\s*\d+[.)]\s+/;
 const HEADING = /^\s*#{1,6}\s+/;
+const TABLE_ROW = /^\s*\|/;
+const TABLE_DIVIDER = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/;
+const RULE = /^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/;
+
+type Align = 'left' | 'right' | 'center';
+
+/** `| a | b |` → `['a', 'b']`. The outer pipes are optional in markdown, so both are trimmed. */
+function cells(line: string): string[] {
+  return line
+    .trim()
+    .replace(/^\|/, '')
+    .replace(/\|$/, '')
+    .split('|')
+    .map((cell) => cell.trim());
+}
+
+/** `:---` is left, `---:` is right, `:---:` is centre. Plain `---` is left. */
+function alignments(divider: string): Align[] {
+  return cells(divider).map((cell) =>
+    cell.startsWith(':') && cell.endsWith(':') ? 'center' : cell.endsWith(':') ? 'right' : 'left',
+  );
+}
 
 /**
  * Group the lines into blocks.
@@ -90,7 +114,9 @@ const HEADING = /^\s*#{1,6}\s+/;
 type Block =
   | { kind: 'heading'; text: string }
   | { kind: 'para'; text: string }
-  | { kind: 'list'; ordered: boolean; items: string[] };
+  | { kind: 'list'; ordered: boolean; items: string[] }
+  | { kind: 'table'; head: string[]; align: Align[]; rows: string[][] }
+  | { kind: 'rule' };
 
 function blocks(source: string): Block[] {
   const out: Block[] = [];
@@ -108,6 +134,27 @@ function blocks(source: string): Block[] {
 
     if (!line.trim()) {
       flush();
+      continue;
+    }
+
+    // A table is a run of `|` lines. The second line is the `|---|` divider, which only
+    // sets alignment and is never drawn. While a reply streams, the table grows row by row.
+    if (TABLE_ROW.test(line)) {
+      flush();
+
+      if (open?.kind === 'table') {
+        if (TABLE_DIVIDER.test(line) && open.rows.length === 0) open.align = alignments(line);
+        else open.rows.push(cells(line));
+      } else {
+        out.push({ kind: 'table', head: cells(line), align: [], rows: [] });
+      }
+
+      continue;
+    }
+
+    if (RULE.test(line)) {
+      flush();
+      out.push({ kind: 'rule' });
       continue;
     }
 
@@ -163,6 +210,40 @@ export default function Reply({ text, streaming = false }: { text: string; strea
               {inline(block.text)}
               {tail && caret}
             </h3>
+          );
+        }
+
+        if (block.kind === 'rule') return <hr key={index} />;
+
+        if (block.kind === 'table') {
+          const lastRow = block.rows.length - 1;
+
+          return (
+            <div key={index} className="reply-table quiet-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    {block.head.map((cell, at) => (
+                      <th key={at} style={{ textAlign: block.align[at] ?? 'left' }}>
+                        {inline(cell)}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {block.rows.map((row, rowAt) => (
+                    <tr key={rowAt}>
+                      {row.map((cell, at) => (
+                        <td key={at} style={{ textAlign: block.align[at] ?? 'left' }}>
+                          {inline(cell)}
+                          {tail && rowAt === lastRow && at === row.length - 1 && caret}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           );
         }
 
