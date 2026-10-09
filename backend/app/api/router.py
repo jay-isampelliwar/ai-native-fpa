@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 
-from app.modules.chat.router import router as chat_router
+from app.features.chat.router import router as chat_router
 
 
 api_router = APIRouter(prefix="/api")

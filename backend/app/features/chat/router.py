@@ -3,8 +3,8 @@
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
-from app.modules.chat.schemas import ChatRequest
-from app.modules.chat.service import stream_chat
+from app.features.chat.schemas import ChatRequest
+from app.features.chat.service import stream_chat
 
 
 router = APIRouter(prefix="/chat", tags=["chat"])
