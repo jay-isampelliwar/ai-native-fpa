@@ -14,7 +14,7 @@
  * tokens, and threading it through makes the eventual move to a session obvious: this is the only
  * file that changes.
  *
- * There is one call left. The chat does not appear here because a turn is a run whose reply is read
+ * The chat's turns do not appear here because a turn is a run whose reply is read
  * as server-sent events rather than JSON, so `lib/stream.ts` handles both of its calls. The
  * clients that used to sit here - planner, documents, records, goals, assets, alerts, workspace -
  * were removed with the endpoints behind them, and each comes back with the feature that needs it.
@@ -23,7 +23,14 @@
  * and a stale surplus rendered as current is exactly the failure the whole backend design avoids.
  */
 
-import type { CommitResult, DocumentImport, StagedRows, UploadResponse } from "@/lib/types";
+import type {
+  CommitResult,
+  ConversationDetail,
+  ConversationList,
+  DocumentImport,
+  StagedRows,
+  UploadResponse,
+} from "@/lib/types";
 
 export class ApiError extends Error {
   readonly status: number;
@@ -66,6 +73,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   return (await response.json()) as T;
 }
+
+export const conversations = {
+  /** The person's chats for the history list, most recently active first. */
+  list(limit = 50) {
+    return request<ConversationList>(`/api/conversations?limit=${limit}`);
+  },
+
+  /** One chat with its messages, and the run still writing a reply, if any. */
+  get(conversationId: number) {
+    return request<ConversationDetail>(`/api/conversations/${conversationId}`);
+  },
+};
 
 export const users = {
   /**

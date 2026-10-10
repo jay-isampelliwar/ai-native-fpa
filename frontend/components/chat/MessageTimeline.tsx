@@ -25,6 +25,10 @@ import Orb from '@/components/ui/Orb';
  * Timestamps are muted and small. They are needed to place a turn in a session and
  * never needed at a glance, so they sit under the message rather than in it.
  *
+ * The turns sit in one centred column, at most 768px wide, as ChatGPT does. On a
+ * wide screen a line of text that runs the full width is hard to read, and the
+ * empty space on both sides keeps the eye on the conversation.
+ *
  * Each finished answer gets a row of round buttons, as in the reference. Copy and
  * Regenerate work. Like, Dislike, Edit and Download are drawn but do nothing yet —
  * the backend has no feedback table and no export route for them to call.
@@ -59,7 +63,7 @@ export default function MessageTimeline({
   onRegenerate: (answerId: string) => void;
 }) {
   return (
-    <div className="space-y-5 px-4 pt-1 sm:px-5">
+    <div className="mx-auto w-full max-w-5xl space-y-5 px-4 pt-1 sm:px-6">
       {turns.map((turn) =>
         turn.role === 'user' ? (
           <UserTurn key={turn.id} turn={turn} />
@@ -140,7 +144,7 @@ function PlannerTurn({
       transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
       className="flex gap-2.5"
     >
-      <Orb size={30} className="mt-0.5" />
+      <Orb size={30} className="mt-0.5" still />
 
       <div className="min-w-0 max-w-[90%]">
         <div

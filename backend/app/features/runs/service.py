@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Conversation
 from app.db.enums import RunStatus
+from app.features.conversations.titles import title_from
 from app.features.runs.events import RUN_CANCELLED, RunEvent, run_events
 from app.features.runs.exceptions import ConversationNotFound, RunAlreadyActive, RunNotFound
 from app.features.runs.registry import run_registry
@@ -38,12 +39,17 @@ class RunService:
         self.session = session
         self.repo = RunRepository(session)
 
-    async def resolve_conversation(self, conversation_id: int | None, user_id: int) -> Conversation:
+    async def resolve_conversation(
+        self,
+        conversation_id: int | None,
+        user_id: int,
+        first_message: str,
+        ) -> Conversation:
 
-        """Create a conversation when none is given, otherwise load it and refuse one this user does not own."""
+        """Create a conversation titled from the first message when none is given, otherwise load it and refuse one this user does not own."""
 
         if conversation_id is None:
-            return await self.repo.create_conversation(user_id)
+            return await self.repo.create_conversation(user_id, title_from(first_message))
 
         conversation = await self.repo.get_conversation(conversation_id, user_id)
 
@@ -56,7 +62,7 @@ class RunService:
 
         """Return the existing run for a retried request, or save a new run with its two messages, commit, and start it."""
 
-        conversation = await self.resolve_conversation(body.conversation_id, user_id)
+        conversation = await self.resolve_conversation(body.conversation_id, user_id, body.message)
 
         conversation_id = conversation.id
 

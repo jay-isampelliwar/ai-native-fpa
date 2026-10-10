@@ -1,245 +1,101 @@
 'use client';
 
-import { LayoutDashboard, MessageSquare } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 
 import { readUserId, serverUserId, subscribeToUserId } from '@/lib/session';
 import { ThemeProvider } from '@/lib/theme';
 import ChatWorkspace from '@/components/chat/ChatWorkspace';
-import FinancialDashboard from '@/components/dashboard/FinancialDashboard';
+import HistoryPanel from '@/components/chat/HistoryPanel';
 
 /**
- * The two regions, and nothing between them but a divider.
+ * The list of past chats on the left, with the open chat beside it.
  *
- * There is no icon rail. The doc corrects the reference on exactly this point: the
- * application has a conversation on the left and a dashboard on the right, the chat
- * begins at the left edge of the window, and there is no third column or global
- * navigation. There is nowhere else to go, so there is nothing to navigate to.
+ * The dashboard is hidden for now. Its components are kept in `components/dashboard`
+ * and come back by rendering `FinancialDashboard` here again.
  *
- * Each pane is mounted exactly once, and the two layouts — the desktop split and
- * the phone's tabs — are the same elements shown differently by CSS. Rendering the
- * panes twice, once per layout, is the obvious way to write this and it is wrong
- * twice over: the chat's `id`s appear in the document twice, so a label points at
- * whichever copy comes first, and each copy registers its own user and holds its
- * own conversation. Hiding with a class instead means switching tabs or crossing
- * the breakpoint never unmounts anything, which is also what preserves the chat.
+ * On a wide screen the history list is a fixed column on the left. On a smaller one
+ * it is a drawer that slides in from the left, opened from the chat header's History
+ * button.
  *
- * The split is draggable between 34% and 46%, which the doc gives as the sensible
- * range, and starts at 40. During a drag the width is written to a CSS variable
- * rather than to React state: state would re-render both panes — including a chart
- * — on every frame. React is told once, on release.
+ * Which chat is open lives here. Picking a chat or pressing New Chat changes the
+ * chat pane's key, so it mounts fresh and loads only that conversation. When the
+ * pane itself starts a new chat, only the highlighted id changes, not the key, so
+ * the reply being written is not thrown away.
  *
- * Identity is resolved here, once, and handed to both panes. The chat is keyed on
- * it, so switching user unmounts the conversation and mounts a fresh one — which is
- * the correct behaviour and also the cheapest: a reset function would have to be
- * kept in step with every piece of state the chat gains later, and the first one
- * anybody forgets leaves the previous person's turns on screen under a new id.
- *
- * The viewport is measured only to choose ARIA roles. A pane that is a `tabpanel`
- * on a phone is just a region on a desktop, and no structure depends on the
- * answer, so a wrong first guess costs an attribute rather than a remount.
+ * `historyVersion` is bumped whenever the pane reports activity, which makes the
+ * list fetch again: a new chat appears in it, and a chat that just got a reply moves
+ * to the top.
  */
-
-const MIN = 34;
-const MAX = 46;
-const DEFAULT = 40;
-
-const DESKTOP = '(min-width: 768px)';
-
-type MobileTab = 'chat' | 'overview';
-
-function subscribeToViewport(listener: () => void): () => void {
-  const query = window.matchMedia(DESKTOP);
-
-  query.addEventListener('change', listener);
-
-  return () => query.removeEventListener('change', listener);
-}
-
-/** Server-side there is no viewport; desktop is the layout the markup describes. */
-function useIsDesktop(): boolean {
-  return useSyncExternalStore(
-    subscribeToViewport,
-    () => window.matchMedia(DESKTOP).matches,
-    () => true,
-  );
-}
-
 export default function PlannerShell() {
-  const [width, setWidth] = useState(DEFAULT);
-  const [tab, setTab] = useState<MobileTab>('chat');
-
-  const desktop = useIsDesktop();
   const userId = useSyncExternalStore(subscribeToUserId, readUserId, serverUserId);
 
-  const frame = useRef<HTMLDivElement>(null);
-  const handle = useRef<HTMLDivElement>(null);
-  const dragging = useRef(false);
+  const [opened, setOpened] = useState<{ key: number; conversationId: number | null }>({
+    key: 0,
+    conversationId: null,
+  });
+  const [activeId, setActiveId] = useState<number | null>(null);
+  const [historyVersion, setHistoryVersion] = useState(0);
+  const [drawer, setDrawer] = useState(false);
 
-  /** Paint a width without telling React, so a drag does not re-render the charts. */
-  const paint = useCallback((next: number) => {
-    frame.current?.style.setProperty('--chat-width', `${next}%`);
-  }, []);
+  function open(conversationId: number | null) {
+    setDrawer(false);
 
-  useEffect(() => {
-    paint(width);
-  }, [width, paint]);
+    if (conversationId !== null && conversationId === activeId) return;
 
-  useEffect(() => {
-    function onMove(event: PointerEvent) {
-      if (!dragging.current || !frame.current) return;
-
-      const bounds = frame.current.getBoundingClientRect();
-      const ratio = ((event.clientX - bounds.left) / bounds.width) * 100;
-
-      paint(Math.min(MAX, Math.max(MIN, ratio)));
-    }
-
-    function onUp() {
-      if (!dragging.current) return;
-
-      dragging.current = false;
-      document.body.removeAttribute('data-resizing');
-      handle.current?.removeAttribute('data-dragging');
-
-      // Read back what was painted, so React's copy matches the DOM exactly once.
-      const parsed = Number.parseFloat(frame.current?.style.getPropertyValue('--chat-width') ?? '');
-
-      if (!Number.isNaN(parsed)) setWidth(parsed);
-    }
-
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onUp);
-
-    return () => {
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
-    };
-  }, [paint]);
-
-  function startDrag() {
-    dragging.current = true;
-    document.body.setAttribute('data-resizing', 'true');
-    handle.current?.setAttribute('data-dragging', 'true');
+    setActiveId(conversationId);
+    setOpened((current) => ({ key: current.key + 1, conversationId }));
   }
 
-  /** Arrow keys move the divider too, in steps a keyboard user can aim with. */
-  function onHandleKey(event: React.KeyboardEvent) {
-    const step = event.shiftKey ? 4 : 1;
-
-    if (event.key === 'ArrowLeft') {
-      event.preventDefault();
-      setWidth((current) => Math.max(MIN, current - step));
-    } else if (event.key === 'ArrowRight') {
-      event.preventDefault();
-      setWidth((current) => Math.min(MAX, current + step));
-    } else if (event.key === 'Home') {
-      event.preventDefault();
-      setWidth(DEFAULT);
-    }
+  function onActivity(conversationId: number) {
+    setActiveId(conversationId);
+    setHistoryVersion((version) => version + 1);
   }
 
-  /** On a phone the inactive pane is hidden; on a desktop both are always shown. */
-  const paneRole = (pane: MobileTab) =>
-    desktop
-      ? ({ 'aria-label': pane === 'chat' ? 'Conversation' : 'Financial overview' } as const)
-      : ({
-          role: 'tabpanel',
-          id: `panel-${pane}`,
-          'aria-labelledby': `tab-${pane}`,
-        } as const);
+  const history = (onClose?: () => void) => (
+    <HistoryPanel
+      activeId={activeId}
+      version={historyVersion}
+      onSelect={(id) => open(id)}
+      onNewChat={() => open(null)}
+      onClose={onClose}
+    />
+  );
 
   return (
     <ThemeProvider>
-      <div
-        ref={frame}
-        className="app-backdrop flex h-dvh min-h-0 flex-col"
-        style={{ ['--chat-width' as string]: `${DEFAULT}%` }}
-      >
-        <div className="flex min-h-0 flex-1 p-2 md:p-3">
-          <main
-            {...paneRole('chat')}
-            className={`glass-pane min-h-0 w-full shrink-0 overflow-hidden md:w-[var(--chat-width)] ${
-              tab === 'chat' ? '' : 'max-md:hidden'
-            }`}
-          >
-            <ChatWorkspace key={userId ?? 'anonymous'} userId={userId} />
-          </main>
+      <div className="app-backdrop flex h-dvh min-h-0 gap-3 p-2 md:p-3">
+        <aside aria-label="Chat history" className="glass-pane hidden min-h-0 w-[320px] flex-none overflow-hidden lg:block">
+          {history()}
+        </aside>
 
-          <div
-            ref={handle}
-            role="separator"
-            aria-orientation="vertical"
-            aria-label="Resize the conversation panel"
-            aria-valuenow={Math.round(width)}
-            aria-valuemin={MIN}
-            aria-valuemax={MAX}
-            tabIndex={0}
-            onPointerDown={startDrag}
-            onKeyDown={onHandleKey}
-            onDoubleClick={() => setWidth(DEFAULT)}
-            className="split-handle hidden md:block"
+        <main aria-label="Conversation" className="glass-pane min-h-0 min-w-0 flex-1 overflow-hidden">
+          <ChatWorkspace
+            key={`${userId ?? 'anonymous'}-${opened.key}`}
+            userId={userId}
+            openConversationId={opened.conversationId}
+            onActivity={onActivity}
+            onShowHistory={() => setDrawer(true)}
           />
+        </main>
 
-          <main
-            {...paneRole('overview')}
-            className={`glass-pane min-h-0 w-full flex-1 overflow-hidden md:w-auto ${
-              tab === 'overview' ? '' : 'max-md:hidden'
-            }`}
-          >
-            <FinancialDashboard userId={userId} />
-          </main>
-        </div>
+        {drawer && (
+          <div className="fixed inset-0 z-50 lg:hidden">
+            <button
+              type="button"
+              aria-label="Close history"
+              onClick={() => setDrawer(false)}
+              className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            />
 
-        <nav
-          role="tablist"
-          aria-label="Sections"
-          className="flex flex-none items-center gap-1 px-3 pt-1 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:hidden"
-        >
-          <Tab id="chat" current={tab} onSelect={setTab} icon={<MessageSquare size={15} />}>
-            Chat
-          </Tab>
-          <Tab id="overview" current={tab} onSelect={setTab} icon={<LayoutDashboard size={15} />}>
-            Overview
-          </Tab>
-        </nav>
+            <aside
+              aria-label="Chat history"
+              className="glass-pane absolute top-2 bottom-2 left-2 w-[min(320px,calc(100%-1rem))] overflow-hidden"
+            >
+              {history(() => setDrawer(false))}
+            </aside>
+          </div>
+        )}
       </div>
     </ThemeProvider>
-  );
-}
-
-function Tab({
-  id,
-  current,
-  onSelect,
-  icon,
-  children,
-}: {
-  id: MobileTab;
-  current: MobileTab;
-  onSelect: (tab: MobileTab) => void;
-  icon: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  const active = current === id;
-
-  return (
-    <button
-      type="button"
-      role="tab"
-      id={`tab-${id}`}
-      aria-selected={active}
-      aria-controls={`panel-${id}`}
-      onClick={() => onSelect(id)}
-      className="flex flex-1 items-center justify-center gap-1.5 rounded-xl py-2.5 text-[12.5px] font-semibold transition"
-      style={
-        active
-          ? { background: 'var(--accent-soft)', color: 'var(--accent)' }
-          : { color: 'var(--text-secondary)' }
-      }
-    >
-      <span aria-hidden="true">{icon}</span>
-      {children}
-    </button>
   );
 }

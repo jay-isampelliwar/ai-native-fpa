@@ -341,6 +341,9 @@ body[data-resizing='true'] {
 
 @keyframes orb-spin { to { transform: rotate(360deg); } }
 
+.orb-still::before,
+.orb-still::after { animation: none; }
+
 /* ── Chat prose ─────────────────────────────────────────────────────────────
    The planner answers in markdown; these are the elements `Reply` emits. */
 

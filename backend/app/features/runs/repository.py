@@ -41,11 +41,11 @@ class RunRepository:
 
         return await self.session.scalar(query)
 
-    async def create_conversation(self, user_id: int) -> Conversation:
+    async def create_conversation(self, user_id: int, title: str) -> Conversation:
 
-        """Add a new empty conversation for this user and flush it so its id is known."""
+        """Add a new empty conversation for this user with its title, and flush it so its id is known."""
 
-        conversation = Conversation(user_id=user_id)
+        conversation = Conversation(user_id=user_id, title=title)
 
         self.session.add(conversation)
 

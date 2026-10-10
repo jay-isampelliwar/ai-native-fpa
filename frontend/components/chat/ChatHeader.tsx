@@ -14,10 +14,17 @@ import Orb from '@/components/ui/Orb';
  * The theme switch is a two-sided pill, sun and moon, with the current side lit.
  * Each side is a button that names the theme it turns on.
  *
- * History and the more menu are drawn but do nothing yet. There is no route that
- * lists past conversations, so there is nothing for them to open.
+ * History opens the chat list as a drawer on small screens. On wide screens the list
+ * is always beside the chat, so the button is hidden there. The more menu is drawn
+ * but does nothing yet.
  */
-export default function ChatHeader({ started }: { started: boolean }) {
+export default function ChatHeader({
+  started,
+  onShowHistory,
+}: {
+  started: boolean;
+  onShowHistory?: () => void;
+}) {
   const { theme, toggle } = useTheme();
 
   return (
@@ -41,7 +48,13 @@ export default function ChatHeader({ started }: { started: boolean }) {
           </ThemeSide>
         </div>
 
-        <button type="button" aria-label="Chat history" title="Chat history" className="icon-pill h-8 w-8">
+        <button
+          type="button"
+          onClick={onShowHistory}
+          aria-label="Chat history"
+          title="Chat history"
+          className="icon-pill h-8 w-8 lg:hidden"
+        >
           <History size={15} aria-hidden="true" />
         </button>
 

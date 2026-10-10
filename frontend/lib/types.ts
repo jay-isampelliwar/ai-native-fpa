@@ -20,6 +20,40 @@ export interface RunResponse {
   status: RunStatus;
 }
 
+/** One row of the history list. The title comes from the chat's first message. */
+export interface ConversationSummary {
+  id: number;
+  title: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ConversationList {
+  conversations: ConversationSummary[];
+}
+
+export type MessageStatus = 'streaming' | 'completed' | 'cancelled' | 'failed';
+
+export interface ConversationMessage {
+  id: number;
+  run_id: number | null;
+  role: 'user' | 'assistant';
+  status: MessageStatus;
+  text: string;
+  created_at: string;
+}
+
+/**
+ * One past chat, opened. `active_run` is set when a reply is still being written, so the chat can
+ * rejoin that run's stream instead of showing half a reply that never finishes.
+ */
+export interface ConversationDetail {
+  id: number;
+  title: string;
+  messages: ConversationMessage[];
+  active_run: { run_id: number; status: RunStatus } | null;
+}
+
 /**
  * The states one uploaded document moves through, mirrored from the backend's own tuple.
  *

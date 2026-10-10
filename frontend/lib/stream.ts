@@ -16,7 +16,7 @@
 
 import type { RunResponse } from "@/lib/types";
 
-interface StreamHandlers {
+export interface StreamHandlers {
   /** The run was accepted; keep its conversation id to continue the same chat. */
   onRun?: (run: RunResponse) => void;
   /** The whole reply so far, sent first to a listener that joined late. Replaces the text. */
@@ -84,7 +84,21 @@ export async function streamMessage(
 
   handlers.onRun?.(run);
 
-  const response = await fetch(`/api/runs/${run.run_id}/events`, { signal });
+  await followRun(run.run_id, handlers, signal);
+}
+
+/**
+ * Read one run's events until it ends.
+ *
+ * Also used on its own when a past chat is opened while its reply is still being written: the
+ * first event is then a snapshot of the text so far, and the deltas carry on from there.
+ */
+export async function followRun(
+  runId: number,
+  handlers: StreamHandlers,
+  signal?: AbortSignal,
+): Promise<void> {
+  const response = await fetch(`/api/runs/${runId}/events`, { signal });
 
   if (!response.ok || !response.body) {
     handlers.onError("The planner could not be reached.");
