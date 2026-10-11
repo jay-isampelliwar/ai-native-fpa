@@ -1,29 +1,27 @@
 """The nodes of the planner graph: the model call that answers, and the compaction that follows it."""
 
+from datetime import date
+
 from langchain_core.messages import SystemMessage
-from langchain_openai import ChatOpenAI
 
-from app.agent.prompt import SYSTEM_BASE_INSTRUCTIONS
+from app.agent.prompt import SYSTEM_BASE_INSTRUCTIONS, TOOL_USAGE_INSTRUCTIONS
 from app.agent.state import PlannerState
-from app.core.config import get_settings
+from app.agent.tools import ALL_TOOLS
+from app.services.llm import llm_service
 
 
-settings = get_settings()
-
-llm = ChatOpenAI(
-    model=settings.CHAT_MODEL,
-    api_key=settings.OPENAI_API_KEY,
-    )
+SYSTEM_PROMPT = f"{SYSTEM_BASE_INSTRUCTIONS}\n{TOOL_USAGE_INSTRUCTIONS}"
 
 
 async def run_agent(state: PlannerState) -> dict:
 
-    """Stream one model answer for the conversation so far and add it to the messages."""
+    """Stream one model answer or tool request for the conversation so far and add it to the messages."""
 
-    messages = [SystemMessage(SYSTEM_BASE_INSTRUCTIONS), *state["messages"]]
+    system = f"{SYSTEM_PROMPT}\nToday's date is {date.today().isoformat()}."
+    messages = [SystemMessage(system), *state["messages"]]
     answer = None
 
-    async for chunk in llm.astream(messages):
+    async for chunk in llm_service.with_tools(ALL_TOOLS).astream(messages):
 
         answer = chunk if answer is None else answer + chunk
 

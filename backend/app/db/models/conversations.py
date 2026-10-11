@@ -1,60 +1,15 @@
-"""The table models for users, conversations, messages, agent runs and tool calls."""
+"""The table models for conversations, messages, agent runs and tool calls."""
 
 from datetime import datetime
-from enum import StrEnum
 from typing import Any
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Identity, Index, Integer, String, Text, UniqueConstraint, func, text
-from sqlalchemy.dialects.postgresql import ENUM, JSONB
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Identity, Index, Integer, String, Text, UniqueConstraint, text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.enums import ConversationStatus, MessageRole, MessageStatus, RunStatus, ToolCallStatus
+from app.db.models.base import created_at_column, db_enum, updated_at_column
 from app.db.session import Base
-
-
-def db_enum(enum_class: type[StrEnum], name: str) -> ENUM:
-
-    """Map a Python enum onto a Postgres enum type the migrations already created."""
-
-    return ENUM(
-        enum_class,
-        name=name,
-        create_type=False,
-        values_callable=lambda members: [member.value for member in members],
-        )
-
-
-def created_at_column() -> Mapped[datetime]:
-
-    """A timestamp the database fills in when the row is inserted."""
-
-    return mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
-
-
-def updated_at_column() -> Mapped[datetime]:
-
-    """A timestamp the database fills in on insert and the app refreshes on every update."""
-
-    return mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        server_default=func.now(),
-        onupdate=func.now(),
-        )
-
-
-class User(Base):
-
-    """One person who can sign in, and who owns every record and conversation."""
-
-    __tablename__ = "users"
-
-    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
-    email: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
-    password_hash: Mapped[str | None] = mapped_column(String(255))
-    created_at: Mapped[datetime] = created_at_column()
-    updated_at: Mapped[datetime] = updated_at_column()
 
 
 class Conversation(Base):

@@ -88,7 +88,7 @@ class RunService:
 
         run_registry.start(
             run.id,
-            execute_run(run.id, conversation_id, assistant_message.id, body.message),
+            execute_run(run.id, conversation_id, user_id, assistant_message.id, body.message),
             )
 
         return RunResponse.from_run(run)

@@ -8,6 +8,7 @@ from collections.abc import AsyncIterator
 from langchain_core.messages import AIMessageChunk, HumanMessage
 
 from app.agent import graph as planner
+from app.agent.context import PlannerContext
 from app.db.enums import RunStatus
 from app.db.session import SessionLocal
 from app.features.runs.events import (
@@ -75,16 +76,22 @@ async def end_run(
         await session.commit()
 
 
-async def stream_reply(conversation_id: int, user_text: str) -> AsyncIterator[str]:
+async def stream_reply(
+    conversation_id: int,
+    user_id: int,
+    user_text: str,
+    ) -> AsyncIterator[str]:
 
-    """Run the graph on the conversation's own thread and yield each piece of reply text as it arrives."""
+    """Run the graph on the conversation's own thread for this user and yield each piece of reply text as it arrives."""
 
     config = {"configurable": {"thread_id": str(conversation_id)}}
+    context = PlannerContext(user_id=user_id)
     graph_input = {"messages": [HumanMessage(content=user_text)]}
 
     async for chunk, _ in planner.planner_graph.astream(
         graph_input,
         config=config,
+        context=context,
         stream_mode="messages",
         ):
 
@@ -95,6 +102,7 @@ async def stream_reply(conversation_id: int, user_text: str) -> AsyncIterator[st
 async def execute_run(
     run_id: int,
     conversation_id: int,
+    user_id: int,
     assistant_message_id: int,
     user_text: str,
     ) -> None:
@@ -109,7 +117,7 @@ async def execute_run(
         if not await mark_running(run_id):
             return
 
-        async for piece in stream_reply(conversation_id, user_text):
+        async for piece in stream_reply(conversation_id, user_id, user_text):
 
             reply += piece
 
