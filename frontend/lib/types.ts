@@ -6,6 +6,13 @@
  * continues the same thread.
  */
 
+/** The signed-in person, as `GET /api/auth/me` returns them. */
+export interface CurrentUser {
+  id: number;
+  name: string;
+  email: string;
+}
+
 export type RunStatus =
   | 'queued'
   | 'running'

@@ -10,9 +10,10 @@
  * a record the caller does not own rather than 403, so a not-found here genuinely means "not yours or
  * not there" and should be phrased that way to a reader.
  *
- * The user id is passed explicitly rather than read from a module-level singleton. Phase 1 has no
- * tokens, and threading it through makes the eventual move to a session obvious: this is the only
- * file that changes.
+ * Who is calling is decided by the httpOnly session cookie the backend sets at sign-in. The browser
+ * sends it with every same-origin request, so nothing here attaches a token. A 401 from any route
+ * other than the auth ones means the session ended; `reportUnauthorized` tells the session store,
+ * and the shell then sends the page to sign-in.
  *
  * The chat's turns do not appear here because a turn is a run whose reply is read
  * as server-sent events rather than JSON, so `lib/stream.ts` handles both of its calls. The
@@ -26,6 +27,7 @@
 import type {
   CommitResult,
   ConversationDetail,
+  CurrentUser,
   ConversationList,
   DocumentImport,
   StagedRows,
@@ -42,6 +44,18 @@ export class ApiError extends Error {
   }
 }
 
+let unauthorizedHandler: (() => void) | null = null;
+
+/** Register what happens when the backend says the session is gone. The session store does this. */
+export function onUnauthorized(handler: () => void): void {
+  unauthorizedHandler = handler;
+}
+
+/** Tell the session store that the backend answered 401. */
+export function reportUnauthorized(): void {
+  unauthorizedHandler?.();
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...init,
@@ -53,6 +67,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       ...init?.headers,
     },
   });
+
+  if (response.status === 401 && !path.startsWith("/api/auth/")) {
+    reportUnauthorized();
+  }
 
   if (!response.ok) {
     let detail = response.statusText;
@@ -86,20 +104,31 @@ export const conversations = {
   },
 };
 
-export const users = {
-  /**
-   * Claim an id before anything is written against it.
-   *
-   * Idempotent, and called on every visit rather than only on the first: the id lives in this
-   * browser's local storage, so a person who has one has no other way of telling the backend they
-   * exist. Without it the row every record table points at is never created, and the failure surfaces
-   * later, against whatever first tries to write.
-   */
-  register(userId: number) {
-    return request<{ id: number; display_name: string; created: boolean }>("/api/v1/users", {
+export const auth = {
+  /** Create an account. The backend signs the new person in at once by setting the cookie. */
+  signUp(name: string, email: string, password: string) {
+    return request<CurrentUser>("/api/auth/signup", {
       method: "POST",
-      body: JSON.stringify({ user_id: userId }),
+      body: JSON.stringify({ name, email, password }),
     });
+  },
+
+  /** Check the email and password. A wrong pair answers 401 "Invalid email or password". */
+  signIn(email: string, password: string) {
+    return request<CurrentUser>("/api/auth/signin", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    });
+  },
+
+  /** Clear the session cookie. */
+  signOut() {
+    return request<void>("/api/auth/signout", { method: "POST" });
+  },
+
+  /** Who the cookie belongs to. Answers 401 when nobody is signed in. */
+  me() {
+    return request<CurrentUser>("/api/auth/me");
   },
 };
 

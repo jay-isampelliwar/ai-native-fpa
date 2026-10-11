@@ -1,4 +1,4 @@
-"""The table models for conversations, messages, agent runs and tool calls."""
+"""The table models for users, conversations, messages, agent runs and tool calls."""
 
 from datetime import datetime
 from enum import StrEnum
@@ -41,6 +41,20 @@ def updated_at_column() -> Mapped[datetime]:
         server_default=func.now(),
         onupdate=func.now(),
         )
+
+
+class User(Base):
+
+    """One person who can sign in, and who owns every record and conversation."""
+
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    email: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    password_hash: Mapped[str | None] = mapped_column(String(255))
+    created_at: Mapped[datetime] = created_at_column()
+    updated_at: Mapped[datetime] = updated_at_column()
 
 
 class Conversation(Base):

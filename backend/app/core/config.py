@@ -18,7 +18,9 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: SecretStr
     CHAT_MODEL: str = "gpt-4o-mini"
     DATABASE_URL: str | None = None
-    DEV_USER_ID: int = 1
+    JWT_SECRET: SecretStr
+    TOKEN_TTL_MINUTES: int = 60 * 24 * 7
+    COOKIE_SECURE: bool = False
 
 
 @lru_cache

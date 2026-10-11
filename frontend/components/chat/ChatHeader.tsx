@@ -4,6 +4,7 @@ import { EllipsisVertical, History, Moon, Sun } from 'lucide-react';
 
 import { useTheme } from '@/lib/theme';
 import Orb from '@/components/ui/Orb';
+import UserMenu from '@/components/ui/UserMenu';
 
 /**
  * The chat pane's header: the assistant badge, the theme switch, and two menus.
@@ -16,7 +17,7 @@ import Orb from '@/components/ui/Orb';
  *
  * History opens the chat list as a drawer on small screens. On wide screens the list
  * is always beside the chat, so the button is hidden there. The more menu is drawn
- * but does nothing yet.
+ * but does nothing yet. The avatar at the end opens the account menu with sign out.
  */
 export default function ChatHeader({
   started,
@@ -61,6 +62,8 @@ export default function ChatHeader({
         <button type="button" aria-label="More options" title="More options" className="icon-pill h-8 w-8">
           <EllipsisVertical size={15} aria-hidden="true" />
         </button>
+
+        <UserMenu />
       </div>
     </header>
   );

@@ -2,8 +2,9 @@
 
 import { useEffect, useRef, useState } from 'react';
 
-import { PROFILE } from '@/lib/mock/data';
-import { conversations, users } from '@/lib/api';
+import { conversations } from '@/lib/api';
+import { firstNameOf } from '@/lib/format';
+import { useSession } from '@/lib/session';
 import { cancelRun, followRun, streamMessage, type StreamHandlers } from '@/lib/stream';
 import type { ConversationDetail } from '@/lib/types';
 import { useUploads } from '@/lib/useUploads';
@@ -87,23 +88,15 @@ export default function ChatWorkspace({
   // The latest conversation id, readable from inside a stream that started before it was known.
   const conversationIdRef = useRef(conversationId);
 
+  const session = useSession();
+  const firstName = session.status === 'signed-in' ? firstNameOf(session.user.name) : '';
+
   const scroller = useRef<HTMLDivElement>(null);
   const composer = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     conversationIdRef.current = conversationId;
   }, [conversationId]);
-
-  // The id lives in this browser, so this is the only moment the backend can learn
-  // that the person holding it exists. Idempotent, and repeated every visit.
-  useEffect(() => {
-    if (typeof userId !== 'number') return;
-
-    void users.register(userId).catch(() => {
-      // A backend that cannot be reached is reported by whatever is tried next,
-      // which fails visibly. Failing here would only blank the pane.
-    });
-  }, [userId]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -278,7 +271,7 @@ export default function ChatWorkspace({
             <Orb size={76} />
 
             <h2 className="mt-6 max-w-[22ch] text-center text-[22px] leading-[1.3] font-semibold tracking-[-0.015em] text-primary">
-              {greeting(new Date())}, {PROFILE.firstName}! How can I assist you?
+              {greeting(new Date())}{firstName ? `, ${firstName}` : ''}! How can I assist you?
             </h2>
 
             <div className="mt-7 w-full max-w-[560px]">

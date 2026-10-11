@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useSyncExternalStore } from 'react';
+import { useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
 
-import { readUserId, serverUserId, subscribeToUserId } from '@/lib/session';
+import { useSession } from '@/lib/session';
 import { ThemeProvider } from '@/lib/theme';
 import ChatWorkspace from '@/components/chat/ChatWorkspace';
 import HistoryPanel from '@/components/chat/HistoryPanel';
@@ -25,9 +26,13 @@ import HistoryPanel from '@/components/chat/HistoryPanel';
  * `historyVersion` is bumped whenever the pane reports activity, which makes the
  * list fetch again: a new chat appears in it, and a chat that just got a reply moves
  * to the top.
+ *
+ * Nothing renders until the session is known. Someone who is not signed in is sent
+ * to `/signin` instead.
  */
 export default function PlannerShell() {
-  const userId = useSyncExternalStore(subscribeToUserId, readUserId, serverUserId);
+  const router = useRouter();
+  const session = useSession();
 
   const [opened, setOpened] = useState<{ key: number; conversationId: number | null }>({
     key: 0,
@@ -51,6 +56,16 @@ export default function PlannerShell() {
     setHistoryVersion((version) => version + 1);
   }
 
+  useEffect(() => {
+    if (session.status === 'signed-out') router.replace('/signin');
+  }, [session.status, router]);
+
+  if (session.status !== 'signed-in') {
+    return <div className="app-backdrop h-dvh" aria-busy="true" />;
+  }
+
+  const userId = session.user.id;
+
   const history = (onClose?: () => void) => (
     <HistoryPanel
       activeId={activeId}
@@ -70,7 +85,7 @@ export default function PlannerShell() {
 
         <main aria-label="Conversation" className="glass-pane min-h-0 min-w-0 flex-1 overflow-hidden">
           <ChatWorkspace
-            key={`${userId ?? 'anonymous'}-${opened.key}`}
+            key={`${userId}-${opened.key}`}
             userId={userId}
             openConversationId={opened.conversationId}
             onActivity={onActivity}

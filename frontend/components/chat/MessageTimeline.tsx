@@ -5,7 +5,8 @@ import { Check, Copy, Download, Paperclip, PenLine, RefreshCw, ThumbsDown, Thumb
 import { useState } from 'react';
 
 import { clockTime } from '@/lib/format';
-import { PROFILE } from '@/lib/mock/data';
+import { initialsOf } from '@/lib/format';
+import { useSession } from '@/lib/session';
 import ImportReview from '@/components/chat/ImportReview';
 import Reply from '@/components/chat/Reply';
 import Orb from '@/components/ui/Orb';
@@ -85,6 +86,9 @@ export default function MessageTimeline({
 }
 
 function UserTurn({ turn }: { turn: Turn }) {
+  const session = useSession();
+  const initials = session.status === 'signed-in' ? initialsOf(session.user.name) : '';
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 6 }}
@@ -118,7 +122,7 @@ function UserTurn({ turn }: { turn: Turn }) {
           boxShadow: '0 0 0 2px var(--pane), 0 0 0 3px var(--accent-soft)',
         }}
       >
-        {PROFILE.initials}
+        {initials}
       </span>
     </motion.div>
   );

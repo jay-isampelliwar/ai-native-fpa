@@ -37,7 +37,7 @@ import RiskScoreCard from '@/components/dashboard/RiskScoreCard';
  * month's worth of figures moving at once, a reader who cannot see them move needs
  * telling that they did.
  */
-export default function FinancialDashboard({ userId }: { userId: number | null }) {
+export default function FinancialDashboard() {
   const [selected, setSelected] = useState(DEFAULT_PERIOD_ID);
   const [justUpdated, setJustUpdated] = useState(false);
 
@@ -79,7 +79,6 @@ export default function FinancialDashboard({ userId }: { userId: number | null }
         selected={selected}
         onSelect={setSelected}
         justUpdated={justUpdated}
-        userId={userId}
       />
 
       <div className="space-y-3.5 px-4 pt-1 pb-6 sm:px-6">
@@ -171,13 +170,11 @@ function DashboardHeader({
   selected,
   onSelect,
   justUpdated,
-  userId,
 }: {
   periods: { id: string; label: string }[];
   selected: string;
   onSelect: (id: string) => void;
   justUpdated: boolean;
-  userId: number | null;
 }) {
   return (
     <header className="sticky top-0 z-30 bg-[var(--pane)] px-4 pt-5 pb-4 backdrop-blur-xl sm:px-6">
@@ -235,7 +232,7 @@ function DashboardHeader({
             <Bell size={16} />
           </IconButton>
 
-          <UserMenu userId={userId} />
+          <UserMenu />
         </div>
       </div>
     </header>

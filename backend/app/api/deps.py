@@ -1,10 +1,17 @@
 """Shared route dependencies, such as who is calling."""
 
-from app.core.config import get_settings
+from fastapi import Cookie, HTTPException, status
+
+from app.features.auth.security import SESSION_COOKIE, read_token
 
 
-def get_current_user_id() -> int:
+def get_current_user_id(token: str | None = Cookie(default=None, alias=SESSION_COOKIE)) -> int:
 
-    """Return the calling user's id, fixed to the dev user until login exists."""
+    """Return the calling user's id from the session cookie, or answer 401 when it is missing or invalid."""
 
-    return get_settings().DEV_USER_ID
+    user_id = read_token(token) if token else None
+
+    if user_id is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Not signed in")
+
+    return user_id

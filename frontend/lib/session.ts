@@ -1,92 +1,102 @@
 'use client';
 
 /**
- * Who the current user is — an integer this browser holds, assigned on first visit.
+ * Who is signed in, as one small store every component reads the same way.
  *
- * The backend has no tokens yet by deliberate decision: the product being proven
- * is the planner, not the login. Identity is therefore a number in local storage,
- * and this module is the only place that knows it, which is what makes replacing
- * it with a real session a change to one file.
+ * The real proof of identity is the httpOnly cookie, which page scripts cannot read. So this store
+ * learns the user by asking `GET /api/auth/me` once, and keeps the answer in memory. Sign-in and
+ * sign-up hand the user in directly, so they do not need a second call.
  *
- * Nothing asks for it. An earlier build showed a gate that made a person type an
- * id before they could see anything, which is a strange thing to ask of someone
- * who has no account to identify. A demo id is assigned silently instead, and the
- * first screen is the product.
- *
- * Reads are wrapped because storage throws rather than returning null in real
- * situations — a private window with site data blocked, or an embedded context.
- * When it throws, the demo id is used for the session without being persisted,
- * so the app still works and simply forgets by the next visit.
+ * `loading` is what the server renders and what the first client render shows, so the screen never
+ * flashes the sign-in page for someone who is already signed in.
  */
 
-const STORAGE_KEY = 'mosaic.user_id';
+import { useEffect, useSyncExternalStore } from 'react';
 
-/** Where assigned ids start. One per browser, not one per person. */
-const DEMO_USER_ID = 1;
+import { auth, onUnauthorized } from '@/lib/api';
+import type { CurrentUser } from '@/lib/types';
+
+export type Session =
+  | { status: 'loading' }
+  | { status: 'signed-out' }
+  | { status: 'signed-in'; user: CurrentUser };
+
+const LOADING: Session = { status: 'loading' };
 
 const listeners = new Set<() => void>();
 
-/** Held in memory as well, so a browser that cannot persist still stays consistent. */
-let current: number | null = null;
+let current: Session = LOADING;
 
-function announce(): void {
+/** The one `/me` call in flight or finished, so many components asking cause one request. */
+let loading: Promise<void> | null = null;
+
+function set(next: Session): void {
+  current = next;
+
   for (const listener of listeners) listener();
 }
 
-export function subscribeToUserId(listener: () => void): () => void {
-  listeners.add(listener);
+onUnauthorized(() => {
+  loading = Promise.resolve();
 
-  window.addEventListener('storage', listener);
+  set({ status: 'signed-out' });
+});
+
+function subscribe(listener: () => void): () => void {
+  listeners.add(listener);
 
   return () => {
     listeners.delete(listener);
-    window.removeEventListener('storage', listener);
   };
 }
 
-/** What the server renders with: nobody, because storage does not exist there. */
-export function serverUserId(): number | null {
-  return null;
-}
-
-/**
- * The id for this browser, assigning one on the first call.
- *
- * `useSyncExternalStore` calls this on every render and compares the result, so it
- * has to return the same number each time rather than assigning a fresh one — the
- * cached `current` is what guarantees that.
- */
-export function readUserId(): number | null {
-  if (current !== null) return current;
-
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    const parsed = Number(raw);
-
-    if (raw && Number.isInteger(parsed) && parsed > 0) {
-      current = parsed;
-      return current;
-    }
-
-    window.localStorage.setItem(STORAGE_KEY, String(DEMO_USER_ID));
-  } catch {
-    // Storage is unavailable; the id lives for this session only.
-  }
-
-  current = DEMO_USER_ID;
-
+function read(): Session {
   return current;
 }
 
-/** Switch to another id, for testing a different backend thread. */
-export function writeUserId(userId: number): void {
-  current = userId;
+function serverRead(): Session {
+  return LOADING;
+}
 
+/** Ask the backend who the cookie belongs to, once per page load. */
+export function loadSession(): Promise<void> {
+  if (loading) return loading;
+
+  loading = auth
+    .me()
+    .then((user) => set({ status: 'signed-in', user }))
+    .catch(() => set({ status: 'signed-out' }));
+
+  return loading;
+}
+
+/** Store the user that sign-in or sign-up just returned. */
+export function signedIn(user: CurrentUser): void {
+  loading = Promise.resolve();
+
+  set({ status: 'signed-in', user });
+}
+
+/** End the session on the backend, then forget the user here. */
+export async function signOut(): Promise<void> {
   try {
-    window.localStorage.setItem(STORAGE_KEY, String(userId));
+    await auth.signOut();
   } catch {
-    // Remembered for this session only.
+    // The cookie may already be gone; this browser forgets the user either way.
   }
 
-  announce();
+  loading = Promise.resolve();
+
+  set({ status: 'signed-out' });
+}
+
+/** The current session, loading it on first use. */
+export function useSession(): Session {
+  const session = useSyncExternalStore(subscribe, read, serverRead);
+
+  useEffect(() => {
+    void loadSession();
+  }, []);
+
+  return session;
 }

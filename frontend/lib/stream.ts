@@ -14,6 +14,7 @@
  * `run.completed`, `run.failed` or `run.cancelled`.
  */
 
+import { reportUnauthorized } from "@/lib/api";
 import type { RunResponse } from "@/lib/types";
 
 export interface StreamHandlers {
@@ -57,6 +58,10 @@ async function createRun(
 }
 
 function describeFailure(status: number): string {
+  if (status === 401) {
+    reportUnauthorized();
+    return "Your session has ended. Please sign in again.";
+  }
   if (status === 409) return "A reply is still being written in this chat. Please wait for it to finish.";
   if (status === 404) return "This conversation could not be found. Start a new chat.";
   return "The planner could not be reached.";
@@ -101,7 +106,7 @@ export async function followRun(
   const response = await fetch(`/api/runs/${runId}/events`, { signal });
 
   if (!response.ok || !response.body) {
-    handlers.onError("The planner could not be reached.");
+    handlers.onError(response.ok ? "The planner could not be reached." : describeFailure(response.status));
     return;
   }
 
