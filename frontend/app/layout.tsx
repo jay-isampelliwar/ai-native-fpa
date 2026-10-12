@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from 'next';
-import { Inter } from 'next/font/google';
+import { Fraunces, Instrument_Serif, Inter } from 'next/font/google';
 import { headers } from 'next/headers';
 
 import { THEME_BOOTSTRAP } from '@/lib/theme';
@@ -13,6 +13,23 @@ import './globals.css';
  * the reason it is preferred here over a face chosen for its headlines.
  */
 const inter = Inter({ variable: '--font-inter', subsets: ['latin'], display: 'swap' });
+
+/** Instrument Serif italic, a script-like face for the headings inside a reply. */
+const instrumentSerif = Instrument_Serif({
+  variable: '--font-heading',
+  subsets: ['latin'],
+  weight: '400',
+  style: ['normal', 'italic'],
+  display: 'swap',
+});
+
+/** Fraunces italic for rupee amounts in a reply; it has lining, tabular figures so numbers stay easy to read. */
+const fraunces = Fraunces({
+  variable: '--font-amount',
+  subsets: ['latin'],
+  style: ['normal', 'italic'],
+  display: 'swap',
+});
 
 const title = 'Mosaic — your AI financial planner';
 const description =
@@ -62,7 +79,7 @@ export default function RootLayout({ children }: LayoutProps<'/'>) {
             of dark. React cannot do this from an effect — that runs after paint. */}
         <script dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP }} />
       </head>
-      <body className={`${inter.variable} h-full antialiased`}>{children}</body>
+      <body className={`${inter.variable} ${instrumentSerif.variable} ${fraunces.variable} h-full antialiased`}>{children}</body>
     </html>
   );
 }

@@ -103,7 +103,7 @@ async def list_records(
     kind: Annotated[RecordKind, "Which kind of saved items to show."],
     ) -> str:
 
-    """Show the user's saved items of one kind, each with its id. Use it before changing, removing or allocating."""
+    """Show the user's saved items of one kind, each with its id. Use it to answer questions about them, and before changing, removing or allocating."""
 
     async with SessionLocal() as session:
         records = await RecordService(session).list_records(runtime.context.user_id, kind)

@@ -9,24 +9,20 @@ import { initialsOf } from '@/lib/format';
 import { useSession } from '@/lib/session';
 import ImportReview from '@/components/chat/ImportReview';
 import Reply from '@/components/chat/Reply';
-import Orb from '@/components/ui/Orb';
 
 /**
  * The conversation so far.
  *
  * The two roles get genuinely different surfaces rather than the same bubble in two
  * colours: the reader's own words sit in a tinted card on the right, the planner's
- * answer in a panel on the left with its mark beside it. At this pane's width that
- * difference is what lets someone find their own question again while scrolling.
- *
- * The planner's bubble is wide — 92% rather than the usual two-thirds — because its
- * answers are financial explanations with lists in them, and a narrow column turns
- * a four-item list into twelve lines.
+ * answer as plain text across the column, with no box and no mark. That difference
+ * is what lets someone find their own question again while scrolling. A failed
+ * answer is the one exception: it keeps a red box so the error stands out.
  *
  * Timestamps are muted and small. They are needed to place a turn in a session and
  * never needed at a glance, so they sit under the message rather than in it.
  *
- * The turns sit in one centred column, at most 768px wide, as ChatGPT does. On a
+ * The turns sit in one centred column, at most 1024px wide, the same width as the composer. On a
  * wide screen a line of text that runs the full width is hard to read, and the
  * empty space on both sides keeps the eye on the conversation.
  *
@@ -146,21 +142,18 @@ function PlannerTurn({
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-      className="flex gap-2.5"
     >
-      <Orb size={30} className="mt-0.5" still />
-
-      <div className="min-w-0 max-w-[90%]">
-        <div
-          className="rounded-2xl rounded-tl-md border px-3.5 py-3"
-          style={
-            turn.failed
-              ? { borderColor: 'var(--negative)', background: 'var(--negative-soft)' }
-              : { borderColor: 'var(--pane-border)', background: 'var(--bubble)' }
-          }
-        >
+      <div className="min-w-0">
+        {turn.failed ? (
+          <div
+            className="rounded-2xl border px-3.5 py-3"
+            style={{ borderColor: 'var(--negative)', background: 'var(--negative-soft)' }}
+          >
+            <Reply text={turn.text} streaming={streaming} />
+          </div>
+        ) : (
           <Reply text={turn.text} streaming={streaming} />
-        </div>
+        )}
 
         {/* One card per attached file, drawn under the answer that describes them. They are the
             only way anything read from a document is saved, so they sit with the reply that asked

@@ -1,3 +1,5 @@
+import katex from 'katex';
+import 'katex/dist/katex.min.css';
 import type { ReactNode } from 'react';
 
 /**
@@ -18,7 +20,10 @@ import type { ReactNode } from 'react';
  * sanitiser's worth of risk to render images nothing sends.
  *
  * Nothing here interprets HTML. The model's text is only ever placed as text
- * nodes, so a reply that happens to contain a tag is shown, not run.
+ * nodes, so a reply that happens to contain a tag is shown, not run. The one
+ * exception is a `$$ … $$` maths block: KaTeX turns that TeX into its own HTML.
+ * It runs with `trust: false`, so commands like `\href` that could add links or
+ * attributes are refused, and the model's text still never becomes markup itself.
  *
  * Money is the one addition beyond markdown. A rupee figure is found and marked
  * so it can be set in tabular amber - on a screen about someone's finances the
@@ -82,6 +87,8 @@ const HEADING = /^\s*#{1,6}\s+/;
 const TABLE_ROW = /^\s*\|/;
 const TABLE_DIVIDER = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/;
 const RULE = /^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/;
+const MATH_OPEN = /^\s*(?:\$\$|\\\[)/;
+const MATH_CLOSE = /(?:\$\$|\\\])\s*$/;
 
 type Align = 'left' | 'right' | 'center';
 
@@ -111,12 +118,19 @@ function alignments(divider: string): Align[] {
  * second `<ul>` there would double the leading space for no reason the reader
  * could see.
  */
+/** One list line. `sub` is an indented point under the item above it, drawn smaller and further in. */
+interface ListItem {
+  text: string;
+  sub: boolean;
+}
+
 type Block =
   | { kind: 'heading'; text: string }
   | { kind: 'para'; text: string }
-  | { kind: 'list'; ordered: boolean; items: string[] }
+  | { kind: 'list'; ordered: boolean; items: ListItem[] }
   | { kind: 'table'; head: string[]; align: Align[]; rows: string[][] }
-  | { kind: 'rule' };
+  | { kind: 'rule' }
+  | { kind: 'math'; tex: string; closed: boolean };
 
 function blocks(source: string): Block[] {
   const out: Block[] = [];
@@ -131,6 +145,30 @@ function blocks(source: string): Block[] {
 
   for (const line of source.split('\n')) {
     const open = out.at(-1);
+
+    // A maths block runs from `$$` (or `\[`) to the next `$$` (or `\]`), on one line or many.
+    // While it streams it stays open, and is shown as plain TeX until the closing fence arrives.
+    if (open?.kind === 'math' && !open.closed) {
+      if (MATH_CLOSE.test(line)) {
+        open.tex += `\n${line.replace(MATH_CLOSE, '')}`;
+        open.closed = true;
+      } else {
+        open.tex += `\n${line}`;
+      }
+
+      continue;
+    }
+
+    if (MATH_OPEN.test(line)) {
+      flush();
+
+      const rest = line.replace(MATH_OPEN, '');
+      const closed = MATH_CLOSE.test(rest);
+
+      out.push({ kind: 'math', tex: closed ? rest.replace(MATH_CLOSE, '') : rest, closed });
+
+      continue;
+    }
 
     if (!line.trim()) {
       flush();
@@ -169,10 +207,12 @@ function blocks(source: string): Block[] {
     if (ordered || BULLET.test(line)) {
       flush();
 
-      const item = line.replace(ordered ? NUMBERED : BULLET, '');
+      const text = line.replace(ordered ? NUMBERED : BULLET, '');
+      const sub = /^\s{2,}/.test(line) && open?.kind === 'list';
 
-      if (open?.kind === 'list' && open.ordered === ordered) open.items.push(item);
-      else out.push({ kind: 'list', ordered, items: [item] });
+      // An indented point stays inside the list above it, even a bullet under a numbered step.
+      if (open?.kind === 'list' && (sub || open.ordered === ordered)) open.items.push({ text, sub });
+      else out.push({ kind: 'list', ordered, items: [{ text, sub: false }] });
 
       continue;
     }
@@ -183,6 +223,17 @@ function blocks(source: string): Block[] {
   flush();
 
   return out;
+}
+
+/** Draw one TeX formula as display maths; a formula KaTeX cannot read is shown in red rather than thrown. */
+function renderMath(tex: string): string {
+  return katex.renderToString(tex.trim(), {
+    displayMode: true,
+    throwOnError: false,
+    trust: false,
+    strict: 'ignore',
+    output: 'html',
+  });
 }
 
 /**
@@ -214,6 +265,19 @@ export default function Reply({ text, streaming = false }: { text: string; strea
         }
 
         if (block.kind === 'rule') return <hr key={index} />;
+
+        if (block.kind === 'math') {
+          if (!block.closed) {
+            return (
+              <div key={index} className="math math-pending">
+                {block.tex.trim()}
+                {tail && caret}
+              </div>
+            );
+          }
+
+          return <div key={index} className="math" dangerouslySetInnerHTML={{ __html: renderMath(block.tex) }} />;
+        }
 
         if (block.kind === 'table') {
           const lastRow = block.rows.length - 1;
@@ -257,8 +321,8 @@ export default function Reply({ text, streaming = false }: { text: string; strea
         }
 
         const items = block.items.map((item, at) => (
-          <li key={at}>
-            {inline(item)}
+          <li key={at} className={item.sub ? 'sub' : undefined}>
+            {inline(item.text)}
             {tail && at === block.items.length - 1 && caret}
           </li>
         ));

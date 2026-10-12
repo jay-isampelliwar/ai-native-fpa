@@ -362,16 +362,43 @@ body[data-resizing='true'] {
 
 /* A rupee figure inside prose, so the eye can find the numbers without reading. */
 .reply .amount {
-  font-variant-numeric: tabular-nums;
+  font-family: var(--font-amount), Georgia, serif;
+  font-style: italic;
+  font-size: 1.08em;
+  font-variant-numeric: lining-nums tabular-nums;
   font-weight: 600;
+  color: var(--accent);
   white-space: nowrap;
 }
 
 .reply h3 {
-  margin: 14px 0 6px;
-  font-size: 13px;
-  font-weight: 600;
+  margin: 16px 0 6px;
+  font-family: var(--font-heading), Georgia, serif;
+  font-style: italic;
+  font-size: 20px;
+  font-weight: 400;
+  letter-spacing: .005em;
+  line-height: 1.25;
   color: var(--text-primary);
+}
+
+/* A worked calculation, drawn by KaTeX. Wide formulas scroll sideways inside the bubble. */
+.reply .math {
+  margin: 10px 0;
+  padding: 10px 14px;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel-subtle);
+}
+.reply .math:first-child { margin-top: 0; }
+.reply .math:last-child { margin-bottom: 0; }
+.reply .math .katex { font-size: 1.08em; color: var(--text-primary); }
+.reply .math-pending {
+  font-family: ui-monospace, 'SF Mono', monospace;
+  font-size: .88em;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
 }
 .reply h3:first-child { margin-top: 0; }
 
@@ -379,18 +406,29 @@ body[data-resizing='true'] {
 .reply ol { counter-reset: step; }
 .reply li { position: relative; margin: 4px 0; padding-left: 17px; }
 
-.reply ul li::before {
+.reply ul li::before,
+.reply li.sub::before {
   content: '';
   position: absolute;
   left: 3px;
-  top: .6em;
+  top: .62em;
   height: 5px;
   width: 5px;
   border-radius: 50%;
-  background: var(--accent);
+  background: var(--text-muted);
 }
 
-.reply ol li::before {
+/* An indented point: further in, with a small hollow dot so it reads as part of the item above. */
+.reply li.sub { margin-left: 18px; }
+.reply li.sub::before {
+  height: 5px;
+  width: 5px;
+  background: transparent;
+  border: 1px solid var(--text-muted);
+  counter-increment: none;
+}
+
+.reply ol li:not(.sub)::before {
   content: counter(step) '.';
   counter-increment: step;
   position: absolute;

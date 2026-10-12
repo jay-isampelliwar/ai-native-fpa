@@ -1,5 +1,6 @@
 """Every tool the planner agent can call, gathered into one list for the graph."""
 
+from app.agent.tools.analysis import check_goal_progress
 from app.agent.tools.assets import add_bank_account, add_fixed_deposit, add_physical_asset, add_retirement_account
 from app.agent.tools.cash_flow import add_expense, add_income_source, add_transaction
 from app.agent.tools.liabilities import add_credit_card, add_loan
@@ -16,6 +17,7 @@ from app.agent.tools.records import (
 
 
 ALL_TOOLS = [
+    check_goal_progress,
     get_missing_data,
     update_data_coverage,
     list_records,

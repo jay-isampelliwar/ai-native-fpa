@@ -283,9 +283,9 @@ export default function ChatWorkspace({
             </div>
           </div>
         ) : loading ? (
-          <p className="mx-auto max-w-3xl px-6 pt-4 text-[12.5px] text-muted">Loading conversation…</p>
+          <p className="mx-auto max-w-5xl px-6 pt-4 text-[12.5px] text-muted">Loading conversation…</p>
         ) : loadFailed ? (
-          <p className="mx-auto max-w-3xl px-6 pt-4 text-[12.5px] text-negative">
+          <p className="mx-auto max-w-5xl px-6 pt-4 text-[12.5px] text-negative">
             This conversation could not be opened. Start a new chat or try again.
           </p>
         ) : (
@@ -301,7 +301,7 @@ export default function ChatWorkspace({
         {step && (
           <p
             aria-live="polite"
-            className="mx-auto mt-3 flex w-full max-w-3xl items-center gap-2 px-4 text-[12px] text-secondary sm:px-6"
+            className="mx-auto mt-3 flex w-full max-w-5xl items-center gap-2 px-4 text-[12px] text-secondary sm:px-6"
           >
             <span className="flex gap-1" aria-hidden="true">
               <Dot delay="0ms" />
@@ -314,7 +314,7 @@ export default function ChatWorkspace({
       </div>
 
       {!empty && (
-        <div className="mx-auto w-full max-w-3xl">
+        <div className="mx-auto w-full max-w-5xl px-1 sm:px-2">
           <ChatComposer {...composerProps} />
         </div>
       )}
