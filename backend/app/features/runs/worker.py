@@ -11,6 +11,7 @@ from app.agent import graph as planner
 from app.agent.context import PlannerContext
 from app.db.enums import RunStatus
 from app.db.session import SessionLocal
+from app.features.profile.service import ProfileService
 from app.features.runs.events import (
     ASSISTANT_DELTA,
     RUN_CANCELLED,
@@ -84,8 +85,11 @@ async def stream_reply(
 
     """Run the graph on the conversation's own thread for this user and yield each piece of reply text as it arrives."""
 
+    async with SessionLocal() as session:
+        profile = await ProfileService(session).get_profile(user_id)
+
     config = {"configurable": {"thread_id": str(conversation_id)}}
-    context = PlannerContext(user_id=user_id)
+    context = PlannerContext(user_id=user_id, profile=profile)
     graph_input = {"messages": [HumanMessage(content=user_text)]}
 
     async for chunk, _ in planner.planner_graph.astream(

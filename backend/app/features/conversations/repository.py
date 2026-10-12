@@ -3,7 +3,7 @@
 from collections.abc import Sequence
 from typing import Any
 
-from sqlalchemy import Row, select
+from sqlalchemy import Row, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.enums import ACTIVE_RUN_STATUSES, ConversationStatus, MessageRole
@@ -62,6 +62,27 @@ class ConversationRepository:
             )
 
         return await self.session.scalar(query)
+
+    async def rename(self, conversation: Conversation, title: str) -> None:
+
+        """Set the conversation's title without touching updated_at, so the history order stays the same."""
+
+        await self.session.execute(
+            update(Conversation)
+            .where(Conversation.id == conversation.id)
+            .values(title=title, updated_at=Conversation.updated_at)
+            )
+
+        await self.session.refresh(conversation)
+
+    async def soft_delete(self, conversation: Conversation) -> None:
+
+        """Mark the conversation deleted and stamp when, keeping every row in the database."""
+
+        conversation.status = ConversationStatus.deleted
+        conversation.deleted_at = func.now()
+
+        await self.session.flush()
 
     async def list_messages(self, conversation_id: int) -> Sequence[Message]:
 

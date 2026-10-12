@@ -5,7 +5,7 @@ from collections.abc import Iterable
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.enums import ACTIVE_RUN_STATUSES, MessageRole, MessageStatus, RunStatus
+from app.db.enums import ACTIVE_RUN_STATUSES, ConversationStatus, MessageRole, MessageStatus, RunStatus
 from app.db.models import AgentRun, Conversation, Message
 
 
@@ -32,11 +32,12 @@ class RunRepository:
 
     async def get_conversation(self, conversation_id: int, user_id: int) -> Conversation | None:
 
-        """Return the conversation only when it exists and belongs to this user."""
+        """Return the conversation only when it exists, is not deleted and belongs to this user."""
 
         query = select(Conversation).where(
             Conversation.id == conversation_id,
             Conversation.user_id == user_id,
+            Conversation.status != ConversationStatus.deleted,
             )
 
         return await self.session.scalar(query)

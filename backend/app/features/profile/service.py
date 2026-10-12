@@ -10,12 +10,27 @@ from app.features.records.service import BaseRecordService
 
 PROFILE_FIELDS = ("date_of_birth", "city", "risk_appetite", "retirement_age")
 
+BASIC_FIELDS = ("name", "email", "date_of_birth", "city", "risk_appetite", "retirement_age", "life_expectancy")
+
 
 class ProfileService(BaseRecordService[ProfileRepository]):
 
     """The steps behind the profile tools for one session."""
 
     repository_class = ProfileRepository
+
+    async def get_profile(self, user_id: int) -> dict[str, str]:
+
+        """Return the user's filled-in basic details as plain text values, or an empty dict when there is no row."""
+
+        user = await self.repo.get_user(user_id)
+
+        if user is None:
+            return {}
+
+        fields = {name: getattr(user, name) for name in BASIC_FIELDS}
+
+        return {name: str(getattr(value, "value", value)) for name, value in fields.items() if value is not None}
 
     async def update_profile(self, user_id: int, changes: ProfileUpdate) -> dict:
 

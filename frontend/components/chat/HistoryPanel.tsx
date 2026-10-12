@@ -1,9 +1,9 @@
 'use client';
 
-import { MessageCircle, Plus, X } from 'lucide-react';
+import { MessageCircle, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
-import { conversations } from '@/lib/api';
+import { ApiError, conversations } from '@/lib/api';
 import type { ConversationSummary } from '@/lib/types';
 
 /**
@@ -19,23 +19,35 @@ import type { ConversationSummary } from '@/lib/types';
  *
  * A failed fetch keeps whatever list was already showing and says so underneath,
  * rather than blanking the panel.
+ *
+ * Each row has a pencil and a trash button. The pencil turns the row into a title
+ * input; Enter saves and Escape cancels. The trash asks to confirm inside the row,
+ * then soft deletes the chat on the backend and drops it from the list.
  */
 export default function HistoryPanel({
   activeId,
   version,
   onSelect,
   onNewChat,
+  onDeleted,
   onClose,
 }: {
   activeId: number | null;
   version: number;
   onSelect: (conversationId: number) => void;
   onNewChat: () => void;
+  /** Called after a chat is deleted, so the shell can leave it if it was open. */
+  onDeleted: (conversationId: number) => void;
   /** Set on small screens, where the panel is a drawer that needs a close button. */
   onClose?: () => void;
 }) {
   const [items, setItems] = useState<ConversationSummary[] | null>(null);
   const [failed, setFailed] = useState(false);
+  const [confirmingId, setConfirmingId] = useState<number | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [editing, setEditing] = useState<{ id: number; draft: string } | null>(null);
+  const [savingId, setSavingId] = useState<number | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   useEffect(() => {
     let live = true;
@@ -56,6 +68,47 @@ export default function HistoryPanel({
       live = false;
     };
   }, [version]);
+
+  async function remove(conversationId: number) {
+    setDeletingId(conversationId);
+    setActionError(null);
+
+    try {
+      await conversations.remove(conversationId);
+
+      setItems((current) => current?.filter((item) => item.id !== conversationId) ?? null);
+      setConfirmingId(null);
+      onDeleted(conversationId);
+    } catch (error) {
+      setActionError(error instanceof ApiError ? error.message : 'Could not delete this chat.');
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
+  async function rename(conversationId: number, draft: string) {
+    const title = draft.trim();
+    const current = items?.find((item) => item.id === conversationId);
+
+    if (!title || title === current?.title) {
+      setEditing(null);
+      return;
+    }
+
+    setSavingId(conversationId);
+    setActionError(null);
+
+    try {
+      const saved = await conversations.rename(conversationId, title);
+
+      setItems((list) => list?.map((item) => (item.id === conversationId ? { ...item, title: saved.title } : item)) ?? null);
+      setEditing(null);
+    } catch (error) {
+      setActionError(error instanceof ApiError ? error.message : 'Could not rename this chat.');
+    } finally {
+      setSavingId(null);
+    }
+  }
 
   const groups = groupByDay(items ?? [], new Date());
 
@@ -97,8 +150,89 @@ export default function HistoryPanel({
               {group.items.map((item) => {
                 const active = item.id === activeId;
 
+                if (item.id === editing?.id) {
+                  const saving = savingId === item.id;
+
+                  return (
+                    <li key={item.id}>
+                      <form
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          rename(item.id, editing.draft);
+                        }}
+                        className="flex w-full items-center gap-2 rounded-2xl border px-2 py-1.5"
+                        style={{ borderColor: 'var(--accent-soft)', background: 'var(--panel-elevated)' }}
+                      >
+                        <input
+                          autoFocus
+                          value={editing.draft}
+                          maxLength={255}
+                          disabled={saving}
+                          aria-label="Chat title"
+                          onChange={(event) => setEditing({ id: item.id, draft: event.target.value })}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Escape') setEditing(null);
+                          }}
+                          onFocus={(event) => event.target.select()}
+                          className="min-w-0 flex-1 bg-transparent px-1 py-1 text-[12.5px] text-primary outline-none"
+                        />
+
+                        <button
+                          type="button"
+                          onClick={() => setEditing(null)}
+                          disabled={saving}
+                          className="rounded-full px-2.5 py-1 text-[12px] text-secondary transition hover:text-primary"
+                        >
+                          Cancel
+                        </button>
+
+                        <button
+                          type="submit"
+                          disabled={saving || !editing.draft.trim()}
+                          className="rounded-full border border-[var(--pane-border)] px-2.5 py-1 text-[12px] font-medium text-primary transition hover:border-line-strong disabled:opacity-60"
+                        >
+                          {saving ? 'Saving…' : 'Save'}
+                        </button>
+                      </form>
+                    </li>
+                  );
+                }
+
+                if (item.id === confirmingId) {
+                  const deleting = deletingId === item.id;
+
+                  return (
+                    <li key={item.id}>
+                      <div
+                        className="flex w-full items-center gap-2 rounded-2xl border px-3 py-2"
+                        style={{ borderColor: 'var(--pane-border)', background: 'var(--panel-elevated)' }}
+                      >
+                        <span className="min-w-0 flex-1 truncate text-[12.5px] text-primary">Delete this chat?</span>
+
+                        <button
+                          type="button"
+                          onClick={() => setConfirmingId(null)}
+                          disabled={deleting}
+                          className="rounded-full px-2.5 py-1 text-[12px] text-secondary transition hover:text-primary"
+                        >
+                          Cancel
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => remove(item.id)}
+                          disabled={deleting}
+                          className="rounded-full border border-[var(--pane-border)] px-2.5 py-1 text-[12px] font-medium text-negative transition hover:border-line-strong disabled:opacity-60"
+                        >
+                          {deleting ? 'Deleting…' : 'Delete'}
+                        </button>
+                      </div>
+                    </li>
+                  );
+                }
+
                 return (
-                  <li key={item.id}>
+                  <li key={item.id} className="group relative">
                     <button
                       type="button"
                       onClick={() => onSelect(item.id)}
@@ -120,19 +254,51 @@ export default function HistoryPanel({
                       </span>
 
                       <span
-                        className={`min-w-0 flex-1 truncate text-[12.5px] ${
+                        className={`min-w-0 flex-1 truncate pr-14 text-[12.5px] ${
                           active ? 'text-primary' : 'text-secondary'
                         }`}
                       >
                         {item.title}
                       </span>
                     </button>
+
+                    <div className="absolute top-1/2 right-2 flex -translate-y-1/2 items-center opacity-0 transition focus-within:opacity-100 group-hover:opacity-100">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActionError(null);
+                          setConfirmingId(null);
+                          setEditing({ id: item.id, draft: item.title });
+                        }}
+                        aria-label={`Rename chat: ${item.title}`}
+                        title="Rename chat"
+                        className="grid h-7 w-7 place-items-center rounded-full text-muted transition hover:text-primary"
+                      >
+                        <Pencil size={13} aria-hidden="true" />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActionError(null);
+                          setEditing(null);
+                          setConfirmingId(item.id);
+                        }}
+                        aria-label={`Delete chat: ${item.title}`}
+                        title="Delete chat"
+                        className="grid h-7 w-7 place-items-center rounded-full text-muted transition hover:text-negative"
+                      >
+                        <Trash2 size={14} aria-hidden="true" />
+                      </button>
+                    </div>
                   </li>
                 );
               })}
             </ul>
           </section>
         ))}
+
+        {actionError && <p className="px-1 pt-3 text-[12px] text-negative">{actionError}</p>}
 
         {failed && (
           <p className="px-1 pt-3 text-[12px] text-negative">Could not load your chats. Is the backend running?</p>

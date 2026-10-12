@@ -72,6 +72,9 @@ export default function PlannerShell() {
       version={historyVersion}
       onSelect={(id) => open(id)}
       onNewChat={() => open(null)}
+      onDeleted={(id) => {
+        if (id === activeId) open(null);
+      }}
       onClose={onClose}
     />
   );

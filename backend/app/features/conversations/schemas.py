@@ -1,10 +1,30 @@
-"""Response bodies for the conversations routes."""
+"""Request and response bodies for the conversations routes."""
 
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 from app.db.enums import MessageRole, MessageStatus, RunStatus
+
+
+class ConversationRename(BaseModel):
+
+    """The new title the user typed for one chat, with outer spaces removed."""
+
+    title: str = Field(min_length=1, max_length=255)
+
+    @field_validator("title")
+    @classmethod
+    def tidy_title(cls, value: str) -> str:
+
+        """Join the words with single spaces and refuse a title that is only spaces."""
+
+        value = " ".join(value.split())
+
+        if not value:
+            raise ValueError("Title cannot be empty")
+
+        return value
 
 
 class ConversationSummary(BaseModel):

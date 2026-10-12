@@ -35,6 +35,7 @@ class Conversation(Base):
     summarized_through_sequence: Mapped[int | None] = mapped_column(BigInteger, server_default="0")
     created_at: Mapped[datetime] = created_at_column()
     updated_at: Mapped[datetime] = updated_at_column()
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class Message(Base):

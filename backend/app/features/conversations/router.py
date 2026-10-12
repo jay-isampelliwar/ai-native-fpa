@@ -1,4 +1,4 @@
-"""The conversations routes: list the user's chats, and open one with its messages."""
+"""The conversations routes: list the user's chats, open one with its messages, rename one, and soft delete one."""
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,6 +11,7 @@ from app.features.conversations.schemas import (
     ActiveRun,
     ConversationDetail,
     ConversationList,
+    ConversationRename,
     ConversationSummary,
     MessageOut,
     )
@@ -42,6 +43,59 @@ async def list_conversations(
         ]
 
     return ConversationList(conversations=conversations)
+
+
+@router.patch("/{conversation_id}")
+async def rename_conversation(
+    conversation_id: int,
+    body: ConversationRename,
+    session: AsyncSession = Depends(get_session),
+    user_id: int = Depends(get_current_user_id),
+    ) -> ConversationSummary:
+
+    """Give one chat a new title, keeping its place in the history list."""
+
+    repo = ConversationRepository(session)
+
+    conversation = await repo.get_for_user(conversation_id, user_id)
+
+    if conversation is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Conversation not found")
+
+    await repo.rename(conversation, body.title)
+
+    await session.commit()
+
+    return ConversationSummary(
+        id=conversation.id,
+        title=body.title,
+        created_at=conversation.created_at,
+        updated_at=conversation.updated_at,
+        )
+
+
+@router.delete("/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_conversation(
+    conversation_id: int,
+    session: AsyncSession = Depends(get_session),
+    user_id: int = Depends(get_current_user_id),
+    ) -> None:
+
+    """Soft delete one chat so it leaves the history list, refusing while a reply is still being written."""
+
+    repo = ConversationRepository(session)
+
+    conversation = await repo.get_for_user(conversation_id, user_id)
+
+    if conversation is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Conversation not found")
+
+    if await repo.get_active_run(conversation_id) is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Wait for the reply to finish before deleting this chat")
+
+    await repo.soft_delete(conversation)
+
+    await session.commit()
 
 
 @router.get("/{conversation_id}")

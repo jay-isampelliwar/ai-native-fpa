@@ -29,6 +29,7 @@ import type {
   ConversationDetail,
   CurrentUser,
   ConversationList,
+  ConversationSummary,
   DocumentImport,
   StagedRows,
   UploadResponse,
@@ -101,6 +102,19 @@ export const conversations = {
   /** One chat with its messages, and the run still writing a reply, if any. */
   get(conversationId: number) {
     return request<ConversationDetail>(`/api/conversations/${conversationId}`);
+  },
+
+  /** Give one chat a new title; its place in the history list stays the same. */
+  rename(conversationId: number, title: string) {
+    return request<ConversationSummary>(`/api/conversations/${conversationId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ title }),
+    });
+  },
+
+  /** Soft delete one chat; the backend keeps its rows but hides it everywhere. */
+  remove(conversationId: number) {
+    return request<void>(`/api/conversations/${conversationId}`, { method: "DELETE" });
   },
 };
 
