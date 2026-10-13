@@ -5,8 +5,6 @@ import { Check, Copy, Download, Paperclip, PenLine, RefreshCw, ThumbsDown, Thumb
 import { useState } from 'react';
 
 import { clockTime } from '@/lib/format';
-import { initialsOf } from '@/lib/format';
-import { useSession } from '@/lib/session';
 import ImportReview from '@/components/chat/ImportReview';
 import Reply from '@/components/chat/Reply';
 
@@ -82,15 +80,12 @@ export default function MessageTimeline({
 }
 
 function UserTurn({ turn }: { turn: Turn }) {
-  const session = useSession();
-  const initials = session.status === 'signed-in' ? initialsOf(session.user.name) : '';
-
   return (
     <motion.div
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-      className="flex justify-end gap-2.5"
+      className="flex justify-end"
     >
       <div className="flex max-w-[88%] flex-col items-end">
         <p
@@ -108,18 +103,6 @@ function UserTurn({ turn }: { turn: Turn }) {
         )}
         <time className="mt-1 pr-1 text-[10.5px] text-muted">{clockTime(turn.at)}</time>
       </div>
-
-      <span
-        aria-hidden="true"
-        className="mt-0.5 grid h-8 w-8 flex-none place-items-center rounded-full text-[10.5px] font-bold"
-        style={{
-          background: 'var(--accent-soft)',
-          color: 'var(--accent)',
-          boxShadow: '0 0 0 2px var(--pane), 0 0 0 3px var(--accent-soft)',
-        }}
-      >
-        {initials}
-      </span>
     </motion.div>
   );
 }
