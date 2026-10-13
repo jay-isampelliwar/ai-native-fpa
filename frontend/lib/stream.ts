@@ -12,10 +12,13 @@
  * `assistant.snapshot` is the reply so far for a listener that joined late and replaces the text.
  * `assistant.delta` is the next piece and is appended. A run ends with exactly one of
  * `run.completed`, `run.failed` or `run.cancelled`.
+ *
+ * `tool.started` and `tool.finished` mark each tool the planner calls, keyed by the call's id. A
+ * late listener gets the latest step of every tool so far before the snapshot.
  */
 
 import { reportUnauthorized } from "@/lib/api";
-import type { RunResponse } from "@/lib/types";
+import type { RunResponse, ToolStep } from "@/lib/types";
 
 export interface StreamHandlers {
   /** The run was accepted; keep its conversation id to continue the same chat. */
@@ -24,6 +27,8 @@ export interface StreamHandlers {
   onSnapshot?: (text: string) => void;
   /** A piece of the answer as the model writes it. Appended to the text. */
   onToken?: (text: string) => void;
+  /** A tool started or finished. The same id arrives again when its status changes. */
+  onTool?: (step: ToolStep) => void;
   onDone: (text: string) => void;
   /** The run was stopped on request. Carries the reply written before it stopped. */
   onCancelled?: (text: string) => void;
@@ -148,12 +153,26 @@ function dispatch(chunk: string, handlers: StreamHandlers): void {
   const payload = dataLine.slice("data:".length).trim();
 
   try {
-    const parsed = JSON.parse(payload) as { text?: string; message?: string };
+    const parsed = JSON.parse(payload) as {
+      text?: string;
+      message?: string;
+      id?: string;
+      name?: string;
+      label?: string;
+      status?: string;
+    };
 
     if (name === "assistant.snapshot") {
       handlers.onSnapshot?.(parsed.text ?? "");
     } else if (name === "assistant.delta") {
       handlers.onToken?.(parsed.text ?? "");
+    } else if (name === "tool.started" || name === "tool.finished") {
+      handlers.onTool?.({
+        id: parsed.id ?? "",
+        name: parsed.name ?? "",
+        label: parsed.label || parsed.name || "Using a tool",
+        status: name === "tool.started" ? "running" : parsed.status === "error" ? "error" : "ok",
+      });
     } else if (name === "run.completed") {
       handlers.onDone(parsed.text ?? "");
     } else if (name === "run.failed") {

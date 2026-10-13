@@ -5,6 +5,7 @@ import { Check, Copy, Download, Paperclip, PenLine, RefreshCw, ThumbsDown, Thumb
 import { useState } from 'react';
 
 import { clockTime } from '@/lib/format';
+import type { ToolStep } from '@/lib/types';
 import ImportReview from '@/components/chat/ImportReview';
 import Reply from '@/components/chat/Reply';
 
@@ -27,6 +28,9 @@ import Reply from '@/components/chat/Reply';
  * Each finished answer gets a row of round buttons, as in the reference. Copy and
  * Regenerate work. Like, Dislike, Edit and Download are drawn but do nothing yet —
  * the backend has no feedback table and no export route for them to call.
+ *
+ * Tools are not listed in the timeline. While a reply is written, the thinking pill under the
+ * chat shows the running tool's orb and label instead.
  */
 
 export interface Turn {
@@ -42,6 +46,8 @@ export interface Turn {
   attached?: string[];
   /** Imports this answer is about. The review cards for them are drawn under it. */
   importIds?: string[];
+  /** Tools the planner called for this answer, in the order they started. Read by the thinking pill. */
+  tools?: ToolStep[];
 }
 
 export default function MessageTimeline({

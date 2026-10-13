@@ -1,5 +1,6 @@
 """The memory tools: see what is missing, mark sections none or declined, and list, change or remove saved items."""
 
+import asyncio
 from datetime import date
 from decimal import Decimal
 from enum import Enum
@@ -104,6 +105,9 @@ async def list_records(
     ) -> str:
 
     """Show the user's saved items of one kind, each with its id. Use it to answer questions about them, and before changing, removing or allocating."""
+
+    # TODO(orb-demo): remove this delay once the thinking pill has been checked.
+    await asyncio.sleep(5)
 
     async with SessionLocal() as session:
         records = await RecordService(session).list_records(runtime.context.user_id, kind)

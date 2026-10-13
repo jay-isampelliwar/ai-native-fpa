@@ -1,12 +1,13 @@
-"""Database reads and writes for agent runs and the messages they produce."""
+"""Database reads and writes for agent runs, the messages they produce and the tools they call."""
 
 from collections.abc import Iterable
+from typing import Any
 
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.enums import ACTIVE_RUN_STATUSES, ConversationStatus, MessageRole, MessageStatus, RunStatus
-from app.db.models import AgentRun, Conversation, Message
+from app.db.enums import ACTIVE_RUN_STATUSES, ConversationStatus, MessageRole, MessageStatus, RunStatus, ToolCallStatus
+from app.db.models import AgentRun, Conversation, Message, ToolCall
 
 
 FINAL_RUN_STATUSES = (RunStatus.completed, RunStatus.cancelled, RunStatus.failed)
@@ -19,10 +20,12 @@ STATUS_TIMESTAMPS = {
     RunStatus.failed: "finished_at",
     }
 
+OPEN_TOOL_STATUSES = (ToolCallStatus.requested, ToolCallStatus.running)
+
 
 class RunRepository:
 
-    """All run and message queries for one request, sharing that request's session."""
+    """All run, message and tool call queries for one request, sharing that request's session."""
 
     def __init__(self, session: AsyncSession) -> None:
 
@@ -242,6 +245,8 @@ class RunRepository:
 
         await self.session.execute(message_query)
 
+        await self.close_open_tool_calls([run_id], final_status)
+
         return True
 
     async def fail_active_runs(self, failure_code: str) -> list[int]:
@@ -273,4 +278,70 @@ class RunRepository:
 
         await self.session.execute(message_query)
 
+        await self.close_open_tool_calls(run_ids, RunStatus.failed)
+
         return run_ids
+
+    async def add_tool_call(
+        self,
+        conversation_id: int,
+        message_id: int,
+        run_id: int,
+        tool_call_id: str,
+        tool_name: str,
+        arguments: dict[str, Any],
+        ) -> None:
+
+        """Add one tool call the agent asked for, marked running from now."""
+
+        tool_call = ToolCall(
+            conversation_id=conversation_id,
+            message_id=message_id,
+            run_id=run_id,
+            tool_call_id=tool_call_id,
+            tool_name=tool_name,
+            arguments=arguments,
+            status=ToolCallStatus.running,
+            started_at=func.now(),
+            )
+
+        self.session.add(tool_call)
+
+        await self.session.flush()
+
+    async def finish_tool_call(
+        self,
+        conversation_id: int,
+        tool_call_id: str,
+        status: ToolCallStatus,
+        output: dict[str, Any] | None = None,
+        error_text: str | None = None,
+        ) -> None:
+
+        """End one running tool call with its final status and its output or error."""
+
+        query = (
+            update(ToolCall)
+            .where(
+                ToolCall.conversation_id == conversation_id,
+                ToolCall.tool_call_id == tool_call_id,
+                ToolCall.status.in_(OPEN_TOOL_STATUSES),
+                )
+            .values(status=status, output=output, error_text=error_text, completed_at=func.now())
+            )
+
+        await self.session.execute(query)
+
+    async def close_open_tool_calls(self, run_ids: list[int], run_status: RunStatus) -> None:
+
+        """End every tool call these runs left open, as cancelled when the run was stopped and failed otherwise."""
+
+        status = ToolCallStatus.cancelled if run_status == RunStatus.cancelled else ToolCallStatus.failed
+
+        query = (
+            update(ToolCall)
+            .where(ToolCall.run_id.in_(run_ids), ToolCall.status.in_(OPEN_TOOL_STATUSES))
+            .values(status=status, completed_at=func.now())
+            )
+
+        await self.session.execute(query)

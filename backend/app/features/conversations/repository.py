@@ -1,4 +1,4 @@
-"""Database reads for the history list and for opening one conversation."""
+"""Database reads for the history list and for opening one conversation with its tool calls."""
 
 from collections.abc import Sequence
 from typing import Any
@@ -7,7 +7,7 @@ from sqlalchemy import Row, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.enums import ACTIVE_RUN_STATUSES, ConversationStatus, MessageRole
-from app.db.models import AgentRun, Conversation, Message
+from app.db.models import AgentRun, Conversation, Message, ToolCall
 
 
 SHOWN_ROLES = (MessageRole.user, MessageRole.assistant)
@@ -93,6 +93,16 @@ class ConversationRepository:
             .where(Message.conversation_id == conversation_id, Message.role.in_(SHOWN_ROLES))
             .order_by(Message.sequence_number)
             )
+
+        result = await self.session.scalars(query)
+
+        return result.all()
+
+    async def list_tool_calls(self, conversation_id: int) -> Sequence[ToolCall]:
+
+        """Return the conversation's tool calls in the order they were asked for."""
+
+        query = select(ToolCall).where(ToolCall.conversation_id == conversation_id).order_by(ToolCall.id)
 
         result = await self.session.scalars(query)
 

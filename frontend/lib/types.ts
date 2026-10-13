@@ -41,6 +41,18 @@ export interface ConversationList {
 
 export type MessageStatus = 'streaming' | 'completed' | 'cancelled' | 'failed';
 
+/**
+ * One tool the planner called during a reply, and how far it has got. `stopped` comes only from
+ * a saved chat, for a tool that was still running when the reply was stopped.
+ */
+export interface ToolStep {
+  id: string;
+  name: string;
+  /** The friendly line to show, such as "Reading your records". */
+  label: string;
+  status: 'running' | 'ok' | 'error' | 'stopped';
+}
+
 export interface ConversationMessage {
   id: number;
   run_id: number | null;
@@ -48,6 +60,8 @@ export interface ConversationMessage {
   status: MessageStatus;
   text: string;
   created_at: string;
+  /** Tools the planner called for this answer. Always empty for the person's own messages. */
+  tools: ToolStep[];
 }
 
 /**

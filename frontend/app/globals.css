@@ -303,46 +303,30 @@ body[data-resizing='true'] {
   box-shadow: 0 0 18px rgba(68, 227, 111, 0.35);
 }
 
-/* ── Orb ────────────────────────────────────────────────────────────────────
-   The assistant's mark: two glowing rings turning in opposite directions around
-   a dark core. Drawn with a conic gradient masked down to a ring, so it is one
-   element at any size and needs no image. */
+/* ── Thinking pill ──────────────────────────────────────────────────────────
+   The label next to the working orb. A bright band slides across muted text, so
+   the words read as live without a spinner of their own. */
 
-.orb {
-  position: relative;
-  display: inline-block;
-  flex: none;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(68, 227, 111, 0.35) 0 14%, #030604 46%);
-  box-shadow: 0 0 calc(var(--orb-size) * 0.45) rgba(68, 227, 111, 0.35);
+.thinking-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--text-muted) 0%,
+    var(--text-muted) 35%,
+    var(--text-primary) 50%,
+    var(--text-muted) 65%,
+    var(--text-muted) 100%
+  );
+  background-size: 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: thinking-shimmer 2.2s linear infinite;
 }
 
-.orb::before,
-.orb::after {
-  content: '';
-  position: absolute;
-  border-radius: 50%;
-  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - var(--orb-ring)), #000 calc(100% - var(--orb-ring) + 1px));
-  mask: radial-gradient(farthest-side, transparent calc(100% - var(--orb-ring)), #000 calc(100% - var(--orb-ring) + 1px));
+@keyframes thinking-shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: -150% 0; }
 }
-
-.orb::before {
-  inset: 0;
-  background: conic-gradient(from 0deg, transparent 0 10%, #44e36f 30%, #c8f500 45%, transparent 62%, #44e36f 82%, transparent 96%);
-  animation: orb-spin 5s linear infinite;
-}
-
-.orb::after {
-  inset: 18%;
-  background: conic-gradient(from 180deg, transparent 0 20%, #44e36f 50%, transparent 75%);
-  opacity: .75;
-  animation: orb-spin 7s linear infinite reverse;
-}
-
-@keyframes orb-spin { to { transform: rotate(360deg); } }
-
-.orb-still::before,
-.orb-still::after { animation: none; }
 
 /* ── Chat prose ─────────────────────────────────────────────────────────────
    The planner answers in markdown; these are the elements `Reply` emits. */

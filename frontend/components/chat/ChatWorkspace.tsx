@@ -6,13 +6,15 @@ import { conversations } from '@/lib/api';
 import { firstNameOf } from '@/lib/format';
 import { useSession } from '@/lib/session';
 import { cancelRun, followRun, streamMessage, type StreamHandlers } from '@/lib/stream';
-import type { ConversationDetail } from '@/lib/types';
+import type { ConversationDetail, ToolStep } from '@/lib/types';
 import { useUploads } from '@/lib/useUploads';
 import ChatComposer from '@/components/chat/ChatComposer';
 import ChatHeader from '@/components/chat/ChatHeader';
 import MessageTimeline, { type Turn } from '@/components/chat/MessageTimeline';
 import SuggestedPrompts from '@/components/chat/SuggestedPrompts';
 import Orb from '@/components/ui/Orb';
+import ThinkingOrb from '@/components/ui/ThinkingOrb';
+import { orbStateForTool } from '@/lib/orb/tools';
 
 const newId = () => Math.random().toString(36).slice(2, 10);
 
@@ -24,6 +26,18 @@ function greeting(now: Date): string {
   if (hour < 17) return 'Good afternoon';
 
   return 'Good evening';
+}
+
+/** Replace the step with the same id, or add it at the end if it is new. */
+function upsertStep(steps: ToolStep[], step: ToolStep): ToolStep[] {
+  return steps.some((item) => item.id === step.id)
+    ? steps.map((item) => (item.id === step.id ? step : item))
+    : [...steps, step];
+}
+
+/** Mark every step still running as ended, for a reply that was stopped or failed. */
+function closeSteps(steps: ToolStep[] | undefined, status: 'stopped' | 'error'): ToolStep[] | undefined {
+  return steps?.map((step) => (step.status === 'running' ? { ...step, status } : step));
 }
 
 /** Turn a saved chat into the turns the timeline draws. */
@@ -38,6 +52,7 @@ function turnsFrom(detail: ConversationDetail): Turn[] {
     at: new Date(message.created_at),
     failed: message.status === 'failed',
     stopped: message.status === 'cancelled',
+    tools: message.tools,
   }));
 }
 
@@ -70,7 +85,8 @@ export default function ChatWorkspace({
 }) {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [draft, setDraft] = useState('');
-  const [step, setStep] = useState<string | null>(null);
+  // Where the reply is: waiting for the run to start, or the planner at work. Null when idle.
+  const [step, setStep] = useState<'connecting' | 'thinking' | null>(null);
   const [busy, setBusy] = useState(false);
   const [conversationId, setConversationId] = useState<number | null>(openConversationId);
   const [loading, setLoading] = useState(openConversationId !== null);
@@ -125,16 +141,29 @@ export default function ChatWorkspace({
 
     return {
       onRun: (run) => {
+        setStep('thinking');
         setConversationId(run.conversation_id);
         onActivity?.(run.conversation_id);
         runId.current = run.run_id;
         if (stopWanted.current) void cancelRun(run.run_id);
       },
-      onSnapshot: (text) => amend((turn) => ({ ...turn, text })),
-      onToken: (piece) => amend((turn) => ({ ...turn, text: turn.text + piece })),
+      onSnapshot: (text) => {
+        setStep('thinking');
+        amend((turn) => ({ ...turn, text }));
+      },
+      onToken: (piece) => {
+        setStep('thinking');
+        amend((turn) => ({ ...turn, text: turn.text + piece }));
+      },
+      onTool: (tool) => {
+        setStep('thinking');
+        amend((turn) => ({ ...turn, tools: upsertStep(turn.tools ?? [], tool) }));
+      },
       onDone: (text) => amend((turn) => ({ ...turn, text })),
-      onCancelled: (text) => amend((turn) => ({ ...turn, text: text || turn.text, stopped: true })),
-      onError: (message) => amend((turn) => ({ ...turn, text: turn.text || message, failed: true })),
+      onCancelled: (text) =>
+        amend((turn) => ({ ...turn, text: text || turn.text, stopped: true, tools: closeSteps(turn.tools, 'stopped') })),
+      onError: (message) =>
+        amend((turn) => ({ ...turn, text: turn.text || message, failed: true, tools: closeSteps(turn.tools, 'error') })),
     };
   }
 
@@ -144,7 +173,7 @@ export default function ChatWorkspace({
     const handlers = handlersFor(answerId);
 
     setBusy(true);
-    setStep('Thinking');
+    setStep('connecting');
 
     await start(handlers, signal).catch(() => {
       if (signal?.aborted) return;
@@ -244,6 +273,14 @@ export default function ChatWorkspace({
   }
 
   const streamingId = busy ? turns.at(-1)?.id : undefined;
+
+  // The pill follows the newest tool still running; between tools it says the planner is thinking.
+  const runningTool = turns.at(-1)?.tools?.findLast((tool) => tool.status === 'running');
+  const pill = runningTool
+    ? { state: orbStateForTool(runningTool.name), label: `${runningTool.label}…` }
+    : step === 'connecting'
+      ? { state: 'connecting' as const, label: 'Connecting…' }
+      : { state: 'breathing' as const, label: 'Thinking…' };
   const empty = turns.length === 0 && openConversationId === null;
 
   const composerProps = {
@@ -299,17 +336,15 @@ export default function ChatWorkspace({
         )}
 
         {step && (
-          <p
-            aria-live="polite"
-            className="mx-auto mt-3 flex w-full max-w-5xl items-center gap-2 px-4 text-[12px] text-secondary sm:px-6"
-          >
-            <span className="flex gap-1" aria-hidden="true">
-              <Dot delay="0ms" />
-              <Dot delay="140ms" />
-              <Dot delay="280ms" />
-            </span>
-            {step}
-          </p>
+          <div className="mx-auto mt-3 w-full max-w-5xl px-4 sm:px-6">
+            <p
+              aria-live="polite"
+              className="inline-flex items-center gap-2.5 rounded-full border border-[var(--pane-border)] bg-panel-subtle py-1.5 pr-4 pl-2"
+            >
+              <ThinkingOrb state={pill.state} size={22} label="" />
+              <span className="thinking-shimmer text-[12.5px] font-medium">{pill.label}</span>
+            </p>
+          </div>
         )}
       </div>
 
@@ -319,15 +354,5 @@ export default function ChatWorkspace({
         </div>
       )}
     </div>
-  );
-}
-
-/** One cell of the working indicator. */
-function Dot({ delay }: { delay: string }) {
-  return (
-    <span
-      className="h-1.5 w-1.5 animate-pulse rounded-full"
-      style={{ background: 'var(--accent)', animationDelay: delay }}
-    />
   );
 }

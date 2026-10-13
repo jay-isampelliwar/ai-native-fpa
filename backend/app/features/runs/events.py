@@ -11,11 +11,15 @@ from app.db.enums import RunStatus
 
 ASSISTANT_SNAPSHOT = "assistant.snapshot"
 ASSISTANT_DELTA = "assistant.delta"
+TOOL_STARTED = "tool.started"
+TOOL_FINISHED = "tool.finished"
 RUN_COMPLETED = "run.completed"
 RUN_FAILED = "run.failed"
 RUN_CANCELLED = "run.cancelled"
 
 FINAL_EVENTS = {RUN_COMPLETED, RUN_FAILED, RUN_CANCELLED}
+
+TOOL_EVENTS = {TOOL_STARTED, TOOL_FINISHED}
 
 FINAL_EVENT_FOR_STATUS = {
     RunStatus.completed: RUN_COMPLETED,
@@ -41,33 +45,41 @@ class RunEvent:
 
 class RunEvents:
 
-    """Keeps one queue per listener per run, copies every event into each, and remembers each live run's text so far."""
+    """Keeps one queue per listener per run, copies every event into each, and remembers each live run's text and tool steps so far."""
 
     def __init__(self) -> None:
 
-        """Start with no listeners and no live text."""
+        """Start with no listeners, no live text and no live tool steps."""
 
         self.listeners: dict[int, set[asyncio.Queue[RunEvent]]] = {}
         self.texts: dict[int, str] = {}
+        self.tools: dict[int, dict[str, RunEvent]] = {}
 
     def publish(self, run_id: int, event: RunEvent) -> None:
 
-        """Update the run's text so far, then hand the event to everyone listening, without waiting on any of them."""
+        """Update the run's text and tool steps so far, then hand the event to everyone listening, without waiting on any of them."""
 
         if event.name == ASSISTANT_DELTA:
             self.texts[run_id] = self.texts.get(run_id, "") + event.data["text"]
 
+        if event.name in TOOL_EVENTS:
+            self.tools.setdefault(run_id, {})[event.data["id"]] = event
+
         if event.name in FINAL_EVENTS:
             self.texts.pop(run_id, None)
+            self.tools.pop(run_id, None)
 
         for queue in self.listeners.get(run_id, set()):
             queue.put_nowait(event)
 
     def subscribe(self, run_id: int) -> asyncio.Queue[RunEvent]:
 
-        """Open an inbox for this run, seeded with the text so far, so a late listener misses nothing and sees nothing twice."""
+        """Open an inbox for this run, seeded with each tool's latest step and the text so far, so a late listener misses nothing and sees nothing twice."""
 
         queue: asyncio.Queue[RunEvent] = asyncio.Queue()
+
+        for tool_event in self.tools.get(run_id, {}).values():
+            queue.put_nowait(tool_event)
 
         text_so_far = self.texts.get(run_id)
 
