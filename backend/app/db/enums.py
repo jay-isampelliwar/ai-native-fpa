@@ -291,4 +291,59 @@ class CoverageStatus(StrEnum):
     declined = "declined"
 
 
+class OutboxStatus(StrEnum):
+
+    """Where one outbox event is between saved in Postgres and published to Redis."""
+
+    pending = "pending"
+    publishing = "publishing"
+    published = "published"
+    failed = "failed"
+    dead_letter = "dead_letter"
+
+
+class OutboxEventType(StrEnum):
+
+    """Which deferred job an outbox event asks the memory worker to do."""
+
+    memory_extract_requested = "memory.extract.requested"
+    memory_summary_requested = "memory.summary.requested"
+    memory_embed_requested = "memory.embed.requested"
+    memory_cleanup_requested = "memory.cleanup.requested"
+
+
+class MemoryStatus(StrEnum):
+
+    """Where one memory is between first seen and removed."""
+
+    candidate = "candidate"
+    active = "active"
+    superseded = "superseded"
+    expired = "expired"
+    rejected = "rejected"
+    deleted = "deleted"
+
+
+class MemoryEventType(StrEnum):
+
+    """What happened to a memory in one history row."""
+
+    created = "created"
+    updated = "updated"
+    confirmed = "confirmed"
+    superseded = "superseded"
+    rejected = "rejected"
+    expired = "expired"
+    deleted = "deleted"
+
+
+class MemoryActorType(StrEnum):
+
+    """Who made a change to a memory."""
+
+    user = "user"
+    agent = "agent"
+    system = "system"
+
+
 ACTIVE_RUN_STATUSES = (RunStatus.queued, RunStatus.running, RunStatus.cancel_requested)
