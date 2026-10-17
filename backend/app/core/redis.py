@@ -25,3 +25,13 @@ async def close_redis() -> None:
     await get_redis().aclose()
 
     get_redis.cache_clear()
+
+
+async def publish_event(
+    stream: str,
+    fields: dict[str, str],
+    ) -> str:
+
+    """Append one entry to the end of a Redis stream with XADD and return the id Redis gave it."""
+
+    return await get_redis().xadd(stream, fields)

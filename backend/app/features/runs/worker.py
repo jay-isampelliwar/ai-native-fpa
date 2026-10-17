@@ -13,6 +13,7 @@ from app.agent.context import PlannerContext
 from app.agent.tools.labels import label_for
 from app.db.enums import RunStatus, ToolCallStatus
 from app.db.session import SessionLocal
+from app.features.outbox.repository import OutboxRepository
 from app.features.profile.service import ProfileService
 from app.features.runs.events import (
     ASSISTANT_DELTA,
@@ -58,6 +59,8 @@ async def save_partial(message_id: int, text: str) -> None:
 
 async def end_run(
     run_id: int,
+    conversation_id: int,
+    user_id: int,
     message_id: int,
     final_status: RunStatus,
     final_text: str,
@@ -65,11 +68,11 @@ async def end_run(
     failure_message: str | None = None,
     ) -> None:
 
-    """End the run and its assistant message with the final status and text in its own short session."""
+    """End the run and its assistant message, and on completion add a memory extract event in the same commit."""
 
     async with SessionLocal() as session:
 
-        await RunRepository(session).finish_run(
+        ended = await RunRepository(session).finish_run(
             run_id,
             message_id,
             final_status,
@@ -77,6 +80,9 @@ async def end_run(
             failure_code=failure_code,
             failure_message=failure_message,
             )
+
+        if ended and final_status == RunStatus.completed:
+            await OutboxRepository(session).add_memory_extract(run_id, conversation_id, user_id)
 
         await session.commit()
 
@@ -240,7 +246,7 @@ async def execute_run(
 
         log.info("run %s cancelled on conversation %s", run_id, conversation_id)
 
-        await end_run(run_id, assistant_message_id, RunStatus.cancelled, reply)
+        await end_run(run_id, conversation_id, user_id, assistant_message_id, RunStatus.cancelled, reply)
 
         run_events.publish(run_id, RunEvent(RUN_CANCELLED, {"text": reply}))
 
@@ -252,6 +258,8 @@ async def execute_run(
 
         await end_run(
             run_id,
+            conversation_id,
+            user_id,
             assistant_message_id,
             RunStatus.failed,
             reply,
@@ -263,7 +271,7 @@ async def execute_run(
 
         return
 
-    await end_run(run_id, assistant_message_id, RunStatus.completed, reply)
+    await end_run(run_id, conversation_id, user_id, assistant_message_id, RunStatus.completed, reply)
 
     run_events.publish(run_id, RunEvent(RUN_COMPLETED, {"text": reply}))
 
