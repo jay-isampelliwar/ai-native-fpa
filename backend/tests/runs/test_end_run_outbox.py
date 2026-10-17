@@ -1,73 +1,12 @@
 """Tests that end_run adds one memory extract outbox event only when a run completes, on the real database."""
 
-from collections.abc import AsyncIterator
-from dataclasses import dataclass
-from uuid import uuid4
-
-import pytest
-from sqlalchemy import delete, select
+from sqlalchemy import select
 
 from app.db.enums import OutboxEventType, RunStatus
-from app.db.models import AgentRun, Conversation, Message, OutboxEvent, User
-from app.db.session import SessionLocal, engine
-from app.features.runs.repository import RunRepository
+from app.db.models import OutboxEvent
+from app.db.session import SessionLocal
 from app.features.runs.worker import end_run
-
-
-@dataclass
-class SeededRun:
-
-    """The ids of a temp user, conversation, queued run and its assistant message."""
-
-    user_id: int
-    conversation_id: int
-    run_id: int
-    assistant_message_id: int
-
-
-@pytest.fixture
-async def seeded_run() -> AsyncIterator[SeededRun]:
-
-    """Create a temp user with one queued run, then delete every row it made and close the pool."""
-
-    async with SessionLocal() as session:
-
-        user = User(name="Outbox Test", email=f"outbox-test-{uuid4().hex}@example.com")
-
-        session.add(user)
-
-        await session.flush()
-
-        repository = RunRepository(session)
-
-        conversation = await repository.create_conversation(user.id, "Outbox test")
-
-        run, _, assistant_message = await repository.create_run_with_messages(
-            conversation.id,
-            uuid4().hex,
-            "I avoid tobacco stocks",
-            )
-
-        await session.commit()
-
-        seeded = SeededRun(user.id, conversation.id, run.id, assistant_message.id)
-
-    try:
-        yield seeded
-
-    finally:
-
-        async with SessionLocal() as session:
-
-            await session.execute(delete(OutboxEvent).where(OutboxEvent.user_id == seeded.user_id))
-            await session.execute(delete(Message).where(Message.conversation_id == seeded.conversation_id))
-            await session.execute(delete(AgentRun).where(AgentRun.conversation_id == seeded.conversation_id))
-            await session.execute(delete(Conversation).where(Conversation.id == seeded.conversation_id))
-            await session.execute(delete(User).where(User.id == seeded.user_id))
-
-            await session.commit()
-
-        await engine.dispose()
+from tests.support import SeededRun
 
 
 async def finish(

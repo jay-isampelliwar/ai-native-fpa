@@ -63,16 +63,17 @@ async def read_group(
     consumer: str,
     count: int,
     block_ms: int | None,
+    start_id: str = ">",
     ) -> list[StreamEntry]:
 
-    """Read up to count new entries for this consumer with XREADGROUP, waiting up to block_ms for the first one."""
+    """Read up to count entries with XREADGROUP: new ones with start_id ">", or this consumer's own pending ones after start_id."""
 
-    response = await get_redis().xreadgroup(group, consumer, {stream: ">"}, count=count, block=block_ms)
+    response = await get_redis().xreadgroup(group, consumer, {stream: start_id}, count=count, block=block_ms)
 
     if not response:
         return []
 
-    return response[0][1]
+    return [(entry_id, fields or {}) for entry_id, fields in response[0][1]]
 
 
 async def claim_stale(

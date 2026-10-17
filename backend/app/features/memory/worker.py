@@ -158,6 +158,34 @@ async def run_once(
     return len(claimed) + len(fresh)
 
 
+async def replay_pending(
+    stream: str,
+    group: str,
+    consumer: str,
+    ) -> int:
+
+    """On startup, process every entry this consumer read but never acknowledged before it stopped, and return how many."""
+
+    batch_size = get_settings().MEMORY_WORKER_BATCH_SIZE
+    last_id = "0"
+    replayed = 0
+
+    while True:
+
+        entries = await read_group(stream, group, consumer, batch_size, None, start_id=last_id)
+
+        if not entries:
+            return replayed
+
+        for entry_id, fields in entries:
+
+            if not await dead_letter_if_exhausted(stream, group, entry_id, fields):
+                await process_entry(stream, group, entry_id, fields)
+
+        last_id = entries[-1][0]
+        replayed += len(entries)
+
+
 async def run_forever() -> None:
 
     """Make sure the group exists, then process entries until stopped, and close Redis and the DB pool on exit."""
@@ -172,6 +200,11 @@ async def run_forever() -> None:
         await ensure_group(stream, group)
 
         log.info("memory worker %s started on %s", consumer, stream)
+
+        replayed = await replay_pending(stream, group, consumer)
+
+        if replayed:
+            log.info("memory worker %s replayed %s pending entries", consumer, replayed)
 
         while True:
 

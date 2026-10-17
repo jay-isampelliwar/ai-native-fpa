@@ -2,21 +2,20 @@
 
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from uuid import uuid4
 
 import pytest
-from sqlalchemy import delete, select
+from sqlalchemy import select
 
-from app.core.redis import close_redis, ensure_group, get_redis
+from app.core.redis import ensure_group, get_redis
 from app.db.enums import MemoryEventType, MemoryStatus, MessageRole
-from app.db.models import AgentRun, Conversation, MemoryEvent, MemoryItem, Message, OutboxEvent, User
-from app.db.session import SessionLocal, engine
+from app.db.models import MemoryEvent, MemoryItem, Message, OutboxEvent
+from app.db.session import SessionLocal
 from app.features.memory import worker
 from app.features.memory.repository import MemoryRepository
 from app.features.memory.schemas import MemoryCandidate, MemorySource
 from app.features.outbox.publisher import stream_fields
 from app.features.outbox.repository import OutboxRepository
-from app.features.runs.repository import RunRepository
+from tests.support import SeededRun
 
 
 GROUP = "memory-workers-test"
@@ -38,56 +37,37 @@ class Seeded:
 
 
 @pytest.fixture
-async def seeded() -> AsyncIterator[Seeded]:
+async def seeded(
+    seeded_run: SeededRun,
+    redis_stream: str,
+    ) -> AsyncIterator[Seeded]:
 
-    """Create a temp user with one completed-run outbox event and a test stream group, then remove all of it."""
-
-    stream = f"ai-native-fpa:test:{uuid4().hex}"
+    """Add a memory extract outbox event to the seeded run and a consumer group on the test stream."""
 
     async with SessionLocal() as session:
 
-        user = User(name="Memory Test", email=f"memory-test-{uuid4().hex}@example.com")
-
-        session.add(user)
-
-        await session.flush()
-
-        runs = RunRepository(session)
-
-        conversation = await runs.create_conversation(user.id, "Memory test")
-
-        run, _, _ = await runs.create_run_with_messages(conversation.id, uuid4().hex, "I avoid tobacco stocks")
-
-        outbox_event_id = await OutboxRepository(session).add_memory_extract(run.id, conversation.id, user.id)
+        outbox_event_id = await OutboxRepository(session).add_memory_extract(
+            seeded_run.run_id,
+            seeded_run.conversation_id,
+            seeded_run.user_id,
+            )
 
         await session.commit()
 
         event = await session.get_one(OutboxEvent, outbox_event_id)
 
-        data = Seeded(stream, user.id, conversation.id, run.id, outbox_event_id, stream_fields(event))
+        fields = stream_fields(event)
 
-    await ensure_group(stream, GROUP)
+    await ensure_group(redis_stream, GROUP)
 
-    try:
-        yield data
-
-    finally:
-
-        async with SessionLocal() as session:
-
-            await session.execute(delete(MemoryEvent).where(MemoryEvent.user_id == data.user_id))
-            await session.execute(delete(MemoryItem).where(MemoryItem.user_id == data.user_id))
-            await session.execute(delete(OutboxEvent).where(OutboxEvent.user_id == data.user_id))
-            await session.execute(delete(Message).where(Message.conversation_id == data.conversation_id))
-            await session.execute(delete(AgentRun).where(AgentRun.conversation_id == data.conversation_id))
-            await session.execute(delete(Conversation).where(Conversation.id == data.conversation_id))
-            await session.execute(delete(User).where(User.id == data.user_id))
-
-            await session.commit()
-
-        await get_redis().delete(stream, worker.dead_stream(stream))
-        await close_redis()
-        await engine.dispose()
+    yield Seeded(
+        redis_stream,
+        seeded_run.user_id,
+        seeded_run.conversation_id,
+        seeded_run.run_id,
+        outbox_event_id,
+        fields,
+        )
 
 
 def candidate(sectors: list[str]) -> MemoryCandidate:
