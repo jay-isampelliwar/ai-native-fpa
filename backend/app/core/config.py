@@ -22,6 +22,14 @@ class Settings(BaseSettings):
     TOKEN_TTL_MINUTES: int = 60 * 24 * 7
     COOKIE_SECURE: bool = False
 
+    REDIS_URL: str
+    REDIS_MEMORY_STREAM: str = "ai-native-fpa:memory"
+    REDIS_MEMORY_CONSUMER_GROUP: str = "memory-workers"
+    REDIS_MEMORY_CONSUMER_NAME: str = "memory-worker-1"
+    MEMORY_WORKER_BATCH_SIZE: int = 10
+    MEMORY_WORKER_RETRY_LIMIT: int = 5
+    MEMORY_WORKER_CLAIM_AFTER_SECONDS: int = 300
+
 
 @lru_cache
 def get_settings() -> Settings:
