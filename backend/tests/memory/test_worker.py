@@ -102,7 +102,10 @@ def candidate(sectors: list[str]) -> MemoryCandidate:
         )
 
 
-async def fake_extract(messages: list[Message]) -> list[MemoryCandidate]:
+async def fake_extract(
+    messages: list[Message],
+    memories: list[MemoryItem],
+    ) -> list[MemoryCandidate]:
 
     """Stand in for the LLM extractor, finding one tobacco preference in the user's message."""
 
@@ -119,7 +122,10 @@ async def fake_extract(messages: list[Message]) -> list[MemoryCandidate]:
         ]
 
 
-async def broken_extract(messages: list[Message]) -> list[MemoryCandidate]:
+async def broken_extract(
+    messages: list[Message],
+    memories: list[MemoryItem],
+    ) -> list[MemoryCandidate]:
 
     """Stand in for an extractor that always fails."""
 

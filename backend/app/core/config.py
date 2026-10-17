@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     MEMORY_WORKER_BATCH_SIZE: int = 10
     MEMORY_WORKER_RETRY_LIMIT: int = 5
     MEMORY_WORKER_CLAIM_AFTER_SECONDS: int = 300
+    MEMORY_MODEL: str = "gpt-4o-mini"
 
 
 @lru_cache

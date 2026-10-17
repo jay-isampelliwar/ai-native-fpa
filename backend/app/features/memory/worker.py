@@ -57,9 +57,10 @@ async def handle_memory_extract(
 
             return
 
-        messages = await repository.run_messages(source.run_id)
+        messages = await repository.run_messages(source.run_id, source.user_id)
+        memories = await repository.active_memories(source.user_id)
 
-        candidates = await extract_candidates(messages)
+        candidates = await extract_candidates(messages, memories)
 
         for candidate in candidates:
             await repository.save_candidate(candidate, source)

@@ -6,7 +6,7 @@ from sqlalchemy import exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.enums import MemoryActorType, MemoryEventType, MemoryStatus, MessageRole
-from app.db.models import MemoryEvent, MemoryItem, Message
+from app.db.models import Conversation, MemoryEvent, MemoryItem, Message
 from app.features.memory.schemas import MemoryCandidate, MemorySource
 
 
@@ -31,14 +31,35 @@ class MemoryRepository:
 
         return bool(await self.session.scalar(query))
 
-    async def run_messages(self, run_id: int) -> list[Message]:
+    async def run_messages(
+        self,
+        run_id: int,
+        user_id: int,
+        ) -> list[Message]:
 
-        """Return the run's user and assistant messages in the order they were written."""
+        """Return the run's user and assistant messages in order, only if the run's chat belongs to this user."""
 
         query = (
             select(Message)
-            .where(Message.run_id == run_id, Message.role.in_(CHAT_ROLES))
+            .join(Conversation, Conversation.id == Message.conversation_id)
+            .where(
+                Message.run_id == run_id,
+                Message.role.in_(CHAT_ROLES),
+                Conversation.user_id == user_id,
+                )
             .order_by(Message.sequence_number)
+            )
+
+        return list(await self.session.scalars(query))
+
+    async def active_memories(self, user_id: int) -> list[MemoryItem]:
+
+        """Return the user's active memories, oldest first, so the extractor can reuse their keys."""
+
+        query = (
+            select(MemoryItem)
+            .where(MemoryItem.user_id == user_id, MemoryItem.status == MemoryStatus.active)
+            .order_by(MemoryItem.id)
             )
 
         return list(await self.session.scalars(query))
