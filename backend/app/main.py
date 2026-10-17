@@ -3,9 +3,9 @@
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-from langgraph.checkpoint.memory import InMemorySaver
 
 from app.agent import graph as planner
+from app.agent.checkpointer import open_checkpointer
 from app.api.router import api_router
 from app.db.session import engine
 from app.features.runs.worker import fail_orphaned_runs
@@ -14,13 +14,15 @@ from app.features.runs.worker import fail_orphaned_runs
 @asynccontextmanager
 async def lifespan(app: FastAPI):
 
-    """Compile the graph and fail runs a crashed process left active, then close the database pool on shutdown."""
+    """Compile the graph on the Postgres checkpointer and fail runs a crashed process left active, then close both pools."""
 
-    planner.planner_graph = planner.build_planner_graph(InMemorySaver())
+    async with open_checkpointer() as checkpointer:
 
-    await fail_orphaned_runs()
+        planner.planner_graph = planner.build_planner_graph(checkpointer)
 
-    yield
+        await fail_orphaned_runs()
+
+        yield
 
     await engine.dispose()
 

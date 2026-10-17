@@ -22,6 +22,7 @@ caught. For a financial schema that is the drift most worth failing on.
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
+from app.agent.checkpointer import CHECKPOINT_TABLES
 from app.core.config import get_settings
 from app.db import models  # noqa: F401
 from app.db.session import Base
@@ -45,6 +46,17 @@ config.set_main_option("sqlalchemy.url", migration_url())
 target_metadata = Base.metadata
 
 
+def include_name(
+    name: str | None,
+    type_: str,
+    parent_names: dict,
+    ) -> bool:
+
+    """Leave LangGraph's checkpoint tables out of comparisons, since its own setup() owns them."""
+
+    return not (type_ == "table" and name in CHECKPOINT_TABLES)
+
+
 def run_migrations_offline() -> None:
 
     """Emit SQL to stdout without a connection, for reviewing a migration before it runs."""
@@ -54,6 +66,7 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         compare_type=True,
+        include_name=include_name,
         dialect_opts={"paramstyle": "named"},
     )
 
@@ -77,6 +90,7 @@ def run_migrations_online() -> None:
             connection=connection,
             target_metadata=target_metadata,
             compare_type=True,
+            include_name=include_name,
         )
 
         with context.begin_transaction():
