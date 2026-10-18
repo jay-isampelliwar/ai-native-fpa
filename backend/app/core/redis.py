@@ -10,13 +10,19 @@ from app.core.config import get_settings
 
 StreamEntry = tuple[str, dict[str, str]]
 
+SOCKET_TIMEOUT_SECONDS = 30
+
 
 @lru_cache
 def get_redis() -> Redis:
 
-    """Build the Redis client once from REDIS_URL and reuse it, connecting lazily on the first command."""
+    """Build the Redis client once from REDIS_URL and reuse it, with a read timeout longer than any XREADGROUP block."""
 
-    return Redis.from_url(get_settings().REDIS_URL, decode_responses=True)
+    return Redis.from_url(
+        get_settings().REDIS_URL,
+        decode_responses=True,
+        socket_timeout=SOCKET_TIMEOUT_SECONDS,
+        )
 
 
 async def close_redis() -> None:

@@ -186,36 +186,62 @@ async def replay_pending(
         replayed += len(entries)
 
 
-async def run_forever() -> None:
+async def start(
+    stream: str,
+    group: str,
+    consumer: str,
+    ) -> None:
 
-    """Make sure the group exists, then process entries until stopped, and close Redis and the DB pool on exit."""
+    """Create the group and replay this consumer's unfinished entries, retrying until Redis is reachable."""
+
+    while True:
+
+        try:
+
+            await ensure_group(stream, group)
+
+            replayed = await replay_pending(stream, group, consumer)
+
+            break
+
+        except Exception:
+
+            log.exception("memory worker could not start, retrying")
+
+            await asyncio.sleep(ERROR_SLEEP_SECONDS)
+
+    log.info("memory worker %s started on %s, replayed %s pending entries", consumer, stream, replayed)
+
+
+async def consume_forever() -> None:
+
+    """Start, then process entries until cancelled, without closing any pool, so the API lifespan can run it as a task."""
 
     settings = get_settings()
     stream = settings.REDIS_MEMORY_STREAM
     group = settings.REDIS_MEMORY_CONSUMER_GROUP
     consumer = settings.REDIS_MEMORY_CONSUMER_NAME
 
+    await start(stream, group, consumer)
+
+    while True:
+
+        try:
+            await run_once(stream, group, consumer)
+
+        except Exception:
+
+            log.exception("memory worker loop failed")
+
+            await asyncio.sleep(ERROR_SLEEP_SECONDS)
+
+
+async def run_forever() -> None:
+
+    """Run the worker as its own process until stopped, and close Redis and the DB pool on exit."""
+
     try:
-
-        await ensure_group(stream, group)
-
-        log.info("memory worker %s started on %s", consumer, stream)
-
-        replayed = await replay_pending(stream, group, consumer)
-
-        if replayed:
-            log.info("memory worker %s replayed %s pending entries", consumer, replayed)
-
-        while True:
-
-            try:
-                await run_once(stream, group, consumer)
-
-            except Exception:
-
-                log.exception("memory worker loop failed")
-
-                await asyncio.sleep(ERROR_SLEEP_SECONDS)
+        await consume_forever()
 
     finally:
 
