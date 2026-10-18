@@ -16,6 +16,24 @@ ALLOWED_NAMESPACES = frozenset({
     "past_decisions",
     })
 
+PREFERRED_KEYS = {
+    "investment_preferences": (
+        "excluded_sectors",
+        "preferred_sectors",
+        "excluded_companies",
+        "preferred_companies",
+        "preferred_fund_types",
+        "excluded_fund_types",
+        "ethical_rules",
+        ),
+    "communication_preferences": ("answer_style", "language", "contact_time"),
+    "financial_attitudes": ("attitude_to_debt", "attitude_to_saving", "attitude_to_market_drops"),
+    }
+
+STANCE_NAMESPACES = frozenset({"investment_preferences"})
+
+STANCES = frozenset({"avoid", "prefer"})
+
 BLOCKED_KEY_PARTS = (
     "risk_appetite",
     "risk_tolerance",
@@ -50,6 +68,16 @@ def is_blocked_key(memory_key: str) -> bool:
     return any(part in key for part in BLOCKED_KEY_PARTS)
 
 
+def has_clear_stance(proposed: ExtractedMemory) -> bool:
+
+    """Return False if an investment preference does not say whether the user avoids or prefers it."""
+
+    if proposed.namespace not in STANCE_NAMESPACES:
+        return True
+
+    return proposed.content.get("stance") in STANCES
+
+
 def decide_status(
     confidence: Decimal,
     explicit: bool,
@@ -77,6 +105,9 @@ def to_candidate(
         return None
 
     if not proposed.memory_key or is_blocked_key(proposed.memory_key) or not proposed.content:
+        return None
+
+    if not has_clear_stance(proposed):
         return None
 
     if proposed.source_message_id not in user_message_ids:

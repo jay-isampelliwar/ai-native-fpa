@@ -5,8 +5,10 @@ from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 
 from app.db.enums import MessageRole
 from app.db.models import MemoryItem, Message
-from app.features.memory.rules import ALLOWED_NAMESPACES
+from app.features.memory.rules import ALLOWED_NAMESPACES, PREFERRED_KEYS
 
+
+KEY_LIST = "\n".join(f"- {namespace}: {', '.join(keys)}" for namespace, keys in PREFERRED_KEYS.items())
 
 MEMORY_INSTRUCTIONS = f"""You read one exchange between a user and their financial planning assistant.
 Find facts about the user that are worth remembering in future chats, months from now.
@@ -18,6 +20,13 @@ Memory types:
   Use the user's message, with the assistant's reply as context.
 
 Allowed namespaces: {", ".join(sorted(ALLOWED_NAMESPACES))}.
+
+Use these keys when one fits. Make a new snake_case key only when none fits, and make its meaning clear on its own:
+{KEY_LIST}
+
+The content must make sense without the key, so a reader can never mistake a dislike for a like.
+For investment_preferences, content must include "stance": "avoid" or "prefer".
+Example: "I avoid tobacco stocks" -> memory_key "excluded_sectors", content {{"sectors": ["tobacco"], "stance": "avoid"}}.
 
 Never save:
 - Numbers the app already stores in its own tables: risk appetite, retirement age, income, salary, expenses, balances,

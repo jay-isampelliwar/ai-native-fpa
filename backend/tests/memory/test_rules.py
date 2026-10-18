@@ -25,7 +25,7 @@ def proposed(**overrides: Any) -> ExtractedMemory:
         "memory_type": "preference",
         "namespace": "investment_preferences",
         "memory_key": "excluded_sectors",
-        "content": {"sectors": ["tobacco"]},
+        "content": {"sectors": ["tobacco"], "stance": "avoid"},
         "source_message_id": USER_MESSAGE_ID,
         "confidence": 0.9,
         "explicit": True,
@@ -83,15 +83,26 @@ def test_valid_preference_is_kept_active() -> None:
         {"memory_key": "monthly_income"},
         {"memory_key": "bank_balance"},
         {"content": {}},
+        {"content": {"sectors": ["tobacco"]}},
+        {"content": {"sectors": ["tobacco"], "stance": "maybe"}},
         {"source_message_id": ASSISTANT_MESSAGE_ID},
         {"confidence": 0.3},
         ],
     )
 def test_rule_breaking_memory_is_dropped(override: dict[str, Any]) -> None:
 
-    """A wrong type, namespace, blocked key, empty content, non-user source or low confidence drops the memory."""
+    """A wrong type, namespace, blocked key, empty content, missing stance, non-user source or low confidence drops the memory."""
 
     assert kept(proposed(**override)) == []
+
+
+def test_stance_only_needed_for_investment_preferences() -> None:
+
+    """An episodic memory needs no stance, while an investment preference must say avoid or prefer."""
+
+    [candidate] = kept(proposed(memory_type="episodic", namespace="life_events", memory_key="daughter_college", content={"year": 2030}))
+
+    assert candidate.namespace == "life_events"
 
 
 def test_blocked_key_matches_parts() -> None:
@@ -107,11 +118,11 @@ def test_same_key_keeps_most_confident() -> None:
     """Two proposals for one key in a run keep only the more confident one."""
 
     [candidate] = kept(
-        proposed(content={"sectors": ["tobacco"]}, confidence=0.7),
-        proposed(content={"sectors": ["tobacco", "gambling"]}, confidence=0.95),
+        proposed(content={"sectors": ["tobacco"], "stance": "avoid"}, confidence=0.7),
+        proposed(content={"sectors": ["tobacco", "gambling"], "stance": "avoid"}, confidence=0.95),
         )
 
-    assert candidate.content == {"sectors": ["tobacco", "gambling"]}
+    assert candidate.content == {"sectors": ["tobacco", "gambling"], "stance": "avoid"}
 
 
 def test_confidence_is_clamped() -> None:
