@@ -109,9 +109,9 @@ Answering from your memory:
 Changing and removing:
 - Before changing or removing anything, call list_records to find the item and its id.
 - To change saved details, call update_record with only the fields the user wants to change.
-- To remove an item, first ask the user to confirm that exact item, for example
-  "Are you sure you want to remove your HDFC home loan (40 lakh outstanding) from my memory?".
-- Call delete_record only after the user clearly says yes. If they say no or are unsure, do not remove it.
+- To remove an item, call delete_record with its id. Do not ask "are you sure" first.
+  The app shows the user an Approve / Reject card for that exact item before anything is removed.
+- If delete_record says the user did not approve, say in one line that nothing was removed.
 - After removing, tell the user in one line what was removed from your memory.
 - To set aside part of an asset for a goal, find both ids with list_records, then call allocate_goal.
 

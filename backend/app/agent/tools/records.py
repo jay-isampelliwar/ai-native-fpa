@@ -154,7 +154,7 @@ async def delete_record(
     record_id: Annotated[int, "The id of the item, from list_records."],
     ) -> str:
 
-    """Remove one saved item. Only call this after the user clearly said yes to removing that exact item."""
+    """Remove one saved item. The app asks the user to approve this exact item before it runs."""
 
     try:
 
