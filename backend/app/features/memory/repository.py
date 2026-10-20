@@ -52,14 +52,19 @@ class MemoryRepository:
 
         return list(await self.session.scalars(query))
 
-    async def active_memories(self, user_id: int) -> list[MemoryItem]:
+    async def active_memories(
+        self,
+        user_id: int,
+        limit: int | None = None,
+        ) -> list[MemoryItem]:
 
-        """Return the user's active memories, oldest first, so the extractor can reuse their keys."""
+        """Return the user's active memories, newest first, at most limit of them when a limit is given."""
 
         query = (
             select(MemoryItem)
             .where(MemoryItem.user_id == user_id, MemoryItem.status == MemoryStatus.active)
-            .order_by(MemoryItem.id)
+            .order_by(MemoryItem.id.desc())
+            .limit(limit)
             )
 
         return list(await self.session.scalars(query))
