@@ -39,6 +39,7 @@ class RunStatus(StrEnum):
     queued = "queued"
     running = "running"
     cancel_requested = "cancel_requested"
+    awaiting_approval = "awaiting_approval"
     cancelled = "cancelled"
     completed = "completed"
     failed = "failed"
@@ -54,6 +55,8 @@ class ToolCallStatus(StrEnum):
     failed = "failed"
     cancelled = "cancelled"
     unknown = "unknown"
+    awaiting_approval = "awaiting_approval"
+    rejected = "rejected"
 
 
 
@@ -302,6 +305,17 @@ class OutboxStatus(StrEnum):
     dead_letter = "dead_letter"
 
 
+class ApprovalStatus(StrEnum):
+
+    """Where one approval request is between shown to the user and decided."""
+
+    pending = "pending"
+    approved = "approved"
+    rejected = "rejected"
+    expired = "expired"
+    cancelled = "cancelled"
+
+
 class OutboxEventType(StrEnum):
 
     """Which deferred job an outbox event asks the memory worker to do."""
@@ -346,4 +360,9 @@ class MemoryActorType(StrEnum):
     system = "system"
 
 
-ACTIVE_RUN_STATUSES = (RunStatus.queued, RunStatus.running, RunStatus.cancel_requested)
+ACTIVE_RUN_STATUSES = (
+    RunStatus.queued,
+    RunStatus.running,
+    RunStatus.cancel_requested,
+    RunStatus.awaiting_approval,
+    )

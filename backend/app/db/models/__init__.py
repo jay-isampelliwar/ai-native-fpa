@@ -1,5 +1,6 @@
 """Every table model, imported here so callers and Alembic can use app.db.models directly."""
 
+from app.db.models.approvals import ToolApproval
 from app.db.models.assets import BankAccount, FixedDeposit, PhysicalAsset, RetirementAccount
 from app.db.models.cash_flow import Expense, IncomeSource, Transaction
 from app.db.models.coverage import DataCoverage
@@ -34,6 +35,7 @@ __all__ = [
     "PhysicalAsset",
     "RetirementAccount",
     "TaxProfile",
+    "ToolApproval",
     "ToolCall",
     "Transaction",
     "User",
