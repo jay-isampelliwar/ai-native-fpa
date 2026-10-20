@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Conversation
 from app.db.enums import RunStatus
+from app.features.approvals.service import CANCELLED, NEW_MESSAGE, ApprovalService
 from app.features.conversations.titles import title_from
 from app.features.runs.events import RUN_CANCELLED, RunEvent, run_events
 from app.features.runs.exceptions import ConversationNotFound, RunAlreadyActive, RunNotFound
@@ -60,7 +61,7 @@ class RunService:
 
     async def create_run(self, body: CreateRunRequest, user_id: int) -> RunResponse:
 
-        """Return the existing run for a retried request, or save a new run with its two messages, commit, and start it."""
+        """Return the existing run for a retried request, or reject any pending approval, save a new run with its two messages, commit, and start it."""
 
         conversation = await self.resolve_conversation(body.conversation_id, user_id, body.message)
 
@@ -70,6 +71,8 @@ class RunService:
 
         if existing is not None:
             return RunResponse.from_run(existing)
+
+        await ApprovalService(self.session).close_pending_in(conversation_id, NEW_MESSAGE)
 
         try:
             run, _, assistant_message = await self.repo.create_run_with_messages(
@@ -95,12 +98,20 @@ class RunService:
 
     async def cancel_run(self, run_id: int, user_id: int) -> RunResponse:
 
-        """Stop the run: end a queued one at once, ask a running one's task to stop, and leave an ended one alone."""
+        """Stop the run: end a queued or paused one at once, ask a running one's task to stop, and leave an ended one alone."""
 
         run = await self.repo.get_run_for_user(run_id, user_id)
 
         if run is None:
             raise RunNotFound(run_id)
+
+        if run.status == RunStatus.awaiting_approval:
+
+            await ApprovalService(self.session).close_pending_in(run.conversation_id, CANCELLED)
+
+            await self.session.refresh(run)
+
+            return RunResponse.from_run(run)
 
         if run.status == RunStatus.queued and await self.cancel_queued(run_id):
             await self.session.refresh(run)

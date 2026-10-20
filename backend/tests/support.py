@@ -5,7 +5,19 @@ from uuid import uuid4
 
 from sqlalchemy import delete, select
 
-from app.db.models import AgentRun, Conversation, MemoryEvent, MemoryItem, Message, OutboxEvent, User
+from app.db.models import (
+    AgentRun,
+    Conversation,
+    DataCoverage,
+    Expense,
+    MemoryEvent,
+    MemoryItem,
+    Message,
+    OutboxEvent,
+    ToolApproval,
+    ToolCall,
+    User,
+    )
 from app.db.session import SessionLocal
 from app.features.runs.repository import RunRepository
 
@@ -63,7 +75,7 @@ async def seed_run(user_id: int) -> SeededRun:
 
 async def delete_user_data(user_id: int) -> None:
 
-    """Delete a temp user and every memory, outbox event, message, run and conversation they own."""
+    """Delete a temp user and every memory, outbox event, approval, tool call, expense, message, run and conversation they own."""
 
     async with SessionLocal() as session:
 
@@ -72,6 +84,10 @@ async def delete_user_data(user_id: int) -> None:
         await session.execute(delete(MemoryEvent).where(MemoryEvent.user_id == user_id))
         await session.execute(delete(MemoryItem).where(MemoryItem.user_id == user_id))
         await session.execute(delete(OutboxEvent).where(OutboxEvent.user_id == user_id))
+        await session.execute(delete(ToolApproval).where(ToolApproval.user_id == user_id))
+        await session.execute(delete(ToolCall).where(ToolCall.conversation_id.in_(conversation_ids)))
+        await session.execute(delete(Expense).where(Expense.user_id == user_id))
+        await session.execute(delete(DataCoverage).where(DataCoverage.user_id == user_id))
         await session.execute(delete(Message).where(Message.conversation_id.in_(conversation_ids)))
         await session.execute(delete(AgentRun).where(AgentRun.conversation_id.in_(conversation_ids)))
         await session.execute(delete(Conversation).where(Conversation.user_id == user_id))

@@ -16,8 +16,11 @@ TOOL_FINISHED = "tool.finished"
 RUN_COMPLETED = "run.completed"
 RUN_FAILED = "run.failed"
 RUN_CANCELLED = "run.cancelled"
+APPROVAL_REQUIRED = "approval.required"
 
 FINAL_EVENTS = {RUN_COMPLETED, RUN_FAILED, RUN_CANCELLED}
+
+STREAM_END_EVENTS = FINAL_EVENTS | {APPROVAL_REQUIRED}
 
 TOOL_EVENTS = {TOOL_STARTED, TOOL_FINISHED}
 
@@ -92,7 +95,7 @@ class RunEvents:
 
     async def drain(self, run_id: int, queue: asyncio.Queue[RunEvent]) -> AsyncIterator[RunEvent]:
 
-        """Yield events from an open inbox, stop after the final one, and always close the inbox."""
+        """Yield events from an open inbox, stop after the final one or a pause for approval, and always close the inbox."""
 
         try:
 
@@ -102,7 +105,7 @@ class RunEvents:
 
                 yield event
 
-                if event.name in FINAL_EVENTS:
+                if event.name in STREAM_END_EVENTS:
                     return
 
         finally:

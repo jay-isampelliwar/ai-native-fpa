@@ -52,7 +52,7 @@ class ToolStepOut(BaseModel):
     id: str
     name: str
     label: str
-    status: Literal["running", "ok", "error", "stopped"]
+    status: Literal["running", "ok", "error", "stopped", "rejected"]
 
 
 class MessageOut(BaseModel):
