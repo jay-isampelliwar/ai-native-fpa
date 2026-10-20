@@ -15,10 +15,14 @@
  *
  * `tool.started` and `tool.finished` mark each tool the planner calls, keyed by the call's id. A
  * late listener gets the latest step of every tool so far before the snapshot.
+ *
+ * `approval.required` means the run paused on a risky tool, such as a delete, and the stream ends
+ * there. The run carries on only after `runs.decide`, and its events are then read again with
+ * `followRun`. Opening a paused chat sends the same event at once, so the card comes back.
  */
 
 import { reportUnauthorized } from "@/lib/api";
-import type { RunResponse, ToolStep } from "@/lib/types";
+import type { ApprovalRequest, RunResponse, ToolStep } from "@/lib/types";
 
 export interface StreamHandlers {
   /** The run was accepted; keep its conversation id to continue the same chat. */
@@ -29,6 +33,8 @@ export interface StreamHandlers {
   onToken?: (text: string) => void;
   /** A tool started or finished. The same id arrives again when its status changes. */
   onTool?: (step: ToolStep) => void;
+  /** The run paused for the person to approve or reject one tool. The stream ends after this. */
+  onApproval?: (request: ApprovalRequest) => void;
   onDone: (text: string) => void;
   /** The run was stopped on request. Carries the reply written before it stopped. */
   onCancelled?: (text: string) => void;
@@ -141,6 +147,14 @@ export async function followRun(
   }
 }
 
+/** The step status for a `tool.finished` event, which says ok, error or rejected. */
+function finishedStatus(status: string | undefined): ToolStep["status"] {
+  if (status === "error") return "error";
+  if (status === "rejected") return "rejected";
+
+  return "ok";
+}
+
 function dispatch(chunk: string, handlers: StreamHandlers): void {
   const lines = chunk.split("\n");
 
@@ -171,8 +185,10 @@ function dispatch(chunk: string, handlers: StreamHandlers): void {
         id: parsed.id ?? "",
         name: parsed.name ?? "",
         label: parsed.label || parsed.name || "Using a tool",
-        status: name === "tool.started" ? "running" : parsed.status === "error" ? "error" : "ok",
+        status: name === "tool.started" ? "running" : finishedStatus(parsed.status),
       });
+    } else if (name === "approval.required") {
+      handlers.onApproval?.(parsed as unknown as ApprovalRequest);
     } else if (name === "run.completed") {
       handlers.onDone(parsed.text ?? "");
     } else if (name === "run.failed") {

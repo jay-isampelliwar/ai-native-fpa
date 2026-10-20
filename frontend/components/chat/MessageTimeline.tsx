@@ -5,7 +5,8 @@ import { Check, Copy, Download, Paperclip, PenLine, RefreshCw, ThumbsDown, Thumb
 import { useState } from 'react';
 
 import { clockTime } from '@/lib/format';
-import type { ToolStep } from '@/lib/types';
+import type { ApprovalRequest, ApprovalState, ToolStep } from '@/lib/types';
+import ApprovalCard from '@/components/chat/ApprovalCard';
 import ImportReview from '@/components/chat/ImportReview';
 import Reply from '@/components/chat/Reply';
 
@@ -31,6 +32,9 @@ import Reply from '@/components/chat/Reply';
  *
  * Tools are not listed in the timeline. While a reply is written, the thinking pill under the
  * chat shows the running tool's orb and label instead.
+ *
+ * A reply that paused for approval draws its card above the text, since the text that follows is
+ * the planner's answer to what was decided.
  */
 
 export interface Turn {
@@ -48,6 +52,8 @@ export interface Turn {
   importIds?: string[];
   /** Tools the planner called for this answer, in the order they started. Read by the thinking pill. */
   tools?: ToolStep[];
+  /** The approval card this reply paused on, and where it has got. */
+  approval?: { request: ApprovalRequest; state: ApprovalState; failure?: string };
 }
 
 export default function MessageTimeline({
@@ -56,12 +62,14 @@ export default function MessageTimeline({
   userId,
   busy,
   onRegenerate,
+  onDecide,
 }: {
   turns: Turn[];
   streamingId?: string;
   userId: number | null;
   busy: boolean;
   onRegenerate: (answerId: string) => void;
+  onDecide: (answerId: string, decision: 'approve' | 'reject') => void;
 }) {
   return (
     <div className="mx-auto w-full max-w-5xl space-y-5 px-4 pt-1 sm:px-6">
@@ -69,7 +77,7 @@ export default function MessageTimeline({
         turn.role === 'user' ? (
           <UserTurn key={turn.id} turn={turn} />
         ) : (
-          turn.text && (
+          (turn.text || turn.approval) && (
             <PlannerTurn
               key={turn.id}
               turn={turn}
@@ -77,6 +85,7 @@ export default function MessageTimeline({
               userId={userId}
               busy={busy}
               onRegenerate={() => onRegenerate(turn.id)}
+              onDecide={(decision) => onDecide(turn.id, decision)}
             />
           )
         ),
@@ -119,12 +128,14 @@ function PlannerTurn({
   userId,
   busy,
   onRegenerate,
+  onDecide,
 }: {
   turn: Turn;
   streaming: boolean;
   userId: number | null;
   busy: boolean;
   onRegenerate: () => void;
+  onDecide: (decision: 'approve' | 'reject') => void;
 }) {
   return (
     <motion.div
@@ -133,6 +144,17 @@ function PlannerTurn({
       transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
     >
       <div className="min-w-0">
+        {turn.approval && (
+          <div className="mb-2">
+            <ApprovalCard
+              request={turn.approval.request}
+              state={turn.approval.state}
+              failure={turn.approval.failure}
+              onDecide={onDecide}
+            />
+          </div>
+        )}
+
         {turn.failed ? (
           <div
             className="rounded-2xl border px-3.5 py-3"
@@ -153,7 +175,7 @@ function PlannerTurn({
             <ImportReview key={importId} userId={userId} importId={importId} />
           ))}
 
-        {!streaming && (
+        {!streaming && turn.text && (
           <ReplyActions text={turn.text} busy={busy} onRegenerate={onRegenerate} />
         )}
 
