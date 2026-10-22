@@ -4,10 +4,13 @@ from datetime import date
 from typing import Annotated
 
 from langchain.tools import ToolRuntime, tool
+from langchain_core.messages import ToolMessage
 from pydantic import ValidationError
 
 from app.agent.context import PlannerContext
-from app.agent.tools.common import given_arguments, save_record, validation_message
+from app.agent.tools.common import given_arguments, save_record
+from app.agent.tools.records import show_value
+from app.agent.tools.results import from_record_error, from_validation_error, ok, to_message
 from app.db.enums import FamilyRelation, RiskAppetite
 from app.db.session import SessionLocal
 from app.features.profile.exceptions import ProfileError
@@ -24,7 +27,7 @@ async def update_profile(
     risk_appetite: Annotated[RiskAppetite | None, "How much investment risk the user accepts."] = None,
     retirement_age: Annotated[int | None, "The age the user wants to retire at, 40 to 80."] = None,
     life_expectancy: Annotated[int | None, "The age to plan until, greater than retirement age."] = None,
-    ) -> str:
+    ) -> ToolMessage:
 
     """Save the user's own profile details. Pass only the fields the user just told you. Email cannot be changed."""
 
@@ -34,7 +37,7 @@ async def update_profile(
         changes = ProfileUpdate(**given_arguments(arguments))
 
     except ValidationError as exc:
-        return validation_message(exc)
+        return to_message(from_validation_error(exc), runtime.tool_call_id)
 
     try:
 
@@ -42,11 +45,11 @@ async def update_profile(
             saved = await ProfileService(session).update_profile(runtime.context.user_id, changes)
 
     except ProfileError as exc:
-        return f"Not saved. {exc}"
+        return to_message(from_record_error(exc), runtime.tool_call_id)
 
-    details = ", ".join(f"{field}={value}" for field, value in saved.items())
+    fields = {field: show_value(value) for field, value in saved.items()}
 
-    return f"Saved profile: {details}."
+    return to_message(ok("Saved profile.", fields), runtime.tool_call_id)
 
 
 @tool
@@ -56,7 +59,7 @@ async def add_family_member(
     relation: Annotated[FamilyRelation | None, "How they are related to the user."] = None,
     date_of_birth: Annotated[date | None, "Their exact date of birth as YYYY-MM-DD, only if the user stated it."] = None,
     is_dependent: Annotated[bool | None, "True if they depend on the user for money."] = None,
-    ) -> str:
+    ) -> ToolMessage:
 
     """Add one person in the user's family. Needs their name and relation. If they already exist, you get their id back."""
 

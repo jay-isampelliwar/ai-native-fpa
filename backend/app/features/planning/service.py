@@ -6,7 +6,7 @@ from app.db.enums import GoalAssetTable
 from app.db.models import Assumption, BankAccount, FixedDeposit, Goal, GoalAllocation, RetirementAccount, TaxProfile
 from app.features.planning.repository import PlanningRepository
 from app.features.planning.schemas import AssumptionSet, GoalAllocationCreate, GoalCreate, TaxProfileSet
-from app.features.records.exceptions import RecordError, RecordExists
+from app.features.records.exceptions import RecordError, RecordExists, RecordNotFound
 from app.features.records.service import BaseRecordService
 
 
@@ -88,14 +88,14 @@ class PlanningService(BaseRecordService[PlanningRepository]):
         goal = await self.repo.get_for_user(Goal, allocation.goal_id, user_id)
 
         if goal is None:
-            raise RecordError(f"No goal with id {allocation.goal_id}.")
+            raise RecordNotFound(f"No goal with id {allocation.goal_id}.")
 
         asset_model = ALLOCATABLE_ASSETS[allocation.asset_table]
 
         asset = await self.repo.get_for_user(asset_model, allocation.asset_id, user_id)
 
         if asset is None:
-            raise RecordError(f"No {allocation.asset_table.value} item with id {allocation.asset_id}.")
+            raise RecordNotFound(f"No {allocation.asset_table.value} item with id {allocation.asset_id}.")
 
         elsewhere = await self.repo.allocated_to_other_goals(
             user_id,

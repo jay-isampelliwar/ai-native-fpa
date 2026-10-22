@@ -10,11 +10,12 @@ from langgraph.types import Command, Send, interrupt
 from app.agent.context import PlannerContext
 from app.agent.nodes import AGENT_NODE, TOOLS_NODE
 from app.agent.state import PlannerState
-from app.agent.tools.records import show_value
+from app.agent.tools.records import record_fields
+from app.agent.tools.results import rejected, to_message
 from app.db.session import SessionLocal
 from app.features.records.exceptions import RecordError
 from app.features.records.kinds import KINDS
-from app.features.records.record_service import SYSTEM_COLUMNS, RecordService
+from app.features.records.record_service import RecordService
 
 
 APPROVAL_TOOLS = frozenset({"delete_record"})
@@ -23,7 +24,8 @@ APPROVE = "approve"
 REJECT = "reject"
 CANCEL = "cancel"
 
-REJECTED_FLAG = "approval_rejected"
+USER_REJECTED = "user_rejected"
+RUN_CANCELLED = "run_cancelled"
 
 REJECTED_TEXT = "Not done. The user did not approve this, so nothing was changed."
 
@@ -48,13 +50,7 @@ async def preview_for(call: ToolCall, user_id: int) -> dict[str, Any] | None:
     except RecordError:
         return None
 
-    columns = [name for name in record.__table__.columns.keys() if name not in SYSTEM_COLUMNS]
-
-    fields = [
-        {"name": name, "value": show_value(getattr(record, name))}
-        for name in columns
-        if getattr(record, name) is not None
-        ]
+    fields = [{"name": name, "value": value} for name, value in record_fields(record).items() if name != "id"]
 
     return {"title": f"Remove this {KINDS[kind].label}?", "fields": fields}
 
@@ -77,17 +73,15 @@ def closes_turn(answer: dict[str, Any]) -> bool:
     return answer.get("decision") == CANCEL or not answer.get("reply", True)
 
 
-def rejected_message(call: ToolCall, text: str = REJECTED_TEXT) -> ToolMessage:
+def rejected_message(
+    call: ToolCall,
+    error_code: str = USER_REJECTED,
+    text: str = REJECTED_TEXT,
+    ) -> ToolMessage:
 
-    """The tool reply for a call the user did not approve, flagged so the worker saves it as rejected."""
+    """The tool reply for a call that never ran, as a rejected result so the worker saves it as rejected."""
 
-    return ToolMessage(
-        text,
-        tool_call_id=call["id"],
-        name=call["name"],
-        status="error",
-        additional_kwargs={REJECTED_FLAG: True},
-        )
+    return to_message(rejected(error_code, text), call["id"], call["name"])
 
 
 async def ask_each(
@@ -144,7 +138,7 @@ async def approval_gate(state: PlannerState, runtime: Runtime[PlannerContext]) -
 
     if any(answer.get("decision") == CANCEL for answer in answers):
 
-        cancelled = [rejected_message(call, CANCELLED_TEXT) for call in message.tool_calls]
+        cancelled = [rejected_message(call, RUN_CANCELLED, CANCELLED_TEXT) for call in message.tool_calls]
 
         return Command(goto=END, update={"messages": cancelled, "skip_reply": True})
 

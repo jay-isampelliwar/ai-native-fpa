@@ -191,7 +191,8 @@ async def test_reject_runs_only_the_safe_call() -> None:
     rejected = [message for message in result["messages"] if isinstance(message, ToolMessage) and message.tool_call_id == "del"]
 
     assert ran == ["add_expense:rent"]
-    assert rejected[0].additional_kwargs[approval.REJECTED_FLAG] is True
+    assert rejected[0].artifact["status"] == "rejected"
+    assert rejected[0].artifact["error_code"] == approval.USER_REJECTED
     assert result["messages"][-1].content == "done"
 
 

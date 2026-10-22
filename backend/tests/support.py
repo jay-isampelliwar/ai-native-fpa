@@ -10,10 +10,12 @@ from app.db.models import (
     Conversation,
     DataCoverage,
     Expense,
+    Loan,
     MemoryEvent,
     MemoryItem,
     Message,
     OutboxEvent,
+    PhysicalAsset,
     ToolApproval,
     ToolCall,
     User,
@@ -75,7 +77,7 @@ async def seed_run(user_id: int) -> SeededRun:
 
 async def delete_user_data(user_id: int) -> None:
 
-    """Delete a temp user and every memory, outbox event, approval, tool call, expense, message, run and conversation they own."""
+    """Delete a temp user and every memory, outbox event, approval, tool call, expense, loan, asset, message, run and conversation they own."""
 
     async with SessionLocal() as session:
 
@@ -87,6 +89,8 @@ async def delete_user_data(user_id: int) -> None:
         await session.execute(delete(ToolApproval).where(ToolApproval.user_id == user_id))
         await session.execute(delete(ToolCall).where(ToolCall.conversation_id.in_(conversation_ids)))
         await session.execute(delete(Expense).where(Expense.user_id == user_id))
+        await session.execute(delete(Loan).where(Loan.user_id == user_id))
+        await session.execute(delete(PhysicalAsset).where(PhysicalAsset.user_id == user_id))
         await session.execute(delete(DataCoverage).where(DataCoverage.user_id == user_id))
         await session.execute(delete(Message).where(Message.conversation_id.in_(conversation_ids)))
         await session.execute(delete(AgentRun).where(AgentRun.conversation_id.in_(conversation_ids)))

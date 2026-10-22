@@ -4,6 +4,7 @@ from decimal import Decimal
 from typing import Annotated
 
 from langchain.tools import ToolRuntime, tool
+from langchain_core.messages import ToolMessage
 
 from app.agent.context import PlannerContext
 from app.agent.tools.cash_flow import RUPEES
@@ -23,7 +24,7 @@ async def add_goal(
     priority: Annotated[int | None, "1 for most important up to 5, only if the user said it."] = None,
     inflation_rate: Annotated[Decimal | None, "Yearly inflation in percent for this goal, only if stated."] = None,
     family_member_name: Annotated[str | None, "The saved family member this goal is for, if any."] = None,
-    ) -> str:
+    ) -> ToolMessage:
 
     """Add one financial goal. Required: goal type, name, target amount, target year."""
 
@@ -43,7 +44,7 @@ async def allocate_goal(
     asset_table: Annotated[GoalAssetTable | None, "bank_accounts, fixed_deposits or retirement_accounts."] = None,
     asset_id: Annotated[int | None, "The asset's id, from list_records for that kind."] = None,
     allocation_pct: Annotated[Decimal | None, "The percent of the asset to set aside for the goal, above 0 and up to 100."] = None,
-    ) -> str:
+    ) -> ToolMessage:
 
     """Set aside a percent of one saved asset for one saved goal. Setting it again replaces the old percent. Required: all four."""
 
@@ -61,7 +62,7 @@ async def set_assumption(
     runtime: ToolRuntime[PlannerContext],
     key: Annotated[AssumptionKey | None, "Which planning rate to set."] = None,
     value: Annotated[Decimal | None, "The yearly rate in percent, such as 6 for 6%."] = None,
-    ) -> str:
+    ) -> ToolMessage:
 
     """Set one planning rate the user chose, such as inflation or equity return. Replaces the old value. Required: key, value."""
 
@@ -82,7 +83,7 @@ async def set_tax_profile(
     sec_80c_used: Annotated[Decimal | None, f"Section 80C deductions used, up to 150000, only if stated. {RUPEES}"] = None,
     sec_80d_used: Annotated[Decimal | None, f"Section 80D deductions used, up to 100000, only if stated. {RUPEES}"] = None,
     hra_claimed: Annotated[Decimal | None, f"HRA exemption claimed, only if stated. {RUPEES}"] = None,
-    ) -> str:
+    ) -> ToolMessage:
 
     """Set the tax regime and deductions for one financial year. Updates the year if already saved. Required: financial year, regime."""
 

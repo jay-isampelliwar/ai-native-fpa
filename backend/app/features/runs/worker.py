@@ -10,7 +10,6 @@ from langchain_core.messages import AIMessage, AIMessageChunk, AnyMessage, Human
 from langgraph.types import Command
 
 from app.agent import graph as planner
-from app.agent.approval import REJECTED_FLAG
 from app.agent.context import PlannerContext
 from app.agent.tools.labels import label_for
 from app.db.enums import RunStatus, ToolCallStatus
@@ -125,9 +124,9 @@ async def save_tool_started(
 
 async def save_tool_finished(conversation_id: int, message: ToolMessage) -> None:
 
-    """Save how one tool call ended, with its output or its error, in its own short session."""
+    """Save how one tool call ended, with its typed result as the output and its message as the error, in its own short session."""
 
-    content = message.content if isinstance(message.content, str) else str(message.content)
+    result = tool_result(message)
     failed = message.status == "error"
 
     async with SessionLocal() as session:
@@ -136,8 +135,8 @@ async def save_tool_finished(conversation_id: int, message: ToolMessage) -> None
             conversation_id,
             message.tool_call_id,
             tool_call_status(message),
-            output=None if failed else {"text": content},
-            error_text=content if failed else None,
+            output=result,
+            error_text=result.get("message") if failed else None,
             )
 
         await session.commit()
@@ -198,11 +197,23 @@ async def saved_reply(run_id: int) -> str:
     return message.content.get("text", "")
 
 
+def tool_result(message: ToolMessage) -> dict[str, Any]:
+
+    """The typed result a tool sent as its artifact, or its plain text for a message without one."""
+
+    if isinstance(message.artifact, dict):
+        return message.artifact
+
+    content = message.content if isinstance(message.content, str) else str(message.content)
+
+    return {"message": content}
+
+
 def tool_call_status(message: ToolMessage) -> ToolCallStatus:
 
     """The saved status for a finished tool call: rejected by the user, failed, or completed."""
 
-    if message.additional_kwargs.get(REJECTED_FLAG):
+    if tool_result(message).get("status") == "rejected":
         return ToolCallStatus.rejected
 
     if message.status == "error":

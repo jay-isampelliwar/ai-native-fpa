@@ -5,6 +5,7 @@ from decimal import Decimal
 from typing import Annotated
 
 from langchain.tools import ToolRuntime, tool
+from langchain_core.messages import ToolMessage
 
 from app.agent.context import PlannerContext
 from app.agent.tools.common import save_record
@@ -32,7 +33,7 @@ async def add_income_source(
     yearly_growth_rate: Annotated[Decimal | None, "Expected yearly raise in percent, only if the user said it."] = None,
     start_date: Annotated[date | None, "When it started, as YYYY-MM-DD, only if stated."] = None,
     end_date: Annotated[date | None, "When it will stop, as YYYY-MM-DD, only if stated."] = None,
-    ) -> str:
+    ) -> ToolMessage:
 
     """Add one regular income. Required: source type, name, amount."""
 
@@ -54,7 +55,7 @@ async def add_expense(
     frequency: Annotated[PaymentFrequency | None, "How often it is paid. Monthly if not said."] = None,
     is_essential: Annotated[bool | None, "False for wants like dining out, true for needs like rent."] = None,
     end_date: Annotated[date | None, "When it will stop, as YYYY-MM-DD, only if stated."] = None,
-    ) -> str:
+    ) -> ToolMessage:
 
     """Add one regular expense. Required: category, name, amount."""
 
@@ -75,7 +76,7 @@ async def add_transaction(
     amount: Annotated[Decimal | None, RUPEES] = None,
     txn_date: Annotated[date | None, "The date it happened, as YYYY-MM-DD."] = None,
     description: Annotated[str | None, "A few words on what it was, only if the user said it."] = None,
-    ) -> str:
+    ) -> ToolMessage:
 
     """Add one one-off amount, such as a bonus, gift or big purchase. Required: direction, category, amount, date."""
 

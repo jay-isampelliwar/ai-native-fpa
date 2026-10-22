@@ -1,14 +1,16 @@
-"""Steps every save tool shares: check required details, validate, save, and describe the result."""
+"""Steps every save tool shares: check required details, validate, save, and return a typed result."""
 
 from collections.abc import Awaitable, Callable
 from typing import Any
 
 from langchain.tools import ToolRuntime
+from langchain_core.messages import ToolMessage
 from pydantic import BaseModel, ValidationError
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.context import PlannerContext
+from app.agent.tools.results import ToolResult, conflict, from_record_error, from_validation_error, invalid, ok, to_message
 from app.db.models.base import UserOwnedMixin
 from app.db.session import SessionLocal
 from app.features.records.exceptions import RecordError
@@ -35,23 +37,45 @@ def missing_required(schema: type[BaseModel], given: dict[str, Any]) -> list[str
         ]
 
 
-def validation_message(exc: ValidationError) -> str:
+async def save_result[SchemaT: BaseModel](
+    runtime: ToolRuntime[PlannerContext],
+    schema: type[SchemaT],
+    arguments: dict[str, Any],
+    action: SaveAction[SchemaT],
+    label: str,
+    ) -> ToolResult:
 
-    """Turn pydantic errors into one short line the model can repeat to the user."""
+    """Run one save: report missing required details, validate, save for the signed-in user, and return the saved fields with the new id."""
 
-    problems = "; ".join(
-        f"{'.'.join(str(part) for part in error['loc']) or 'details'}: {error['msg']}"
-        for error in exc.errors()
-        )
+    given = given_arguments(arguments)
 
-    return f"Not saved. {problems}"
+    missing = missing_required(schema, given)
 
+    if missing:
+        return invalid(
+            "missing_fields",
+            f"Required details missing for this {label}: {', '.join(missing)}.",
+            {"missing": missing},
+            )
 
-def describe(data: BaseModel) -> str:
+    try:
+        data = schema(**given)
 
-    """List the saved fields as name=value pairs."""
+    except ValidationError as exc:
+        return from_validation_error(exc)
 
-    return ", ".join(f"{name}={value}" for name, value in data.model_dump(exclude_none=True, mode="json").items())
+    try:
+
+        async with SessionLocal() as session:
+            record = await action(session, runtime.context.user_id, data)
+
+    except RecordError as exc:
+        return from_record_error(exc)
+
+    except IntegrityError:
+        return conflict("clashes", f"This {label} clashes with another saved item.")
+
+    return ok(f"Saved {label}.", {"id": record.id, **data.model_dump(mode="json", exclude_none=True)})
 
 
 async def save_record[SchemaT: BaseModel](
@@ -60,32 +84,10 @@ async def save_record[SchemaT: BaseModel](
     arguments: dict[str, Any],
     action: SaveAction[SchemaT],
     label: str,
-    ) -> str:
+    ) -> ToolMessage:
 
-    """Run one save: report missing required details, validate, save for the signed-in user, and describe it."""
+    """Run one save and send its result back to the model."""
 
-    given = given_arguments(arguments)
+    result = await save_result(runtime, schema, arguments, action, label)
 
-    missing = missing_required(schema, given)
-
-    if missing:
-        return f"Not saved. Required details missing for this {label}: {', '.join(missing)}."
-
-    try:
-        data = schema(**given)
-
-    except ValidationError as exc:
-        return validation_message(exc)
-
-    try:
-
-        async with SessionLocal() as session:
-            record = await action(session, runtime.context.user_id, data)
-
-    except RecordError as exc:
-        return f"Not saved. {exc}"
-
-    except IntegrityError:
-        return f"Not saved. This {label} clashes with another saved item."
-
-    return f"Saved {label} with id {record.id}: {describe(data)}."
+    return to_message(result, runtime.tool_call_id)

@@ -11,7 +11,7 @@ from app.db.models.base import UserOwnedMixin
 from app.features.coverage.service import CoverageService
 from app.features.planning.repository import PlanningRepository
 from app.features.records.base_repository import BaseUserRecordRepository
-from app.features.records.exceptions import RecordError
+from app.features.records.exceptions import RecordConflict, RecordError, RecordNotFound
 from app.features.records.kinds import KINDS, RecordKind
 from app.features.records.service import BaseRecordService
 
@@ -46,7 +46,7 @@ class RecordService(BaseRecordService[BaseUserRecordRepository]):
         record = await self.repo.get_for_user(info.model, record_id, user_id)
 
         if record is None:
-            raise RecordError(f"No {info.label} with id {record_id}. Use list_records to see the saved ones.")
+            raise RecordNotFound(f"No {info.label} with id {record_id}. Use list_records to see the saved ones.")
 
         return record
 
@@ -114,7 +114,7 @@ class RecordService(BaseRecordService[BaseUserRecordRepository]):
             linked_id = await self.session.scalar(query)
 
             if linked_id is not None:
-                raise RecordError(
+                raise RecordConflict(
                     f"Cannot remove this {KINDS[kind].label}: {label} id {linked_id} is linked to it. Change or remove that first."
                     )
 
