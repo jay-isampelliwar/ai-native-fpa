@@ -18,6 +18,7 @@ from app.db.models import (
     PhysicalAsset,
     ToolApproval,
     ToolCall,
+    ToolOperation,
     User,
     )
 from app.db.session import SessionLocal
@@ -77,7 +78,7 @@ async def seed_run(user_id: int) -> SeededRun:
 
 async def delete_user_data(user_id: int) -> None:
 
-    """Delete a temp user and every memory, outbox event, approval, tool call, expense, loan, asset, message, run and conversation they own."""
+    """Delete a temp user and every memory, outbox event, approval, tool operation, tool call, expense, loan, asset, message, run and conversation they own."""
 
     async with SessionLocal() as session:
 
@@ -87,6 +88,7 @@ async def delete_user_data(user_id: int) -> None:
         await session.execute(delete(MemoryItem).where(MemoryItem.user_id == user_id))
         await session.execute(delete(OutboxEvent).where(OutboxEvent.user_id == user_id))
         await session.execute(delete(ToolApproval).where(ToolApproval.user_id == user_id))
+        await session.execute(delete(ToolOperation).where(ToolOperation.user_id == user_id))
         await session.execute(delete(ToolCall).where(ToolCall.conversation_id.in_(conversation_ids)))
         await session.execute(delete(Expense).where(Expense.user_id == user_id))
         await session.execute(delete(Loan).where(Loan.user_id == user_id))

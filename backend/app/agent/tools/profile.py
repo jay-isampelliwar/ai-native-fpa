@@ -6,14 +6,14 @@ from typing import Annotated
 from langchain.tools import ToolRuntime, tool
 from langchain_core.messages import ToolMessage
 from pydantic import ValidationError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.context import PlannerContext
 from app.agent.tools.common import given_arguments, save_record
 from app.agent.tools.records import show_value
-from app.agent.tools.results import from_record_error, from_validation_error, ok, to_message
+from app.agent.tools.operations import run_write
+from app.agent.tools.results import ToolResult, from_validation_error, ok, to_message
 from app.db.enums import FamilyRelation, RiskAppetite
-from app.db.session import SessionLocal
-from app.features.profile.exceptions import ProfileError
 from app.features.profile.schemas import FamilyMemberCreate, ProfileUpdate
 from app.features.profile.service import ProfileService
 
@@ -39,17 +39,15 @@ async def update_profile(
     except ValidationError as exc:
         return to_message(from_validation_error(exc), runtime.tool_call_id)
 
-    try:
+    async def save(session: AsyncSession) -> ToolResult:
 
-        async with SessionLocal() as session:
-            saved = await ProfileService(session).update_profile(runtime.context.user_id, changes)
+        """Save the profile changes in the guard's session."""
 
-    except ProfileError as exc:
-        return to_message(from_record_error(exc), runtime.tool_call_id)
+        saved = await ProfileService(session).update_profile(runtime.context.user_id, changes)
 
-    fields = {field: show_value(value) for field, value in saved.items()}
+        return ok("Saved profile.", {field: show_value(value) for field, value in saved.items()})
 
-    return to_message(ok("Saved profile.", fields), runtime.tool_call_id)
+    return to_message(await run_write(runtime, save), runtime.tool_call_id)
 
 
 @tool

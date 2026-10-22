@@ -89,8 +89,6 @@ class RecordService(BaseRecordService[BaseUserRecordRepository]):
 
         await self.repo.update_for_user(KINDS[kind].model, record_id, user_id, fields)
 
-        await self.session.commit()
-
         return fields
 
     async def refuse_if_linked(self, user_id: int, kind: RecordKind, record_id: int) -> None:
@@ -140,7 +138,5 @@ class RecordService(BaseRecordService[BaseUserRecordRepository]):
 
         if section is not None:
             await CoverageService(self.session).reset_if_empty(user_id, section)
-
-        await self.session.commit()
 
         return record

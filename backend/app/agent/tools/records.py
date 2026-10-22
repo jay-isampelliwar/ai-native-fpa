@@ -8,16 +8,15 @@ from typing import Annotated, Any
 
 from langchain.tools import ToolRuntime, tool
 from langchain_core.messages import ToolMessage
-from pydantic import ValidationError
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.context import PlannerContext
-from app.agent.tools.results import conflict, from_record_error, from_validation_error, ok, to_message
+from app.agent.tools.operations import run_write
+from app.agent.tools.results import ToolResult, ok, to_message
 from app.db.models.base import UserOwnedMixin
 from app.db.session import SessionLocal
 from app.features.coverage.schemas import CoverageChoice
 from app.features.coverage.service import SECTIONS, CoverageService
-from app.features.records.exceptions import RecordError
 from app.features.records.kinds import KINDS, RecordKind
 from app.features.records.record_service import SYSTEM_COLUMNS, RecordService
 
@@ -84,17 +83,15 @@ async def update_data_coverage(
 
     """Remember that the user has none of something, or does not want to share it. Saving an item marks its section as provided by itself."""
 
-    try:
+    async def mark(session: AsyncSession) -> ToolResult:
 
-        async with SessionLocal() as session:
-            statuses = await CoverageService(session).update(runtime.context.user_id, changes)
+        """Save the new section statuses in the guard's session."""
 
-    except RecordError as exc:
-        return to_message(from_record_error(exc), runtime.tool_call_id)
+        statuses = await CoverageService(session).update(runtime.context.user_id, changes)
 
-    saved = {section: status.value for section, status in statuses.items()}
+        return ok("Saved.", {"sections": {section: status.value for section, status in statuses.items()}})
 
-    return to_message(ok("Saved.", {"sections": saved}), runtime.tool_call_id)
+    return to_message(await run_write(runtime, mark), runtime.tool_call_id)
 
 
 @tool
@@ -130,25 +127,17 @@ async def update_record(
 
     """Change some fields of one saved item. The same checks as when adding are run again."""
 
-    try:
+    async def change(session: AsyncSession) -> ToolResult:
 
-        async with SessionLocal() as session:
-            fields = await RecordService(session).update_record(runtime.context.user_id, kind, record_id, changes)
+        """Change the fields in the guard's session."""
 
-    except ValidationError as exc:
-        return to_message(from_validation_error(exc), runtime.tool_call_id)
+        fields = await RecordService(session).update_record(runtime.context.user_id, kind, record_id, changes)
 
-    except RecordError as exc:
-        return to_message(from_record_error(exc), runtime.tool_call_id)
+        changed = {name: show_value(value) for name, value in fields.items()}
 
-    except IntegrityError:
-        return to_message(conflict("clashes", "This change clashes with another saved item."), runtime.tool_call_id)
+        return ok(f"Updated {KINDS[kind].label} id {record_id}.", {"id": record_id, "changed": changed})
 
-    changed = {name: show_value(value) for name, value in fields.items()}
-
-    result = ok(f"Updated {KINDS[kind].label} id {record_id}.", {"id": record_id, "changed": changed})
-
-    return to_message(result, runtime.tool_call_id)
+    return to_message(await run_write(runtime, change), runtime.tool_call_id)
 
 
 @tool
@@ -160,14 +149,16 @@ async def delete_record(
 
     """Remove one saved item. The app asks the user to approve this exact item before it runs."""
 
-    try:
+    async def remove(session: AsyncSession) -> ToolResult:
 
-        async with SessionLocal() as session:
-            record = await RecordService(session).delete_record(runtime.context.user_id, kind, record_id)
+        """Remove the item in the guard's session, describing it before it is gone."""
 
-    except RecordError as exc:
-        return to_message(from_record_error(exc), runtime.tool_call_id)
+        record = await RecordService(session).get_or_fail(runtime.context.user_id, kind, record_id)
 
-    result = ok(f"Removed {KINDS[kind].label}.", {"removed": record_fields(record)})
+        removed = record_fields(record)
 
-    return to_message(result, runtime.tool_call_id)
+        await RecordService(session).delete_record(runtime.context.user_id, kind, record_id)
+
+        return ok(f"Removed {KINDS[kind].label}.", {"removed": removed})
+
+    return to_message(await run_write(runtime, remove), runtime.tool_call_id)

@@ -10,3 +10,5 @@ class PlannerContext:
 
     user_id: int
     profile: dict[str, str] = field(default_factory=dict)
+    conversation_id: int | None = None
+    run_id: int | None = None

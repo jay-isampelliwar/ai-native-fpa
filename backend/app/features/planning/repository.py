@@ -5,7 +5,7 @@ from typing import Any
 
 from sqlalchemy import delete, func, select
 
-from app.db.enums import AssumptionKey, GoalAssetTable, GoalType
+from app.db.enums import AssumptionKey, GoalAssetTable
 from app.db.models import Assumption, Goal, GoalAllocation, TaxProfile
 from app.features.records.base_repository import BaseUserRecordRepository
 
@@ -13,12 +13,6 @@ from app.features.records.base_repository import BaseUserRecordRepository
 class PlanningRepository(BaseUserRecordRepository):
 
     """Planning queries on top of the shared user record queries."""
-
-    async def find_goal(self, user_id: int, goal_type: GoalType, name: str) -> Goal | None:
-
-        """Return the user's goal with the same type and name."""
-
-        return await self.find_match(Goal, user_id, {"goal_type": goal_type, "name": name})
 
     async def add_goal(self, user_id: int, fields: dict[str, Any]) -> Goal:
 

@@ -1,4 +1,4 @@
-"""Steps every save tool shares: check required details, validate, save, and return a typed result."""
+"""Steps every save tool shares: check required details, validate, save once per tool call, and return a typed result."""
 
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -6,14 +6,12 @@ from typing import Any
 from langchain.tools import ToolRuntime
 from langchain_core.messages import ToolMessage
 from pydantic import BaseModel, ValidationError
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.context import PlannerContext
-from app.agent.tools.results import ToolResult, conflict, from_record_error, from_validation_error, invalid, ok, to_message
+from app.agent.tools.operations import run_write
+from app.agent.tools.results import ToolResult, from_validation_error, invalid, ok, to_message
 from app.db.models.base import UserOwnedMixin
-from app.db.session import SessionLocal
-from app.features.records.exceptions import RecordError
 
 
 type SaveAction[SchemaT] = Callable[[AsyncSession, int, SchemaT], Awaitable[UserOwnedMixin]]
@@ -45,7 +43,7 @@ async def save_result[SchemaT: BaseModel](
     label: str,
     ) -> ToolResult:
 
-    """Run one save: report missing required details, validate, save for the signed-in user, and return the saved fields with the new id."""
+    """Run one save: report missing required details, validate, save once for this tool call, and return the saved fields with the new id."""
 
     given = given_arguments(arguments)
 
@@ -64,18 +62,15 @@ async def save_result[SchemaT: BaseModel](
     except ValidationError as exc:
         return from_validation_error(exc)
 
-    try:
+    async def save(session: AsyncSession) -> ToolResult:
 
-        async with SessionLocal() as session:
-            record = await action(session, runtime.context.user_id, data)
+        """Add the item in the guard's session, which commits it together with this call's saved result."""
 
-    except RecordError as exc:
-        return from_record_error(exc)
+        record = await action(session, runtime.context.user_id, data)
 
-    except IntegrityError:
-        return conflict("clashes", f"This {label} clashes with another saved item.")
+        return ok(f"Saved {label}.", {"id": record.id, **data.model_dump(mode="json", exclude_none=True)})
 
-    return ok(f"Saved {label}.", {"id": record.id, **data.model_dump(mode="json", exclude_none=True)})
+    return await run_write(runtime, save)
 
 
 async def save_record[SchemaT: BaseModel](

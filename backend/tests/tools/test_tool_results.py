@@ -98,23 +98,19 @@ async def test_add_loan_broken_rule(user_id: int) -> None:
     assert "End date must be after start date" in message.artifact["message"]
 
 
-async def test_add_loan_saves_then_refuses_duplicate(user_id: int) -> None:
+async def test_add_loan_saves_a_second_loan_from_the_same_lender(user_id: int) -> None:
 
-    """A full loan saves with its new id, and the same loan again is a conflict pointing at that id."""
+    """A full loan saves with its new id, and a second HDFC home loan saves too, since it can be a real second loan."""
 
-    saved = await call(user_id, "add_loan", HOME_LOAN)
+    first = await call(user_id, "add_loan", HOME_LOAN)
 
-    loan_id = saved.artifact["data"]["id"]
+    second = await call(user_id, "add_loan", {**HOME_LOAN, "principal": 3000000, "outstanding": 2500000})
 
-    assert saved.status == "success"
-    assert saved.artifact["data"]["lender"] == "HDFC"
-    assert saved.artifact["data"]["outstanding"] == "4200000"
-
-    duplicate = await call(user_id, "add_loan", HOME_LOAN)
-
-    assert duplicate.artifact["status"] == "conflict"
-    assert duplicate.artifact["error_code"] == "already_exists"
-    assert duplicate.artifact["data"] == {"existing_id": loan_id}
+    assert first.status == "success"
+    assert first.artifact["data"]["lender"] == "HDFC"
+    assert first.artifact["data"]["outstanding"] == "4200000"
+    assert second.status == "success"
+    assert second.artifact["data"]["id"] != first.artifact["data"]["id"]
 
 
 async def test_list_records_returns_items(user_id: int) -> None:

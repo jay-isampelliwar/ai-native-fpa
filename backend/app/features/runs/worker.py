@@ -284,7 +284,7 @@ async def stream_events(
         profile = await ProfileService(session).get_profile(user_id)
 
     config = {"configurable": {"thread_id": str(conversation_id)}}
-    context = PlannerContext(user_id=user_id, profile=profile)
+    context = PlannerContext(user_id=user_id, profile=profile, conversation_id=conversation_id, run_id=run_id)
 
     async for mode, chunk in planner.planner_graph.astream(
         graph_input,
@@ -436,6 +436,7 @@ async def fail_orphaned_runs() -> list[int]:
     """On startup, fail runs a previous process left active, since no task here is running them."""
 
     # TODO(runs): with several workers, only fail runs whose heartbeat is stale, or a restart kills live runs elsewhere.
+    # TODO(idempotency): resuming these runs from the checkpoint instead is safe; write tools replay from tool_operations.
     async with SessionLocal() as session:
 
         run_ids = await RunRepository(session).fail_active_runs(failure_code="worker_restart")

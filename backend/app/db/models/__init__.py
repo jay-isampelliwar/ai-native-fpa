@@ -7,6 +7,7 @@ from app.db.models.coverage import DataCoverage
 from app.db.models.conversations import AgentRun, Conversation, Message, ToolCall
 from app.db.models.liabilities import CreditCard, Loan
 from app.db.models.memory import MemoryEvent, MemoryItem
+from app.db.models.operations import ToolOperation
 from app.db.models.outbox import OutboxEvent
 from app.db.models.planning import Assumption, Goal, GoalAllocation, TaxProfile
 from app.db.models.profile import FamilyMember, User
@@ -37,6 +38,7 @@ __all__ = [
     "TaxProfile",
     "ToolApproval",
     "ToolCall",
+    "ToolOperation",
     "Transaction",
     "User",
     ]
