@@ -5,6 +5,7 @@ from decimal import Decimal
 from typing import Annotated
 
 from langchain.tools import ToolRuntime, tool
+from langchain_core.messages import ToolMessage
 
 from app.agent.context import PlannerContext
 from app.agent.tools.cash_flow import RUPEES
@@ -27,7 +28,7 @@ async def add_insurance_policy(
     start_date: Annotated[date | None, "When the policy started, as YYYY-MM-DD, only if stated."] = None,
     renewal_date: Annotated[date | None, "The next renewal date, as YYYY-MM-DD, only if stated."] = None,
     maturity_date: Annotated[date | None, "When the policy matures, as YYYY-MM-DD, only if stated."] = None,
-    ) -> str:
+    ) -> ToolMessage:
 
     """Add one insurance policy. Required: policy type, insurer, cover amount, premium."""
 

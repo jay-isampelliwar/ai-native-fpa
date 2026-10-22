@@ -117,8 +117,6 @@ class CoverageService:
 
         await self.repo.set_statuses(user_id, statuses)
 
-        await self.session.commit()
-
         return statuses
 
     async def reset_if_empty(self, user_id: int, section: str) -> None:

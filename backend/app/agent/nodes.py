@@ -19,6 +19,11 @@ SYSTEM_PROMPT = f"{SYSTEM_BASE_INSTRUCTIONS}\n{TOOL_USAGE_INSTRUCTIONS}"
 
 MEMORY_LIMIT = 50
 
+MEMORY_NODE = "load_memories"
+AGENT_NODE = "agent"
+APPROVAL_NODE = "approval_gate"
+TOOLS_NODE = "tools"
+
 
 def describe_user(profile: dict[str, str]) -> str:
 
@@ -34,12 +39,12 @@ def describe_user(profile: dict[str, str]) -> str:
 
 async def load_memories(state: PlannerState, runtime: Runtime[PlannerContext]) -> dict:
 
-    """Read the user's newest active memories as plain lines into the state, replacing the last turn's."""
+    """Read the user's newest active memories into the state, and clear the last turn's no-reply flag."""
 
     async with SessionLocal() as session:
         memories = await MemoryRepository(session).active_memories(runtime.context.user_id, limit=MEMORY_LIMIT)
 
-    return {"memories": [describe_memory(memory) for memory in memories]}
+    return {"memories": [describe_memory(memory) for memory in memories], "skip_reply": False}
 
 
 async def run_agent(state: PlannerState, runtime: Runtime[PlannerContext]) -> dict:

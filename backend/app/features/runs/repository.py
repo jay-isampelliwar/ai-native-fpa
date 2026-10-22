@@ -20,7 +20,9 @@ STATUS_TIMESTAMPS = {
     RunStatus.failed: "finished_at",
     }
 
-OPEN_TOOL_STATUSES = (ToolCallStatus.requested, ToolCallStatus.running)
+OPEN_TOOL_STATUSES = (ToolCallStatus.requested, ToolCallStatus.running, ToolCallStatus.awaiting_approval)
+
+WORKER_HELD_STATUSES = (RunStatus.queued, RunStatus.running, RunStatus.cancel_requested)
 
 
 class RunRepository:
@@ -251,11 +253,11 @@ class RunRepository:
 
     async def fail_active_runs(self, failure_code: str) -> list[int]:
 
-        """Fail every run still queued, running or cancelling, fail their streaming messages, and return the run ids."""
+        """Fail every run a worker task was holding, leaving runs paused for approval, and return the failed run ids."""
 
         run_query = (
             update(AgentRun)
-            .where(AgentRun.status.in_(ACTIVE_RUN_STATUSES))
+            .where(AgentRun.status.in_(WORKER_HELD_STATUSES))
             .values(
                 status=RunStatus.failed,
                 version=AgentRun.version + 1,
@@ -328,6 +330,28 @@ class RunRepository:
                 ToolCall.status.in_(OPEN_TOOL_STATUSES),
                 )
             .values(status=status, output=output, error_text=error_text, completed_at=func.now())
+            )
+
+        await self.session.execute(query)
+
+    async def set_tool_call_status(
+        self,
+        conversation_id: int,
+        tool_call_id: str,
+        expected: Iterable[ToolCallStatus],
+        new_status: ToolCallStatus,
+        ) -> None:
+
+        """Move one tool call to new_status only if it is still in an expected status."""
+
+        query = (
+            update(ToolCall)
+            .where(
+                ToolCall.conversation_id == conversation_id,
+                ToolCall.tool_call_id == tool_call_id,
+                ToolCall.status.in_(list(expected)),
+                )
+            .values(status=new_status)
             )
 
         await self.session.execute(query)

@@ -6,7 +6,17 @@ class RecordError(Exception):
     """A save was refused, with a message that says why."""
 
 
-class RecordExists(RecordError):
+class RecordNotFound(RecordError):
+
+    """The item the change points at is not saved for this user."""
+
+
+class RecordConflict(RecordError):
+
+    """The change clashes with something already saved, so it was refused."""
+
+
+class RecordExists(RecordConflict):
 
     """A matching row is already saved, so a second one was not added."""
 
@@ -19,7 +29,7 @@ class RecordExists(RecordError):
         self.record_id = record_id
 
 
-class FamilyMemberNotFound(RecordError):
+class FamilyMemberNotFound(RecordNotFound):
 
     """The family member named in a save is not in the user's family list."""
 

@@ -6,6 +6,7 @@ from decimal import Decimal
 from typing import Annotated
 
 from langchain.tools import ToolRuntime, tool
+from langchain_core.messages import ToolMessage
 
 from app.agent.context import PlannerContext
 from app.agent.tools.cash_flow import RUPEES
@@ -26,7 +27,7 @@ async def add_loan(
     emi: Annotated[Decimal | None, f"The monthly EMI. {RUPEES}"] = None,
     start_date: Annotated[date | None, "When the loan started, as YYYY-MM-DD."] = None,
     end_date: Annotated[date | None, "When the last EMI is due, as YYYY-MM-DD."] = None,
-    ) -> str:
+    ) -> ToolMessage:
 
     """Add one loan. Required: loan type, lender, principal, outstanding, interest rate, EMI, start date, end date."""
 
@@ -49,7 +50,7 @@ async def add_credit_card(
     credit_limit: Annotated[Decimal | None, f"The card limit, only if stated. {RUPEES}"] = None,
     outstanding: Annotated[Decimal | None, f"The amount owed on the card now. {RUPEES}"] = None,
     due_day: Annotated[int | None, "The day of the month the bill is due, 1 to 31, only if stated."] = None,
-    ) -> str:
+    ) -> ToolMessage:
 
     """Add one credit card. Required: bank name."""
 

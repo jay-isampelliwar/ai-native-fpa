@@ -8,3 +8,4 @@ class PlannerState(MessagesState):
 
     turn_count: NotRequired[int]
     memories: NotRequired[list[str]]
+    skip_reply: NotRequired[bool]

@@ -8,7 +8,6 @@ from app.features.assets.schemas import (
     PhysicalAssetCreate,
     RetirementAccountCreate,
     )
-from app.features.records.exceptions import RecordExists
 from app.features.records.service import BaseRecordService
 
 
@@ -20,18 +19,11 @@ class AssetService(BaseRecordService[AssetRepository]):
 
     async def add_bank_account(self, user_id: int, account: BankAccountCreate) -> BankAccount:
 
-        """Add the account unless one at the same bank with the same type is already saved."""
-
-        existing = await self.repo.find_bank_account(user_id, account)
-
-        if existing is not None:
-            raise RecordExists("bank account", existing.id)
+        """Add the bank account. Two accounts at the same bank are allowed."""
 
         record = await self.repo.add_bank_account(user_id, account)
 
         await self.mark_provided(user_id, "bank_accounts")
-
-        await self.session.commit()
 
         return record
 
@@ -43,40 +35,24 @@ class AssetService(BaseRecordService[AssetRepository]):
 
         await self.mark_provided(user_id, "fixed_deposits")
 
-        await self.session.commit()
-
         return record
 
     async def add_retirement_account(self, user_id: int, account: RetirementAccountCreate) -> RetirementAccount:
 
-        """Add the account unless one of the same type is already saved."""
-
-        existing = await self.repo.find_retirement_account(user_id, account)
-
-        if existing is not None:
-            raise RecordExists("retirement account", existing.id)
+        """Add the retirement account."""
 
         record = await self.repo.add_retirement_account(user_id, account)
 
         await self.mark_provided(user_id, "retirement_accounts")
 
-        await self.session.commit()
-
         return record
 
     async def add_physical_asset(self, user_id: int, asset: PhysicalAssetCreate) -> PhysicalAsset:
 
-        """Add the asset unless one with the same type and name is already saved."""
-
-        existing = await self.repo.find_physical_asset(user_id, asset)
-
-        if existing is not None:
-            raise RecordExists("physical asset", existing.id)
+        """Add the physical asset."""
 
         record = await self.repo.add_physical_asset(user_id, asset)
 
         await self.mark_provided(user_id, "physical_assets")
-
-        await self.session.commit()
 
         return record

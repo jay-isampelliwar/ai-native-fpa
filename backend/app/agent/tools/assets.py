@@ -5,6 +5,7 @@ from decimal import Decimal
 from typing import Annotated
 
 from langchain.tools import ToolRuntime, tool
+from langchain_core.messages import ToolMessage
 
 from app.agent.context import PlannerContext
 from app.agent.tools.cash_flow import RUPEES
@@ -26,7 +27,7 @@ async def add_bank_account(
     account_type: Annotated[BankAccountType | None, "The kind of account."] = None,
     balance: Annotated[Decimal | None, f"The current balance. {RUPEES}"] = None,
     interest_rate: Annotated[Decimal | None, "Yearly interest in percent, only if stated."] = None,
-    ) -> str:
+    ) -> ToolMessage:
 
     """Add one bank account. Required: bank name, account type, balance."""
 
@@ -49,7 +50,7 @@ async def add_fixed_deposit(
     start_date: Annotated[date | None, "When it was opened, as YYYY-MM-DD."] = None,
     maturity_date: Annotated[date | None, "When it matures, as YYYY-MM-DD."] = None,
     maturity_amount: Annotated[Decimal | None, f"The amount paid at maturity, only if stated. {RUPEES}"] = None,
-    ) -> str:
+    ) -> ToolMessage:
 
     """Add one fixed or recurring deposit. Required: bank name, deposit type, principal, interest rate, start date, maturity date."""
 
@@ -71,7 +72,7 @@ async def add_retirement_account(
     employer_contribution: Annotated[Decimal | None, f"What the employer puts in each month, only if stated. {RUPEES}"] = None,
     interest_rate: Annotated[Decimal | None, "Yearly interest in percent, only if stated."] = None,
     maturity_date: Annotated[date | None, "When it matures, as YYYY-MM-DD, only if stated."] = None,
-    ) -> str:
+    ) -> ToolMessage:
 
     """Add one EPF, PPF, NPS or VPF account. Required: account type, balance."""
 
@@ -93,7 +94,7 @@ async def add_physical_asset(
     purchase_value: Annotated[Decimal | None, f"What it cost, only if stated. {RUPEES}"] = None,
     purchase_date: Annotated[date | None, "When it was bought, as YYYY-MM-DD, only if stated."] = None,
     is_self_occupied: Annotated[bool | None, "True if the user lives in this property."] = None,
-    ) -> str:
+    ) -> ToolMessage:
 
     """Add one house, plot, gold, vehicle or other physical asset. Required: asset type, name, current value."""
 

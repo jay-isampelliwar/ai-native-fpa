@@ -3,7 +3,7 @@
 from collections.abc import Sequence
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.base import UserOwnedMixin
@@ -92,19 +92,16 @@ class BaseUserRecordRepository:
         fields: dict[str, Any],
         ) -> ModelT | None:
 
-        """Set the given fields on this user's row and flush, or return None when the row is not theirs."""
+        """Set the given fields on this user's row, with the owner in the UPDATE itself, or return None when the row is not theirs."""
 
-        record = await self.get_for_user(model, record_id, user_id)
+        query = (
+            update(model)
+            .where(model.id == record_id, model.user_id == user_id)
+            .values(**fields)
+            .returning(model)
+            )
 
-        if record is None:
-            return None
-
-        for name, value in fields.items():
-            setattr(record, name, value)
-
-        await self.session.flush()
-
-        return record
+        return await self.session.scalar(query)
 
     async def delete_for_user[ModelT: UserOwnedMixin](
         self,
@@ -113,15 +110,12 @@ class BaseUserRecordRepository:
         user_id: int,
         ) -> bool:
 
-        """Delete this user's row and flush, returning False when the row is not theirs."""
+        """Delete this user's row, with the owner in the DELETE itself, returning False when the row is not theirs."""
 
-        record = await self.get_for_user(model, record_id, user_id)
+        query = (
+            delete(model)
+            .where(model.id == record_id, model.user_id == user_id)
+            .returning(model.id)
+            )
 
-        if record is None:
-            return False
-
-        await self.session.delete(record)
-
-        await self.session.flush()
-
-        return True
+        return await self.session.scalar(query) is not None

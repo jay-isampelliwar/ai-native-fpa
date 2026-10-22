@@ -59,8 +59,6 @@ class ProfileService(BaseRecordService[ProfileRepository]):
         if all(getattr(user, name) is not None for name in PROFILE_FIELDS):
             await self.mark_provided(user_id, "profile")
 
-        await self.session.commit()
-
         return fields
 
     async def add_family_member(self, user_id: int, member: FamilyMemberCreate) -> FamilyMember:
@@ -75,7 +73,5 @@ class ProfileService(BaseRecordService[ProfileRepository]):
         record = await self.repo.add_family_member(user_id, member)
 
         await self.mark_provided(user_id, "family")
-
-        await self.session.commit()
 
         return record

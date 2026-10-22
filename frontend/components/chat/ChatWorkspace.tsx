@@ -2,11 +2,11 @@
 
 import { useEffect, useRef, useState } from 'react';
 
-import { conversations } from '@/lib/api';
+import { ApiError, conversations, runs } from '@/lib/api';
 import { firstNameOf } from '@/lib/format';
 import { useSession } from '@/lib/session';
 import { cancelRun, followRun, streamMessage, type StreamHandlers } from '@/lib/stream';
-import type { ConversationDetail, ToolStep } from '@/lib/types';
+import type { ApprovalState, ConversationDetail, ToolStep } from '@/lib/types';
 import { useUploads } from '@/lib/useUploads';
 import ChatComposer from '@/components/chat/ChatComposer';
 import ChatHeader from '@/components/chat/ChatHeader';
@@ -71,6 +71,10 @@ function turnsFrom(detail: ConversationDetail): Turn[] {
  *
  * `onActivity` tells the shell which chat this is and that the history list should
  * refresh: once when a message starts a run, and again when the reply ends.
+ *
+ * A reply can pause on an approval card, such as before a delete. The stream ends there and the
+ * composer frees up. Pressing Remove or Keep it tells the backend and listens to the same run again.
+ * Sending a new message instead counts as a reject on the backend, so the card shows as skipped.
  */
 export default function ChatWorkspace({
   userId,
@@ -159,6 +163,7 @@ export default function ChatWorkspace({
         setStep('thinking');
         amend((turn) => ({ ...turn, tools: upsertStep(turn.tools ?? [], tool) }));
       },
+      onApproval: (request) => amend((turn) => ({ ...turn, approval: { request, state: 'pending' } })),
       onDone: (text) => amend((turn) => ({ ...turn, text })),
       onCancelled: (text) =>
         amend((turn) => ({ ...turn, text: text || turn.text, stopped: true, tools: closeSteps(turn.tools, 'stopped') })),
@@ -231,6 +236,39 @@ export default function ChatWorkspace({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openConversationId]);
 
+  /** Set where one turn's approval card is, and its error line, if any. */
+  function setApproval(answerId: string, state: ApprovalState, failure?: string) {
+    setTurns((current) =>
+      current.map((turn) =>
+        turn.id === answerId && turn.approval ? { ...turn, approval: { ...turn.approval, state, failure } } : turn,
+      ),
+    );
+  }
+
+  /** Answer an approval card, then follow the run again as it carries on. */
+  async function decide(answerId: string, decision: 'approve' | 'reject') {
+    const request = turns.find((turn) => turn.id === answerId)?.approval?.request;
+    if (!request || busy) return;
+
+    setApproval(answerId, 'sending');
+
+    try {
+      await runs.decide(request.run_id, request.approval_id, decision);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 409) {
+        setApproval(answerId, error.message.includes('expired') ? 'expired' : 'closed', error.message);
+      } else {
+        setApproval(answerId, 'pending', 'That did not go through. Please try again.');
+      }
+      return;
+    }
+
+    setApproval(answerId, decision === 'approve' ? 'approved' : 'rejected');
+
+    runId.current = request.run_id;
+    await listen(answerId, (handlers, signal) => followRun(request.run_id, handlers, signal));
+  }
+
   async function send(message: string) {
     const trimmed = message.trim();
     if (!trimmed || busy || loading || uploads.reading || typeof userId !== 'number') return;
@@ -245,7 +283,9 @@ export default function ChatWorkspace({
     setDraft('');
     uploads.clear();
     setTurns((current) => [
-      ...current,
+      ...current.map((turn) =>
+        turn.approval?.state === 'pending' ? { ...turn, approval: { ...turn.approval, state: 'skipped' as const } } : turn,
+      ),
       { id: newId(), role: 'user', text: trimmed, at: new Date(), attached },
       { id: answerId, role: 'planner', text: '', at: new Date(), importIds },
     ]);
@@ -332,6 +372,7 @@ export default function ChatWorkspace({
             userId={userId}
             busy={busy}
             onRegenerate={regenerate}
+            onDecide={(answerId, decision) => void decide(answerId, decision)}
           />
         )}
 

@@ -121,7 +121,7 @@ async def test_load_memories_reads_only_own_active_memories(seeded_run: SeededRu
 
         update = await load_memories({"messages": []}, runtime_for(seeded_run.user_id))
 
-        assert update == {"memories": ["Investment: avoids sectors: tobacco"]}
+        assert update == {"memories": ["Investment: avoids sectors: tobacco"], "skip_reply": False}
 
     finally:
         await delete_user_data(other_user_id)

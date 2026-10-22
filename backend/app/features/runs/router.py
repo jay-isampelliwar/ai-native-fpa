@@ -1,4 +1,4 @@
-"""The runs routes: start a run for one user message, and stream its events."""
+"""The runs routes: start a run for one user message, stream its events, cancel it, and decide its approvals."""
 
 from collections.abc import AsyncIterator
 
@@ -7,12 +7,18 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user_id
+from app.db.enums import RunStatus
 from app.db.session import get_session
+from app.features.approvals.exceptions import ApprovalExpired, ApprovalNotFound, ApprovalNotPending
+from app.features.approvals.repository import ApprovalRepository
+from app.features.approvals.schemas import ApprovalDecisionRequest
+from app.features.approvals.service import ApprovalService
 from app.features.runs.events import FINAL_EVENT_FOR_STATUS, RunEvent, run_events
 from app.features.runs.exceptions import ConversationNotFound, RunAlreadyActive, RunNotFound
 from app.features.runs.repository import RunRepository
 from app.features.runs.schemas import CreateRunRequest, RunResponse
 from app.features.runs.service import RunService
+from app.features.runs.worker import approval_event
 
 
 router = APIRouter(prefix="/runs", tags=["runs"])
@@ -61,7 +67,7 @@ async def stream_run_events(
     user_id: int = Depends(get_current_user_id),
     ) -> StreamingResponse:
 
-    """Stream the run's events as server-sent events until it completes, fails or is cancelled."""
+    """Stream the run's events as server-sent events until it ends or pauses, sending a paused run's approval card at once."""
 
     queue = run_events.subscribe(run_id)
 
@@ -77,7 +83,18 @@ async def stream_run_events(
 
     final_event = FINAL_EVENT_FOR_STATUS.get(run.status)
 
-    if final_event is not None:
+    approval = None
+
+    if run.status == RunStatus.awaiting_approval:
+        approval = await ApprovalRepository(session).pending_for_run(run_id)
+
+    if approval is not None:
+
+        run_events.stop_listening(run_id, queue)
+
+        events = one_event(approval_event(approval))
+
+    elif final_event is not None:
 
         run_events.stop_listening(run_id, queue)
 
@@ -107,3 +124,27 @@ async def cancel_run(
 
     except RunNotFound as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Run not found") from exc
+
+
+@router.post("/{run_id}/approvals/{approval_id}")
+async def decide_approval(
+    run_id: int,
+    approval_id: int,
+    body: ApprovalDecisionRequest,
+    session: AsyncSession = Depends(get_session),
+    user_id: int = Depends(get_current_user_id),
+    ) -> RunResponse:
+
+    """Approve or reject a paused tool call; the run carries on and its events stream again from /events."""
+
+    try:
+        return await ApprovalService(session).submit(run_id, approval_id, user_id, body.decision)
+
+    except ApprovalNotFound as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Approval not found") from exc
+
+    except ApprovalNotPending as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, "This request was already answered") from exc
+
+    except ApprovalExpired as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, "This request expired. Please ask again") from exc

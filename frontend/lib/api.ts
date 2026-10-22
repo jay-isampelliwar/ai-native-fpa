@@ -26,6 +26,7 @@
 
 import type {
   CommitResult,
+  RunResponse,
   ConversationDetail,
   CurrentUser,
   ConversationList,
@@ -115,6 +116,20 @@ export const conversations = {
   /** Soft delete one chat; the backend keeps its rows but hides it everywhere. */
   remove(conversationId: number) {
     return request<void>(`/api/conversations/${conversationId}`, { method: "DELETE" });
+  },
+};
+
+export const runs = {
+  /**
+   * Answer the approval card a run paused on. The run carries on in the background, so the reply
+   * is then read with `followRun`. A 409 means the card was already answered or has expired, and
+   * its `detail` says which.
+   */
+  decide(runId: number, approvalId: number, decision: "approve" | "reject") {
+    return request<RunResponse>(`/api/runs/${runId}/approvals/${approvalId}`, {
+      method: "POST",
+      body: JSON.stringify({ decision }),
+    });
   },
 };
 

@@ -17,6 +17,7 @@ export type RunStatus =
   | 'queued'
   | 'running'
   | 'cancel_requested'
+  | 'awaiting_approval'
   | 'cancelled'
   | 'completed'
   | 'failed';
@@ -43,15 +44,54 @@ export type MessageStatus = 'streaming' | 'completed' | 'cancelled' | 'failed';
 
 /**
  * One tool the planner called during a reply, and how far it has got. `stopped` comes only from
- * a saved chat, for a tool that was still running when the reply was stopped.
+ * a saved chat, for a tool that was still running when the reply was stopped. `rejected` is a
+ * tool the person said no to on an approval card.
  */
 export interface ToolStep {
   id: string;
   name: string;
   /** The friendly line to show, such as "Reading your records". */
   label: string;
-  status: 'running' | 'ok' | 'error' | 'stopped';
+  status: 'running' | 'ok' | 'error' | 'stopped' | 'rejected';
 }
+
+/**
+ * A risky tool call the run paused on, as the `approval.required` event carries it.
+ *
+ * `preview` is the exact item the backend read before pausing, so the card shows what will really
+ * change rather than what the model thinks it is. After `expires_at` the backend refuses a click.
+ *
+ * `action` says what approving does. A `remove` field has a `value`; a `change` field has its saved
+ * `old` value and the `new` one. `run` is a tool with no preview of its own, showing its arguments.
+ * Older approvals were saved before `action` existed and are always removals.
+ */
+export interface ApprovalRequest {
+  approval_id: number;
+  run_id: number;
+  name: string;
+  label: string;
+  preview: {
+    action?: ApprovalAction;
+    title: string;
+    fields: ApprovalField[];
+  };
+  expires_at: string;
+}
+
+export type ApprovalAction = 'remove' | 'change' | 'run';
+
+export interface ApprovalField {
+  name: string;
+  value?: string;
+  old?: string;
+  new?: string;
+}
+
+/**
+ * Where one approval card is. `skipped` is a card the person moved past by sending a new message,
+ * which the backend treats as a reject. `closed` is one the backend had already answered.
+ */
+export type ApprovalState = 'pending' | 'sending' | 'approved' | 'rejected' | 'skipped' | 'expired' | 'closed';
 
 export interface ConversationMessage {
   id: number;

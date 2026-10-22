@@ -88,7 +88,7 @@ class AgentRun(Base):
             "uq_agent_runs_one_active",
             "conversation_id",
             unique=True,
-            postgresql_where=text("status IN ('queued', 'running', 'cancel_requested')"),
+            postgresql_where=text("status IN ('queued', 'running', 'cancel_requested', 'awaiting_approval')"),
             ),
         )
 

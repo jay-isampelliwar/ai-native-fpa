@@ -30,6 +30,8 @@ STEP_STATUS = {
     ToolCallStatus.failed: "error",
     ToolCallStatus.cancelled: "stopped",
     ToolCallStatus.unknown: "error",
+    ToolCallStatus.awaiting_approval: "running",
+    ToolCallStatus.rejected: "rejected",
     }
 
 
