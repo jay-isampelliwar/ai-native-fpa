@@ -60,6 +60,10 @@ export interface ToolStep {
  *
  * `preview` is the exact item the backend read before pausing, so the card shows what will really
  * change rather than what the model thinks it is. After `expires_at` the backend refuses a click.
+ *
+ * `action` says what approving does. A `remove` field has a `value`; a `change` field has its saved
+ * `old` value and the `new` one. `run` is a tool with no preview of its own, showing its arguments.
+ * Older approvals were saved before `action` existed and are always removals.
  */
 export interface ApprovalRequest {
   approval_id: number;
@@ -67,10 +71,20 @@ export interface ApprovalRequest {
   name: string;
   label: string;
   preview: {
+    action?: ApprovalAction;
     title: string;
-    fields: { name: string; value: string }[];
+    fields: ApprovalField[];
   };
   expires_at: string;
+}
+
+export type ApprovalAction = 'remove' | 'change' | 'run';
+
+export interface ApprovalField {
+  name: string;
+  value?: string;
+  old?: string;
+  new?: string;
 }
 
 /**

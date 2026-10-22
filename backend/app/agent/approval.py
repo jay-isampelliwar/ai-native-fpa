@@ -10,15 +10,15 @@ from langgraph.types import Command, Send, interrupt
 from app.agent.context import PlannerContext
 from app.agent.nodes import AGENT_NODE, TOOLS_NODE
 from app.agent.state import PlannerState
-from app.agent.tools.records import record_fields
+from app.agent.tools.labels import label_for
+from app.agent.tools.policies import needs_approval
+from app.agent.tools.records import record_fields, show_value
 from app.agent.tools.results import rejected, to_message
 from app.db.session import SessionLocal
 from app.features.records.exceptions import RecordError
 from app.features.records.kinds import KINDS
-from app.features.records.record_service import RecordService
+from app.features.records.record_service import RecordService, editable_fields
 
-
-APPROVAL_TOOLS = frozenset({"delete_record"})
 
 APPROVE = "approve"
 REJECT = "reject"
@@ -32,9 +32,14 @@ REJECTED_TEXT = "Not done. The user did not approve this, so nothing was changed
 CANCELLED_TEXT = "Not done. The user stopped this reply, so nothing was changed."
 
 
-async def preview_for(call: ToolCall, user_id: int) -> dict[str, Any] | None:
+NOT_SET = "not set"
 
-    """Describe the exact item the call would change as a title and its filled-in fields, or None when it does not exist."""
+type Preview = dict[str, Any]
+
+
+async def saved_fields(call: ToolCall, user_id: int) -> dict[str, Any] | None:
+
+    """Read the saved item the call points at as readable fields, or None when it is not this user's."""
 
     kind = call["args"].get("kind")
     record_id = call["args"].get("record_id")
@@ -50,9 +55,68 @@ async def preview_for(call: ToolCall, user_id: int) -> dict[str, Any] | None:
     except RecordError:
         return None
 
-    fields = [{"name": name, "value": value} for name, value in record_fields(record).items() if name != "id"]
+    return record_fields(record)
 
-    return {"title": f"Remove this {KINDS[kind].label}?", "fields": fields}
+
+async def remove_preview(call: ToolCall, user_id: int) -> Preview | None:
+
+    """Show every saved field of the item a delete would remove."""
+
+    current = await saved_fields(call, user_id)
+
+    if current is None:
+        return None
+
+    fields = [{"name": name, "value": value} for name, value in current.items() if name != "id"]
+
+    return {"action": "remove", "title": f"Remove this {KINDS[call['args']['kind']].label}?", "fields": fields}
+
+
+async def change_preview(call: ToolCall, user_id: int) -> Preview | None:
+
+    """Show each field an update would change as its saved value and its new value."""
+
+    changes = call["args"].get("changes")
+    current = await saved_fields(call, user_id)
+
+    if current is None or not isinstance(changes, dict) or not changes:
+        return None
+
+    kind = call["args"]["kind"]
+
+    if any(name not in editable_fields(kind) for name in changes):
+        return None
+
+    fields = [
+        {"name": name, "old": current.get(name, NOT_SET), "new": show_value(value)}
+        for name, value in changes.items()
+        ]
+
+    return {"action": "change", "title": f"Change this {KINDS[kind].label}?", "fields": fields}
+
+
+def general_preview(call: ToolCall) -> Preview:
+
+    """Show the call's own arguments, for a tool that needs approval but has no preview of its own."""
+
+    fields = [{"name": name, "value": show_value(value)} for name, value in call["args"].items()]
+
+    return {"action": "run", "title": f"Allow: {label_for(call['name'])}?", "fields": fields}
+
+
+PREVIEWS = {"delete_record": remove_preview, "update_record": change_preview}
+
+
+async def preview_for(call: ToolCall, user_id: int) -> Preview | None:
+
+    """Describe exactly what the call would do, or None when it points at nothing and the tool can refuse it alone."""
+
+    build = PREVIEWS.get(call["name"])
+
+    if build is None:
+        return general_preview(call)
+
+    return await build(call, user_id)
 
 
 def approved(call: ToolCall, answer: dict[str, Any]) -> bool:
@@ -129,7 +193,7 @@ async def approval_gate(state: PlannerState, runtime: Runtime[PlannerContext]) -
     """Send safe calls straight to the tools, hold risky ones until the user decides each, and skip every call on a cancel."""
 
     message: AIMessage = state["messages"][-1]
-    risky = [call for call in message.tool_calls if call["name"] in APPROVAL_TOOLS]
+    risky = [call for call in message.tool_calls if needs_approval(call["name"])]
 
     if not risky:
         return Command(goto=TOOLS_NODE)
@@ -149,7 +213,7 @@ async def approval_gate(state: PlannerState, runtime: Runtime[PlannerContext]) -
     if not refused:
         return Command(goto=TOOLS_NODE, update=update)
 
-    to_run = [call for call in message.tool_calls if call["name"] not in APPROVAL_TOOLS] + allowed
+    to_run = [call for call in message.tool_calls if not needs_approval(call["name"])] + allowed
 
     if to_run:
         return Command(goto=Send(TOOLS_NODE, to_run), update=update)

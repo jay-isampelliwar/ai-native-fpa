@@ -9,10 +9,19 @@ from langgraph.types import Command
 from pydantic import BaseModel, ValidationError
 from sqlalchemy.exc import OperationalError
 
+from app.agent.tools.policies import policy_for
 from app.features.records.exceptions import RecordConflict, RecordError, RecordExists, RecordNotFound
 
 
-type ToolStatus = Literal["success", "validation_error", "not_found", "conflict", "retryable_error", "rejected"]
+type ToolStatus = Literal[
+    "success",
+    "validation_error",
+    "not_found",
+    "conflict",
+    "retryable_error",
+    "rejected",
+    "not_allowed",
+    ]
 
 type ToolExecute = Callable[[ToolCallRequest], Awaitable[ToolMessage | Command]]
 
@@ -87,6 +96,13 @@ def rejected(
     return ToolResult(status="rejected", message=message, error_code=error_code)
 
 
+def not_allowed(tool_name: str) -> ToolResult:
+
+    """The server has no policy for this tool, so it never runs."""
+
+    return ToolResult(status="not_allowed", message=f"{tool_name} is not allowed.", error_code="no_policy")
+
+
 def field_errors(exc: ValidationError) -> list[dict[str, str]]:
 
     """List each pydantic error as the field it is about and the problem in plain words."""
@@ -152,9 +168,12 @@ async def finish_tool_call(
     execute: ToolExecute,
     ) -> ToolMessage | Command:
 
-    """Run one tool, answer a database outage as retryable, and stamp the tool's name on the message it returns."""
+    """Refuse a tool with no policy, run the rest, answer a database outage as retryable, and stamp the tool's name."""
 
     call = request.tool_call
+
+    if policy_for(call["name"]) is None:
+        return to_message(not_allowed(call["name"]), call["id"], call["name"])
 
     try:
         message = await execute(request)

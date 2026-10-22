@@ -45,6 +45,16 @@ def delete_record(kind: str, record_id: int) -> str:
     return "deleted"
 
 
+@tool
+def update_record(kind: str, record_id: int, changes: dict) -> str:
+
+    """Pretend to change a saved item."""
+
+    ran.append(f"update_record:{record_id}")
+
+    return "updated"
+
+
 def scripted_agent(calls: list[dict[str, Any]]):
 
     """An agent node that asks for the given calls on the user's message and answers "done" after tools."""
@@ -79,7 +89,7 @@ def build(calls: list[dict[str, Any]]):
 
     builder.add_node(AGENT_NODE, scripted_agent(calls))
     builder.add_node(APPROVAL_NODE, approval_gate, destinations=(TOOLS_NODE, AGENT_NODE, END))
-    builder.add_node(TOOLS_NODE, ToolNode([add_expense, delete_record]))
+    builder.add_node(TOOLS_NODE, ToolNode([add_expense, delete_record, update_record]))
 
     builder.add_edge(START, AGENT_NODE)
     builder.add_conditional_edges(AGENT_NODE, route, [APPROVAL_NODE, END])
@@ -262,3 +272,23 @@ async def test_two_deletes_pause_one_at_a_time() -> None:
     await graph.ainvoke(Command(resume=answer(APPROVE, "del2", CAR_ARGS)), config, context=context)
 
     assert sorted(ran) == ["delete_record:42", "delete_record:7"]
+
+
+async def test_update_pauses_and_reject_keeps_it_unchanged() -> None:
+
+    """A change to a saved item now waits for the user too, and a reject leaves it as it was."""
+
+    change = call("update_record", {"kind": "loans", "record_id": 42, "changes": {"outstanding": 3800000}}, "upd")
+
+    graph, config, context, request = await pause([change])
+
+    assert request["tool_call_id"] == "upd"
+    assert ran == []
+
+    await graph.ainvoke(
+        Command(resume=answer(REJECT, "upd", change["args"])),
+        config,
+        context=context,
+        )
+
+    assert ran == []

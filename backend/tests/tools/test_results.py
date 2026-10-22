@@ -1,5 +1,6 @@
 """Tests for the typed tool result helpers and the tool call wrapper, with no database."""
 
+import pytest
 from langchain.tools import ToolRuntime, tool
 from langchain_core.messages import AIMessage, ToolMessage
 from langgraph.graph import START, MessagesState, StateGraph
@@ -7,6 +8,7 @@ from langgraph.prebuilt import ToolNode
 from pydantic import BaseModel, ValidationError, field_validator
 from sqlalchemy.exc import OperationalError
 
+from app.agent.tools import policies
 from app.agent.tools.results import (
     finish_tool_call,
     from_record_error,
@@ -115,6 +117,15 @@ async def saves_fine(runtime: ToolRuntime) -> ToolMessage:
     """A tool that saves and returns its own message without a name."""
 
     return to_message(ok("Saved."), runtime.tool_call_id)
+
+
+@pytest.fixture(autouse=True)
+def allow_test_tools(monkeypatch: pytest.MonkeyPatch) -> None:
+
+    """Give the two test tools a write policy, since the wrapper refuses any tool without one."""
+
+    monkeypatch.setitem(policies.TOOL_POLICIES, "database_down", policies.WRITE)
+    monkeypatch.setitem(policies.TOOL_POLICIES, "saves_fine", policies.WRITE)
 
 
 async def run_tools(*names: str) -> list[ToolMessage]:
