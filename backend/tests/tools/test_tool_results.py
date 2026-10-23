@@ -16,7 +16,7 @@ from app.agent.state import PlannerState
 from app.agent.tools import liabilities, records
 from app.agent.tools.liabilities import add_loan
 from app.agent.tools.records import delete_record, list_records
-from app.agent.tools.results import finish_tool_call
+from app.agent.tools.wrapper import finish_tool_call
 from app.db.enums import PhysicalAssetType
 from app.db.models import Loan, PhysicalAsset
 from app.db.session import SessionLocal

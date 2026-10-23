@@ -9,8 +9,8 @@ from pydantic import BaseModel, ValidationError, field_validator
 from sqlalchemy.exc import OperationalError
 
 from app.agent.tools import policies
+from app.agent.tools.wrapper import finish_tool_call
 from app.agent.tools.results import (
-    finish_tool_call,
     from_record_error,
     from_validation_error,
     ok,

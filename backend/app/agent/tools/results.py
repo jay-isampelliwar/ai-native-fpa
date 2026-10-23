@@ -1,15 +1,10 @@
-"""The one shape every tool returns, the helpers that build it, and the wrapper that turns it into a tool message."""
+"""The one shape every tool returns, the helpers that build it, and the step that turns it into a tool message."""
 
-from collections.abc import Awaitable, Callable
 from typing import Any, Literal
 
 from langchain_core.messages import ToolMessage
-from langgraph.prebuilt.tool_node import ToolCallRequest
-from langgraph.types import Command
 from pydantic import BaseModel, ValidationError
-from sqlalchemy.exc import OperationalError
 
-from app.agent.tools.policies import policy_for
 from app.features.records.exceptions import RecordConflict, RecordError, RecordExists, RecordNotFound
 
 
@@ -23,7 +18,6 @@ type ToolStatus = Literal[
     "not_allowed",
     ]
 
-type ToolExecute = Callable[[ToolCallRequest], Awaitable[ToolMessage | Command]]
 
 
 class ToolResult(BaseModel):
@@ -79,11 +73,14 @@ def conflict(
     return ToolResult(status="conflict", message=message, data=data, error_code=error_code)
 
 
-def retryable(message: str) -> ToolResult:
+def retryable(
+    message: str,
+    error_code: str = "db_unavailable",
+    ) -> ToolResult:
 
-    """The database could not be reached, so nothing is known to be saved and the user can try again."""
+    """The database timed out or could not be reached, after every try, so the user can try again later."""
 
-    return ToolResult(status="retryable_error", message=message, error_code="db_unavailable", retryable=True)
+    return ToolResult(status="retryable_error", message=message, error_code=error_code, retryable=True)
 
 
 def rejected(
@@ -161,27 +158,3 @@ def to_message(
         status="success" if result.status == "success" else "error",
         artifact=result.model_dump(mode="json", exclude_none=True),
         )
-
-
-async def finish_tool_call(
-    request: ToolCallRequest,
-    execute: ToolExecute,
-    ) -> ToolMessage | Command:
-
-    """Refuse a tool with no policy, run the rest, answer a database outage as retryable, and stamp the tool's name."""
-
-    call = request.tool_call
-
-    if policy_for(call["name"]) is None:
-        return to_message(not_allowed(call["name"]), call["id"], call["name"])
-
-    try:
-        message = await execute(request)
-
-    except OperationalError:
-        return to_message(retryable("Could not reach the database, so this may not have been saved."), call["id"], call["name"])
-
-    if isinstance(message, ToolMessage):
-        message.name = call["name"]
-
-    return message

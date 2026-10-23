@@ -29,6 +29,7 @@ def database_url() -> str:
 engine = create_async_engine(
     database_url(),
     pool_pre_ping=True,
+    connect_args={"connect_timeout": get_settings().DB_CONNECT_TIMEOUT_SECONDS},
     )
 
 SessionLocal = async_sessionmaker(

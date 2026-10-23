@@ -6,8 +6,8 @@ from langchain.tools import ToolRuntime, tool
 from langchain_core.messages import ToolMessage
 
 from app.agent.context import PlannerContext
+from app.agent.tools.limits import tool_session
 from app.agent.tools.results import ok, to_message
-from app.db.session import SessionLocal
 from app.features.analysis.report import goal_progress_report
 from app.features.analysis.service import AnalysisService
 
@@ -17,7 +17,7 @@ async def check_goal_progress(runtime: ToolRuntime[PlannerContext]) -> ToolMessa
 
     """Check if the user is on track for every active goal: monthly need, money available and shortfall, with ready formulas."""
 
-    async with SessionLocal() as session:
+    async with tool_session(runtime.context) as session:
         progress = await AnalysisService(session).goal_progress(runtime.context.user_id, date.today())
 
     result = ok("Goal progress is in the report that follows. Its $$ blocks are ready to paste whole.")

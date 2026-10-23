@@ -11,10 +11,10 @@ from langchain_core.messages import ToolMessage
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.context import PlannerContext
+from app.agent.tools.limits import tool_session
 from app.agent.tools.operations import run_write
 from app.agent.tools.results import ToolResult, ok, to_message
 from app.db.models.base import UserOwnedMixin
-from app.db.session import SessionLocal
 from app.features.coverage.schemas import CoverageChoice
 from app.features.coverage.service import SECTIONS, CoverageService
 from app.features.records.kinds import KINDS, RecordKind
@@ -53,7 +53,7 @@ async def get_missing_data(runtime: ToolRuntime[PlannerContext]) -> ToolMessage:
 
     """See which sections of the user's details are still not asked about, and which profile details are empty."""
 
-    async with SessionLocal() as session:
+    async with tool_session(runtime.context) as session:
         missing = await CoverageService(session).missing(runtime.context.user_id)
 
     data = {
@@ -105,7 +105,7 @@ async def list_records(
     # TODO(orb-demo): remove this delay once the thinking pill has been checked.
     await asyncio.sleep(5)
 
-    async with SessionLocal() as session:
+    async with tool_session(runtime.context) as session:
         records = await RecordService(session).list_records(runtime.context.user_id, kind)
 
     label = KINDS[kind].label

@@ -13,6 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.context import PlannerContext
+from app.agent.tools.limits import tool_session
 from app.agent.tools.results import ToolResult, conflict, from_record_error, from_validation_error
 from app.db.models import ToolOperation
 from app.db.session import SessionLocal
@@ -120,7 +121,7 @@ async def run_write(
 
     try:
 
-        async with SessionLocal() as session:
+        async with tool_session(runtime.context) as session:
 
             operations = OperationRepository(session)
 

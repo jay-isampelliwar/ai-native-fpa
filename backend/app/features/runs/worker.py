@@ -11,9 +11,11 @@ from langgraph.types import Command
 
 from app.agent import graph as planner
 from app.agent.context import PlannerContext
+from app.agent.tools.limits import turn_deadline
 from app.agent.tools.labels import label_for
 from app.db.enums import RunStatus, ToolCallStatus
 from app.db.models import ToolApproval
+from app.core.config import get_settings
 from app.db.session import SessionLocal
 from app.features.approvals.repository import ApprovalRepository
 from app.features.outbox.repository import OutboxRepository
@@ -37,6 +39,10 @@ log = logging.getLogger(__name__)
 SAVE_INTERVAL_SECONDS = 1.0
 
 INTERRUPT_KEY = "__interrupt__"
+
+FAILED_TEXT = "The agent could not answer. Please try again."
+
+TURN_TIMEOUT_TEXT = "This took too long. Please try again."
 
 TOOL_EVENT_STATUS = {
     ToolCallStatus.completed: "ok",
@@ -276,15 +282,22 @@ async def stream_events(
     user_id: int,
     assistant_message_id: int,
     graph_input: dict[str, Any] | Command,
+    deadline: float,
     ) -> AsyncIterator[RunEvent]:
 
-    """Run or resume the graph on the conversation's own thread, save each tool step, and yield each reply piece, tool step and pause."""
+    """Run or resume the graph on the conversation's own thread by the deadline, save each tool step, and yield each piece, step and pause."""
 
     async with SessionLocal() as session:
         profile = await ProfileService(session).get_profile(user_id)
 
     config = {"configurable": {"thread_id": str(conversation_id)}}
-    context = PlannerContext(user_id=user_id, profile=profile, conversation_id=conversation_id, run_id=run_id)
+    context = PlannerContext(
+        user_id=user_id,
+        profile=profile,
+        conversation_id=conversation_id,
+        run_id=run_id,
+        deadline=deadline,
+        )
 
     async for mode, chunk in planner.planner_graph.astream(
         graph_input,
@@ -332,35 +345,42 @@ async def drive_run(
     final_status: RunStatus = RunStatus.completed,
     ) -> None:
 
-    """Stream and publish the reply while saving it every second, then pause for approval or end the run with final_status, failed or cancelled."""
+    """Stream and publish the reply within the turn's time budget, saving it every second, then pause, or end it as final_status, failed or cancelled."""
 
     last_saved_at = time.monotonic()
+    deadline = turn_deadline()
+    turn = asyncio.timeout(get_settings().TURN_TIMEOUT_SECONDS)
+
+    failure_code = "agent_error"
+    failure_text = FAILED_TEXT
 
     try:
 
-        async for event in stream_events(run_id, conversation_id, user_id, assistant_message_id, graph_input):
+        async with turn:
 
-            if event.name == APPROVAL_REQUIRED:
+            async for event in stream_events(run_id, conversation_id, user_id, assistant_message_id, graph_input, deadline):
 
-                approval = await save_pause(run_id, conversation_id, user_id, assistant_message_id, reply, event.data)
+                if event.name == APPROVAL_REQUIRED:
 
-                if approval is None:
-                    raise asyncio.CancelledError
+                    approval = await save_pause(run_id, conversation_id, user_id, assistant_message_id, reply, event.data)
 
-                run_events.publish(run_id, approval_event(approval))
+                    if approval is None:
+                        raise asyncio.CancelledError
 
-                return
+                    run_events.publish(run_id, approval_event(approval))
 
-            if event.name == ASSISTANT_DELTA:
-                reply += event.data["text"]
+                    return
 
-            run_events.publish(run_id, event)
+                if event.name == ASSISTANT_DELTA:
+                    reply += event.data["text"]
 
-            if time.monotonic() - last_saved_at >= SAVE_INTERVAL_SECONDS:
+                run_events.publish(run_id, event)
 
-                await save_partial(assistant_message_id, reply)
+                if time.monotonic() - last_saved_at >= SAVE_INTERVAL_SECONDS:
 
-                last_saved_at = time.monotonic()
+                    await save_partial(assistant_message_id, reply)
+
+                    last_saved_at = time.monotonic()
 
     except asyncio.CancelledError:
 
@@ -374,7 +394,12 @@ async def drive_run(
 
     except Exception as exc:
 
-        log.exception("run %s failed on conversation %s", run_id, conversation_id)
+        if isinstance(exc, TimeoutError) and turn.expired():
+
+            failure_code = "turn_timeout"
+            failure_text = TURN_TIMEOUT_TEXT
+
+        log.exception("run %s failed on conversation %s with %s", run_id, conversation_id, failure_code)
 
         await end_run(
             run_id,
@@ -383,11 +408,11 @@ async def drive_run(
             assistant_message_id,
             RunStatus.failed,
             reply,
-            failure_code="agent_error",
-            failure_message=str(exc)[:1000],
+            failure_code=failure_code,
+            failure_message=str(exc)[:1000] or failure_text,
             )
 
-        run_events.publish(run_id, RunEvent(RUN_FAILED, {"message": "The agent could not answer. Please try again."}))
+        run_events.publish(run_id, RunEvent(RUN_FAILED, {"message": failure_text}))
 
         return
 

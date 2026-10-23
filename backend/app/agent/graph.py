@@ -9,7 +9,7 @@ from app.agent.context import PlannerContext
 from app.agent.nodes import AGENT_NODE, APPROVAL_NODE, MEMORY_NODE, TOOLS_NODE, load_memories, run_agent
 from app.agent.state import PlannerState
 from app.agent.tools import ALL_TOOLS
-from app.agent.tools.results import finish_tool_call
+from app.agent.tools.wrapper import finish_tool_call
 
 
 def after_tools(state: PlannerState) -> str:

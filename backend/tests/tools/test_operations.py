@@ -15,7 +15,7 @@ from app.agent.state import PlannerState
 from app.agent.tools import liabilities, records
 from app.agent.tools.liabilities import add_loan
 from app.agent.tools.records import delete_record
-from app.agent.tools.results import finish_tool_call
+from app.agent.tools.wrapper import finish_tool_call
 from app.db.models import Loan, ToolOperation
 from app.db.session import SessionLocal
 from app.features.operations.repository import OperationRepository
