@@ -10,6 +10,7 @@ from langchain_core.messages import AIMessage, AIMessageChunk, AnyMessage, Human
 from langgraph.types import Command
 
 from app.agent import graph as planner
+from app.agent.budget import cost_usd
 from app.agent.context import PlannerContext
 from app.agent.tools.limits import turn_deadline
 from app.agent.tools.labels import label_for
@@ -75,6 +76,50 @@ async def save_partial(message_id: int, text: str) -> None:
         await session.commit()
 
 
+def thread_config(conversation_id: int) -> dict[str, Any]:
+
+    """The graph config for the conversation's own thread, with a step limit above the turn's own limits as a last safety net."""
+
+    return {
+        "configurable": {"thread_id": str(conversation_id)},
+        "recursion_limit": get_settings().GRAPH_RECURSION_LIMIT,
+        }
+
+
+async def turn_usage(conversation_id: int) -> tuple[dict[str, Any], str | None]:
+
+    """Read what the turn used from the graph's saved state, with its cost, and the limit it reached, if any."""
+
+    graph = getattr(planner, "planner_graph", None)
+
+    if graph is None:
+        return {}, None
+
+    try:
+        snapshot = await graph.aget_state(thread_config(conversation_id))
+
+    except Exception:
+
+        log.exception("could not read the usage of the turn on conversation %s", conversation_id)
+
+        return {}, None
+
+    budget = snapshot.values.get("budget")
+
+    if not budget:
+        return {}, None
+
+    usage = {
+        "model_calls": budget["model_calls"],
+        "tool_calls": budget["tool_calls"],
+        "input_tokens": budget["input_tokens"],
+        "output_tokens": budget["output_tokens"],
+        "cost_usd": cost_usd(budget, get_settings().CHAT_MODEL),
+        }
+
+    return usage, budget["limit"]
+
+
 async def end_run(
     run_id: int,
     conversation_id: int,
@@ -86,7 +131,12 @@ async def end_run(
     failure_message: str | None = None,
     ) -> None:
 
-    """End the run and its assistant message, and on completion add a memory extract event in the same commit."""
+    """End the run with its usage and its assistant message, noting a limit it reached, and on completion add a memory extract event."""
+
+    usage, limit = await turn_usage(conversation_id)
+
+    if failure_code is None and final_status == RunStatus.completed:
+        failure_code = limit
 
     async with SessionLocal() as session:
 
@@ -97,6 +147,7 @@ async def end_run(
             final_text=final_text,
             failure_code=failure_code,
             failure_message=failure_message,
+            usage=usage,
             )
 
         if ended and final_status == RunStatus.completed:
@@ -290,7 +341,7 @@ async def stream_events(
     async with SessionLocal() as session:
         profile = await ProfileService(session).get_profile(user_id)
 
-    config = {"configurable": {"thread_id": str(conversation_id)}}
+    config = thread_config(conversation_id)
     context = PlannerContext(
         user_id=user_id,
         profile=profile,

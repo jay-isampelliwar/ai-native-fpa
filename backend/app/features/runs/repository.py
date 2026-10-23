@@ -209,9 +209,10 @@ class RunRepository:
         failure_code: str | None = None,
         failure_message: str | None = None,
         from_statuses: Iterable[RunStatus] = ACTIVE_RUN_STATUSES,
+        usage: dict[str, Any] | None = None,
         ) -> bool:
 
-        """End the run, if it is in one of from_statuses, and its streaming assistant message with the same final status."""
+        """End the run, if it is in one of from_statuses, with its usage, and its streaming assistant message with the same status."""
 
         if final_status not in FINAL_RUN_STATUSES:
             raise ValueError(f"{final_status} is not a final run status")
@@ -225,6 +226,7 @@ class RunRepository:
                 finished_at=func.now(),
                 failure_code=failure_code,
                 failure_message=failure_message,
+                **(usage or {}),
                 )
             .returning(AgentRun.id)
             )

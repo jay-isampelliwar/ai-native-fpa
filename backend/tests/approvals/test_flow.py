@@ -94,7 +94,7 @@ async def paused(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[Paused]:
 
             expense_id = await add_rent(user_id)
 
-            monkeypatch.setattr(llm.llm_service, "with_tools", lambda tools, model=None: FakeModel(expense_id))
+            monkeypatch.setattr(llm.llm_service, "with_tools", lambda tools, model=None, max_tokens=None: FakeModel(expense_id))
 
             run = await send(user_id, None, DELETE_TEXT)
             approval = await approval_for(run.run_id)

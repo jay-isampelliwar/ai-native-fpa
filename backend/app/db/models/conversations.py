@@ -1,9 +1,10 @@
 """The table models for conversations, messages, agent runs and tool calls."""
 
 from datetime import datetime
+from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Identity, Index, Integer, String, Text, UniqueConstraint, text
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Identity, Index, Integer, Numeric, String, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -114,6 +115,11 @@ class AgentRun(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     version: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    model_calls: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    tool_calls: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    input_tokens: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    output_tokens: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    cost_usd: Mapped[Decimal | None] = mapped_column(Numeric(12, 6))
 
 
 class ToolCall(Base):

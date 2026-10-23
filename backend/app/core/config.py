@@ -39,6 +39,14 @@ class Settings(BaseSettings):
     DB_STATEMENT_TIMEOUT_MS: int = 8000
     DB_CONNECT_TIMEOUT_SECONDS: int = 5
 
+    MAX_MODEL_CALLS: int = 12
+    MAX_TOOL_CALLS: int = 20
+    MAX_OUTPUT_TOKENS_PER_CALL: int = 2000
+    MAX_OUTPUT_TOKENS_PER_TURN: int = 12000
+    WRAP_UP_MAX_TOKENS: int = 300
+    GRAPH_RECURSION_LIMIT: int = 80
+    MODEL_PRICES_USD_PER_MILLION: dict[str, tuple[float, float]] = {"gpt-4o-mini": (0.15, 0.60)}
+
 
 @lru_cache
 def get_settings() -> Settings:

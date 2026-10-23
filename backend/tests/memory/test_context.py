@@ -3,6 +3,7 @@
 from types import SimpleNamespace
 from typing import Any
 
+from app.agent.budget import new_budget
 from app.agent.context import PlannerContext
 from app.agent.nodes import MEMORY_LIMIT, load_memories, run_agent
 from app.db.enums import MemoryStatus
@@ -121,7 +122,7 @@ async def test_load_memories_reads_only_own_active_memories(seeded_run: SeededRu
 
         update = await load_memories({"messages": []}, runtime_for(seeded_run.user_id))
 
-        assert update == {"memories": ["Investment: avoids sectors: tobacco"], "skip_reply": False}
+        assert update == {"memories": ["Investment: avoids sectors: tobacco"], "skip_reply": False, "budget": new_budget()}
 
     finally:
         await delete_user_data(other_user_id)
@@ -161,7 +162,7 @@ async def test_agent_prompt_includes_memories(monkeypatch) -> None:
 
             yield
 
-    monkeypatch.setattr("app.agent.nodes.llm_service.with_tools", lambda tools: FakeModel())
+    monkeypatch.setattr("app.agent.nodes.llm_service.with_tools", lambda tools, max_tokens=None: FakeModel())
 
     state = {"messages": [], "memories": ["Investment: avoids sectors: tobacco"]}
 

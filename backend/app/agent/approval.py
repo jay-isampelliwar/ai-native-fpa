@@ -7,13 +7,14 @@ from langgraph.graph import END
 from langgraph.runtime import Runtime
 from langgraph.types import Command, Send, interrupt
 
+from app.agent.budget import TOOL_CALL_LIMIT, Budget, add_tool_calls, new_budget, over_tool_limit, with_limit
 from app.agent.context import PlannerContext
 from app.agent.nodes import AGENT_NODE, TOOLS_NODE
 from app.agent.state import PlannerState
 from app.agent.tools.labels import label_for
 from app.agent.tools.policies import needs_approval
 from app.agent.tools.records import record_fields, show_value
-from app.agent.tools.results import rejected, to_message
+from app.agent.tools.results import over_limit, rejected, to_message
 from app.db.session import SessionLocal
 from app.features.records.exceptions import RecordError
 from app.features.records.kinds import KINDS
@@ -190,13 +191,22 @@ async def ask_each(
 
 async def approval_gate(state: PlannerState, runtime: Runtime[PlannerContext]) -> Command:
 
-    """Send safe calls straight to the tools, hold risky ones until the user decides each, and skip every call on a cancel."""
+    """Refuse a batch past the tool limit, send safe calls to the tools, hold risky ones for the user, and skip all on a cancel."""
 
     message: AIMessage = state["messages"][-1]
+    budget: Budget = state.get("budget") or new_budget()
+
+    if over_tool_limit(budget, len(message.tool_calls)):
+
+        refused = [to_message(over_limit(TOOL_CALL_LIMIT), call["id"], call["name"]) for call in message.tool_calls]
+
+        return Command(goto=AGENT_NODE, update={"messages": refused, "budget": with_limit(budget, TOOL_CALL_LIMIT)})
+
+    budget = add_tool_calls(budget, len(message.tool_calls))
     risky = [call for call in message.tool_calls if needs_approval(call["name"])]
 
     if not risky:
-        return Command(goto=TOOLS_NODE)
+        return Command(goto=TOOLS_NODE, update={"budget": budget})
 
     allowed, refused, answers = await ask_each(risky, runtime.context.user_id)
 
@@ -204,11 +214,11 @@ async def approval_gate(state: PlannerState, runtime: Runtime[PlannerContext]) -
 
         cancelled = [rejected_message(call, RUN_CANCELLED, CANCELLED_TEXT) for call in message.tool_calls]
 
-        return Command(goto=END, update={"messages": cancelled, "skip_reply": True})
+        return Command(goto=END, update={"messages": cancelled, "skip_reply": True, "budget": budget})
 
     reply = all(answer.get("reply", True) for answer in answers)
 
-    update = {"messages": [rejected_message(call) for call in refused], "skip_reply": not reply}
+    update = {"messages": [rejected_message(call) for call in refused], "skip_reply": not reply, "budget": budget}
 
     if not refused:
         return Command(goto=TOOLS_NODE, update=update)

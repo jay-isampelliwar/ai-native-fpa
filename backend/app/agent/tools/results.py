@@ -100,6 +100,15 @@ def not_allowed(tool_name: str) -> ToolResult:
     return ToolResult(status="not_allowed", message=f"{tool_name} is not allowed.", error_code="no_policy")
 
 
+def over_limit(error_code: str) -> ToolResult:
+
+    """The reply already reached one of its limits, so this call never ran."""
+
+    message = "Not done: this reply reached its limit, so nothing was changed."
+
+    return ToolResult(status="not_allowed", message=message, error_code=error_code)
+
+
 def field_errors(exc: ValidationError) -> list[dict[str, str]]:
 
     """List each pydantic error as the field it is about and the problem in plain words."""

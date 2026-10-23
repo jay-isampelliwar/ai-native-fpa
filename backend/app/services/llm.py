@@ -30,7 +30,7 @@ class LLMService:
         name = model or settings.CHAT_MODEL
 
         if name not in self.models:
-            self.models[name] = ChatOpenAI(model=name, api_key=settings.OPENAI_API_KEY)
+            self.models[name] = ChatOpenAI(model=name, api_key=settings.OPENAI_API_KEY, stream_usage=True)
 
         return self.models[name]
 
@@ -38,11 +38,26 @@ class LLMService:
         self,
         tools: Sequence[BaseTool],
         model: str | None = None,
+        max_tokens: int | None = None,
         ) -> Runnable[LanguageModelInput, AIMessage]:
 
-        """Return the chat model with these tools attached, so the model can ask to call them."""
+        """Return the chat model with these tools attached, so the model can ask to call them, writing at most max_tokens."""
 
-        return self.get_model(model).bind_tools(tools)
+        if max_tokens is None:
+            return self.get_model(model).bind_tools(tools)
+
+        return self.get_model(model).bind_tools(tools, max_tokens=max_tokens)
+
+    def without_acting(
+        self,
+        tools: Sequence[BaseTool],
+        max_tokens: int,
+        model: str | None = None,
+        ) -> Runnable[LanguageModelInput, AIMessage]:
+
+        """Return the chat model that knows these tools but may not call any, writing at most max_tokens."""
+
+        return self.get_model(model).bind_tools(tools, tool_choice="none", max_tokens=max_tokens)
 
 
 llm_service = LLMService()

@@ -148,7 +148,7 @@ async def test_turn_that_runs_out_of_time_fails(seeded: SeededRun, monkeypatch: 
     """A turn longer than its budget ends failed with turn_timeout, whatever was still running."""
 
     monkeypatch.setattr(get_settings(), "TURN_TIMEOUT_SECONDS", 0.3)
-    monkeypatch.setattr(llm.llm_service, "with_tools", lambda tools, model=None: SlowModel())
+    monkeypatch.setattr(llm.llm_service, "with_tools", lambda tools, model=None, max_tokens=None: SlowModel())
 
     async with open_checkpointer() as checkpointer:
 
