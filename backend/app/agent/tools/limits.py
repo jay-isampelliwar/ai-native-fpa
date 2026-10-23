@@ -54,7 +54,7 @@ def statement_timeout_ms(context: PlannerContext | None) -> int:
 
     limit = get_settings().DB_STATEMENT_TIMEOUT_MS
 
-    return max(1, min(limit, math.floor(time_left(context) * 1000)))
+    return max(1, math.floor(min(limit, time_left(context) * 1000)))
 
 
 @asynccontextmanager

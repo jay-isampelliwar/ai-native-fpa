@@ -2,7 +2,6 @@
 
 from collections.abc import AsyncIterator
 from decimal import Decimal
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -13,7 +12,6 @@ from sqlalchemy import update
 
 from app.agent.context import PlannerContext
 from app.agent.state import PlannerState
-from app.agent.tools import liabilities, records
 from app.agent.tools.liabilities import add_loan
 from app.agent.tools.records import delete_record, list_records
 from app.agent.tools.wrapper import finish_tool_call
@@ -35,18 +33,12 @@ HOME_LOAN = {
     }
 
 
-async def no_sleep(_: float) -> None:
-
-    """Skip the demo delay some tools still have."""
-
 
 @pytest.fixture
-async def user_id(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[int]:
+async def user_id() -> AsyncIterator[int]:
 
-    """Give the test a temp user, skip the tools' demo delay, then delete everything the user owns."""
+    """Give the test a temp user, then delete everything the user owns."""
 
-    monkeypatch.setattr(liabilities, "asyncio", SimpleNamespace(sleep=no_sleep))
-    monkeypatch.setattr(records, "asyncio", SimpleNamespace(sleep=no_sleep))
 
     created = await create_user()
 
@@ -123,7 +115,7 @@ async def test_list_records_returns_items(user_id: int) -> None:
 
     listed = await call(user_id, "list_records", {"kind": "loans"})
 
-    assert empty.artifact["data"] == {"kind": "loans", "items": []}
+    assert empty.artifact["data"] == {"kind": "loans", "items": [], "total": 0, "next_cursor": None}
     assert listed.artifact["data"]["items"][0]["id"] == saved.artifact["data"]["id"]
     assert listed.artifact["data"]["items"][0]["lender"] == "HDFC"
 

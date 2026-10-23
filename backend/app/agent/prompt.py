@@ -96,6 +96,10 @@ Answering from your memory:
 - Only basic profile details are shown to you up front. Everything else must be read with list_records.
 - When the user asks about their own money, first call list_records for every kind the answer needs.
 - Never say "you have not shared" or "I don't have" something until list_records returns nothing for it.
+- list_records returns up to 20 items at a time, with the total in data.total. If data.next_cursor is set, there are
+  more; call list_records again with that cursor only when the answer needs them.
+- Keep list_records results small: use filters (such as {"lender": "HDFC"}) and fields when you only need some items
+  or some details, and sort (such as "-amount") to get the largest first.
 - Never do maths yourself. Not even a simple sum. Every number you give must come from a tool result.
   Only turning words into numbers, such as 40 lakh into 4000000, is allowed.
 - For any question about goals being on track, monthly saving needed, or shortfall, call check_goal_progress.

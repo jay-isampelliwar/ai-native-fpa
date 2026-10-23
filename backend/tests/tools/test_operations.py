@@ -1,7 +1,6 @@
 """Tests for the idempotency guard: a write runs once per tool call, inside a real conversation on the real database."""
 
 from collections.abc import AsyncIterator
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -12,7 +11,6 @@ from sqlalchemy import func, select
 
 from app.agent.context import PlannerContext
 from app.agent.state import PlannerState
-from app.agent.tools import liabilities, records
 from app.agent.tools.liabilities import add_loan
 from app.agent.tools.records import delete_record
 from app.agent.tools.wrapper import finish_tool_call
@@ -36,18 +34,12 @@ HOME_LOAN = {
 SECOND_LOAN = {**HOME_LOAN, "principal": 3000000, "outstanding": 2500000}
 
 
-async def no_sleep(_: float) -> None:
-
-    """Skip the demo delay some tools still have."""
-
 
 @pytest.fixture
-async def seeded(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[SeededRun]:
+async def seeded() -> AsyncIterator[SeededRun]:
 
-    """Give the test a temp user with a conversation and run, skip the demo delay, then delete everything the user owns."""
+    """Give the test a temp user with a conversation and run, then delete everything the user owns."""
 
-    monkeypatch.setattr(liabilities, "asyncio", SimpleNamespace(sleep=no_sleep))
-    monkeypatch.setattr(records, "asyncio", SimpleNamespace(sleep=no_sleep))
 
     user_id = await create_user()
 

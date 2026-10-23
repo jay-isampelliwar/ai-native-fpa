@@ -1,6 +1,5 @@
 """The memory tools: see what is missing, mark sections none or declined, and list, change or remove saved items."""
 
-import asyncio
 from datetime import date
 from decimal import Decimal
 from enum import Enum
@@ -8,17 +7,19 @@ from typing import Annotated, Any
 
 from langchain.tools import ToolRuntime, tool
 from langchain_core.messages import ToolMessage
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.context import PlannerContext
 from app.agent.tools.limits import tool_session
 from app.agent.tools.operations import run_write
-from app.agent.tools.results import ToolResult, ok, to_message
+from app.agent.tools.results import ToolResult, from_record_error, from_validation_error, ok, to_message
 from app.db.models.base import UserOwnedMixin
 from app.features.coverage.schemas import CoverageChoice
 from app.features.coverage.service import SECTIONS, CoverageService
+from app.features.records.exceptions import RecordError
 from app.features.records.kinds import KINDS, RecordKind
-from app.features.records.record_service import SYSTEM_COLUMNS, RecordService
+from app.features.records.record_service import SYSTEM_COLUMNS, RecordService, check_fields
 
 
 def show_value(value: Any) -> str:
@@ -94,27 +95,79 @@ async def update_data_coverage(
     return to_message(await run_write(runtime, mark), runtime.tool_call_id)
 
 
+def chosen_fields(
+    item: dict[str, Any],
+    fields: list[str] | None,
+    ) -> dict[str, Any]:
+
+    """Keep only the asked-for fields of one item, always with its id."""
+
+    if not fields:
+        return item
+
+    return {name: value for name, value in item.items() if name == "id" or name in fields}
+
+
+def page_message(
+    kind: RecordKind,
+    shown: int,
+    total: int,
+    filtered: bool,
+    ) -> str:
+
+    """Say how many items this page shows out of how many match, naming the kind as the user would."""
+
+    label = kind.value.replace("_", " ")
+
+    if total == 0:
+        return f"No {label} match these filters." if filtered else f"No {label} saved."
+
+    return f"Showing {shown} of {total} {label}."
+
+
 @tool
 async def list_records(
     runtime: ToolRuntime[PlannerContext],
     kind: Annotated[RecordKind, "Which kind of saved items to show."],
+    page_size: Annotated[int | None, "How many items to return, 1 to 50. Default 20."] = None,
+    cursor: Annotated[int | None, "next_cursor from an earlier list_records result, to get the next page."] = None,
+    filters: Annotated[
+        dict[str, Any] | None,
+        'Only items whose fields equal these values, such as {"lender": "HDFC"}.',
+        ] = None,
+    sort: Annotated[
+        str | None,
+        'A field to sort by, smallest or oldest first. Put - in front for the largest first, such as "-amount".',
+        ] = None,
+    fields: Annotated[
+        list[str] | None,
+        "Only these fields of each item, to keep the answer short. The id always comes back.",
+        ] = None,
     ) -> ToolMessage:
 
-    """Show the user's saved items of one kind, each with its id. Use it to answer questions about them, and before changing, removing or allocating."""
+    """Show the user's saved items of one kind, each with its id, a page at a time. Use it to answer questions about them, and before adding, changing, removing or allocating."""
 
-    # TODO(orb-demo): remove this delay once the thinking pill has been checked.
-    await asyncio.sleep(5)
+    try:
 
-    async with tool_session(runtime.context) as session:
-        records = await RecordService(session).list_records(runtime.context.user_id, kind)
+        if fields:
+            check_fields(kind, fields, "show")
 
-    label = KINDS[kind].label
-    items = [record_fields(record) for record in records]
+        async with tool_session(runtime.context) as session:
+            page = await RecordService(session).list_page(runtime.context.user_id, kind, page_size, cursor, filters, sort)
 
-    if not items:
-        return to_message(ok(f"No {label} saved.", {"kind": kind.value, "items": []}), runtime.tool_call_id)
+    except ValidationError as exc:
+        return to_message(from_validation_error(exc), runtime.tool_call_id)
 
-    return to_message(ok(f"{len(items)} {label} saved.", {"kind": kind.value, "items": items}), runtime.tool_call_id)
+    except RecordError as exc:
+        return to_message(from_record_error(exc), runtime.tool_call_id)
+
+    items = [chosen_fields(record_fields(record), fields) for record in page.items]
+
+    data = {"kind": kind.value, "items": items, "total": page.total, "next_cursor": page.next_cursor}
+
+    message = page_message(kind, len(items), page.total, bool(filters))
+
+    return to_message(ok(message, data), runtime.tool_call_id)
 
 
 @tool

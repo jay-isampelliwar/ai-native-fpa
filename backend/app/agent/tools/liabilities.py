@@ -1,6 +1,5 @@
 """The liability tools: add loans and credit cards."""
 
-import asyncio
 from datetime import date
 from decimal import Decimal
 from typing import Annotated
@@ -30,9 +29,6 @@ async def add_loan(
     ) -> ToolMessage:
 
     """Add one loan. Required: loan type, lender, principal, outstanding, interest rate, EMI, start date, end date."""
-
-    # TODO(orb-demo): remove this delay once the thinking pill has been checked.
-    await asyncio.sleep(5)
 
     return await save_record(
         runtime,

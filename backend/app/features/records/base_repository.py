@@ -61,15 +61,31 @@ class BaseUserRecordRepository:
 
         return await self.session.scalar(query)
 
-    async def list_for_user[ModelT: UserOwnedMixin](self, model: type[ModelT], user_id: int) -> Sequence[ModelT]:
+    async def list_page[ModelT: UserOwnedMixin](
+        self,
+        model: type[ModelT],
+        user_id: int,
+        filters: dict[str, Any],
+        sort_by: str,
+        descending: bool,
+        offset: int,
+        limit: int,
+        ) -> tuple[Sequence[ModelT], int]:
 
-        """Return all of this user's rows in the table, oldest first."""
+        """Return one page of this user's rows matching the filters, in a stable order, and how many match in all."""
 
-        query = select(model).where(model.user_id == user_id).order_by(model.id)
+        conditions = [model.user_id == user_id, *(getattr(model, name) == value for name, value in filters.items())]
+
+        total = await self.session.scalar(select(func.count()).select_from(model).where(*conditions))
+
+        column = getattr(model, sort_by)
+        order = (column.desc(), model.id.desc()) if descending else (column.asc(), model.id.asc())
+
+        query = select(model).where(*conditions).order_by(*order).offset(offset).limit(limit)
 
         result = await self.session.scalars(query)
 
-        return result.all()
+        return result.all(), total
 
     async def get_for_user[ModelT: UserOwnedMixin](
         self,
