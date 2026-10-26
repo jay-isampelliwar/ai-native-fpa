@@ -15,11 +15,13 @@ from app.agent.budget import (
     TOOL_CALL_LIMIT,
     Budget,
     add_model_call,
+    add_side_call,
     limit_reached,
     new_budget,
     with_limit,
     )
 from app.agent.context import PlannerContext
+from app.agent.intents import detect_current_intents
 from app.agent.prompt import SYSTEM_BASE_INSTRUCTIONS, TOOL_USAGE_INSTRUCTIONS
 from app.agent.state import PlannerState
 from app.agent.tools import ALL_TOOLS
@@ -50,6 +52,7 @@ WRAP_UP_NOTE = (
 
 FALLBACK_TEXT = "I've done part of this, but couldn't finish it in one go. Ask me to continue and I'll pick up from here."
 
+INTENT_NODE = "classify_intents"
 MEMORY_NODE = "load_memories"
 AGENT_NODE = "agent"
 APPROVAL_NODE = "approval_gate"
@@ -68,14 +71,23 @@ def describe_user(profile: dict[str, str]) -> str:
     return f"About the user (from your memory):\n{details}"
 
 
+async def classify_intents(state: PlannerState) -> dict:
+
+    """Find the new message's intents, and start the turn with no reply flag and a fresh budget that holds the classifier's tokens."""
+
+    intents, answer = await detect_current_intents(state["messages"])
+
+    return {"current_intents": intents, "skip_reply": False, "budget": add_side_call(new_budget(), answer)}
+
+
 async def load_memories(state: PlannerState, runtime: Runtime[PlannerContext]) -> dict:
 
-    """Read the user's newest active memories into the state, and start the turn with no reply flag and a fresh budget."""
+    """Read the user's newest active memories into the state."""
 
     async with SessionLocal() as session:
         memories = await MemoryRepository(session).active_memories(runtime.context.user_id, limit=MEMORY_LIMIT)
 
-    return {"memories": [describe_memory(memory) for memory in memories], "skip_reply": False, "budget": new_budget()}
+    return {"memories": [describe_memory(memory) for memory in memories]}
 
 
 async def stream_answer(

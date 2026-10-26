@@ -12,3 +12,4 @@ class PlannerState(MessagesState):
     memories: NotRequired[list[str]]
     skip_reply: NotRequired[bool]
     budget: NotRequired[Budget]
+    current_intents: NotRequired[list[str]]

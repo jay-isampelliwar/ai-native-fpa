@@ -1,13 +1,28 @@
-"""Shared fixtures: a temp user with one run, a throwaway Redis stream, and closing both pools after every test."""
+"""Shared fixtures: a temp user with one run, a throwaway Redis stream, no real intent model, and closing both pools after every test."""
 
 from collections.abc import AsyncIterator
 from uuid import uuid4
 
 import pytest
 
+from app.agent import intents
 from app.core.redis import close_redis, get_redis
 from app.db.session import engine
 from tests.support import SeededRun, create_user, delete_user_data, seed_run
+
+
+@pytest.fixture(autouse=True)
+def no_intent_model(monkeypatch: pytest.MonkeyPatch) -> None:
+
+    """Answer every intent model call with the fallback and no tokens, so no test calls OpenAI or counts its tokens."""
+
+    async def fallback(messages: list) -> tuple[list[str], None]:
+
+        """The fallback intents, with no raw answer."""
+
+        return list(intents.FALLBACK_INTENTS), None
+
+    monkeypatch.setattr(intents, "classify_with_model", fallback)
 
 
 @pytest.fixture(autouse=True)

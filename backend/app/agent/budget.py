@@ -51,6 +51,24 @@ def add_model_call(
         )
 
 
+def add_side_call(
+    budget: Budget,
+    answer: AIMessage | None,
+    ) -> Budget:
+
+    """Count only the tokens of a helper model call, like the intent classifier, so the agent keeps all its model calls."""
+
+    usage = (answer.usage_metadata if answer is not None else None) or {}
+
+    return Budget(
+        **{
+            **budget,
+            "input_tokens": budget["input_tokens"] + usage.get("input_tokens", 0),
+            "output_tokens": budget["output_tokens"] + usage.get("output_tokens", 0),
+            }
+        )
+
+
 def add_tool_calls(
     budget: Budget,
     count: int,

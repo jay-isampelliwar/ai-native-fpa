@@ -30,6 +30,8 @@ class Settings(BaseSettings):
     MEMORY_WORKER_RETRY_LIMIT: int = 5
     MEMORY_WORKER_CLAIM_AFTER_SECONDS: int = 300
     MEMORY_MODEL: str = "gpt-4o-mini"
+    INTENT_MODEL: str = "gpt-4o-mini"
+    INTENT_TIMEOUT_SECONDS: float = 5
 
     TURN_TIMEOUT_SECONDS: float = 90
     TOOL_TIMEOUT_SECONDS: float = 10
