@@ -7,6 +7,7 @@ from langchain_core.messages import ToolMessage
 from langgraph.prebuilt.tool_node import ToolCallRequest
 from langgraph.types import Command
 
+from app.agent.cancellation import stop_if_cancelled
 from app.agent.tools.limits import RETRYABLE_ERRORS, can_retry, classify, retry_wait, tool_timeout, worth_retrying
 from app.agent.tools.policies import policy_for
 from app.agent.tools.results import not_allowed, to_message
@@ -21,10 +22,12 @@ async def finish_tool_call(
     execute: ToolExecute,
     ) -> ToolMessage | Command:
 
-    """Run one tool call within its time limit, try again on a timeout or outage when safe, and answer with its result."""
+    """Stop if the run was asked to, then run one tool call within its time limit, try again on a timeout or outage when safe, and answer with its result."""
 
     call = request.tool_call
     context = request.runtime.context
+
+    await stop_if_cancelled(context.run_id)
 
     if policy_for(call["name"]) is None:
         return to_message(not_allowed(call["name"]), call["id"], call["name"])

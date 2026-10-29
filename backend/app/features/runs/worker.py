@@ -1,9 +1,10 @@
-"""The background work for one run: mark it running, stream and save the agent's reply and tool steps, pause for approval or end the run."""
+"""The work for one run: take it for this worker, keep its heartbeat, stream and save the reply and tool steps, then pause for approval or end the run."""
 
 import asyncio
 import logging
 import time
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager, suppress
 from typing import Any
 
 from langchain_core.messages import AIMessage, AIMessageChunk, AnyMessage, HumanMessage, ToolCall, ToolMessage
@@ -11,7 +12,9 @@ from langgraph.types import Command
 
 from app.agent import graph as planner
 from app.agent.budget import cost_usd
+from app.agent.cancellation import RunCancelled
 from app.agent.context import PlannerContext
+from app.agent.nodes import REPAIR_NODE
 from app.agent.tools.limits import turn_deadline
 from app.agent.tools.labels import label_for
 from app.db.enums import RunStatus, ToolCallStatus
@@ -30,9 +33,10 @@ from app.features.runs.events import (
     TOOL_FINISHED,
     TOOL_STARTED,
     RunEvent,
-    run_events,
     )
-from app.features.runs.repository import RunRepository
+from app.features.runs.publisher import RunPublisher
+from app.features.runs.registry import WORKER_ID
+from app.features.runs.repository import RunEventRepository, RunRepository
 
 
 log = logging.getLogger(__name__)
@@ -52,17 +56,60 @@ TOOL_EVENT_STATUS = {
     }
 
 
-async def mark_running(run_id: int) -> bool:
+async def claim_run(run_id: int, starting: bool) -> bool:
 
-    """Move the run from queued to running in its own short session, and say whether it moved."""
+    """Take the run for this worker in its own short session, a queued one when starting or a decided one when resuming, and say whether it was taken."""
 
     async with SessionLocal() as session:
 
-        moved = await RunRepository(session).set_run_status(run_id, [RunStatus.queued], RunStatus.running)
+        claimed = await RunRepository(session).claim_run(run_id, WORKER_ID, starting)
 
         await session.commit()
 
-    return moved
+    return claimed
+
+
+async def beat_forever(run_id: int) -> None:
+
+    """Refresh the run's heartbeat on a fixed interval until cancelled, so the stale check knows this worker is alive."""
+
+    interval = get_settings().RUN_HEARTBEAT_SECONDS
+
+    while True:
+
+        await asyncio.sleep(interval)
+
+        try:
+
+            async with SessionLocal() as session:
+
+                owned = await RunRepository(session).beat(run_id, WORKER_ID)
+
+                await session.commit()
+
+            if not owned:
+                log.warning("run %s is no longer held by worker %s", run_id, WORKER_ID)
+
+        except Exception:
+            log.exception("heartbeat of run %s failed", run_id)
+
+
+@asynccontextmanager
+async def heartbeat(run_id: int) -> AsyncIterator[None]:
+
+    """Keep the run's heartbeat going while the block runs."""
+
+    task = asyncio.create_task(beat_forever(run_id), name=f"heartbeat-{run_id}")
+
+    try:
+        yield
+
+    finally:
+
+        task.cancel()
+
+        with suppress(asyncio.CancelledError):
+            await task
 
 
 async def save_partial(message_id: int, text: str) -> None:
@@ -206,9 +253,10 @@ async def save_pause(
     message_id: int,
     text: str,
     request: dict[str, Any],
+    seq: int,
     ) -> ToolApproval | None:
 
-    """Move the run to awaiting approval, hold its tool call, save the reply so far and add the pending approval, in one commit."""
+    """Move the run to awaiting approval and release it, hold its tool call, save the reply so far, the pending approval and its event numbered seq, in one commit."""
 
     async with SessionLocal() as session:
 
@@ -216,6 +264,8 @@ async def save_pause(
 
         if not await runs.set_run_status(run_id, [RunStatus.running], RunStatus.awaiting_approval):
             return None
+
+        await runs.release_run(run_id)
 
         await runs.save_assistant_text(message_id, text)
 
@@ -235,6 +285,10 @@ async def save_pause(
             request["args"],
             request["preview"],
             )
+
+        event = approval_event(approval)
+
+        await RunEventRepository(session).add(run_id, seq, event.name, event.data)
 
         await session.commit()
 
@@ -298,11 +352,14 @@ def approval_event(approval: ToolApproval) -> RunEvent:
 
 def update_messages(update: dict[str, Any]) -> list[AnyMessage]:
 
-    """Return every message the nodes in one graph update added."""
+    """Return every message the nodes in one graph update added, leaving out the repair's rewrite of old history."""
 
     messages = []
 
-    for node_update in update.values():
+    for node, node_update in update.items():
+
+        if node == REPAIR_NODE:
+            continue
 
         if isinstance(node_update, dict):
             messages.extend(node_update.get("messages", []))
@@ -398,6 +455,7 @@ async def drive_run(
 
     """Stream and publish the reply within the turn's time budget, saving it every second, then pause, or end it as final_status, failed or cancelled."""
 
+    publisher = await RunPublisher(run_id).open()
     last_saved_at = time.monotonic()
     deadline = turn_deadline()
     turn = asyncio.timeout(get_settings().TURN_TIMEOUT_SECONDS)
@@ -413,19 +471,23 @@ async def drive_run(
 
                 if event.name == APPROVAL_REQUIRED:
 
-                    approval = await save_pause(run_id, conversation_id, user_id, assistant_message_id, reply, event.data)
+                    await publisher.flush()
+
+                    seq = publisher.seq + 1
+
+                    approval = await save_pause(run_id, conversation_id, user_id, assistant_message_id, reply, event.data, seq)
 
                     if approval is None:
                         raise asyncio.CancelledError
 
-                    run_events.publish(run_id, approval_event(approval))
+                    await publisher.send_saved(approval_event(approval), seq)
 
                     return
 
                 if event.name == ASSISTANT_DELTA:
                     reply += event.data["text"]
 
-                run_events.publish(run_id, event)
+                await publisher.emit(event)
 
                 if time.monotonic() - last_saved_at >= SAVE_INTERVAL_SECONDS:
 
@@ -433,13 +495,23 @@ async def drive_run(
 
                     last_saved_at = time.monotonic()
 
+    except RunCancelled:
+
+        log.info("run %s stopped on its saved cancel on conversation %s", run_id, conversation_id)
+
+        await end_run(run_id, conversation_id, user_id, assistant_message_id, RunStatus.cancelled, reply)
+
+        await publisher.emit(RunEvent(RUN_CANCELLED, {"text": reply}))
+
+        return
+
     except asyncio.CancelledError:
 
         log.info("run %s cancelled on conversation %s", run_id, conversation_id)
 
         await end_run(run_id, conversation_id, user_id, assistant_message_id, RunStatus.cancelled, reply)
 
-        run_events.publish(run_id, RunEvent(RUN_CANCELLED, {"text": reply}))
+        await publisher.emit(RunEvent(RUN_CANCELLED, {"text": reply}))
 
         raise
 
@@ -463,13 +535,47 @@ async def drive_run(
             failure_message=str(exc)[:1000] or failure_text,
             )
 
-        run_events.publish(run_id, RunEvent(RUN_FAILED, {"message": failure_text}))
+        await publisher.emit(RunEvent(RUN_FAILED, {"message": failure_text}))
 
         return
 
     await end_run(run_id, conversation_id, user_id, assistant_message_id, final_status, reply)
 
-    run_events.publish(run_id, RunEvent(FINAL_EVENT_FOR_STATUS[final_status], {"text": reply}))
+    await publisher.emit(RunEvent(FINAL_EVENT_FOR_STATUS[final_status], {"text": reply}))
+
+
+async def start_claimed(
+    run_id: int,
+    conversation_id: int,
+    user_id: int,
+    assistant_message_id: int,
+    user_text: str,
+    ) -> None:
+
+    """Drive a run this worker already took from the user's new message, with its heartbeat going."""
+
+    graph_input = {"messages": [HumanMessage(content=user_text)]}
+
+    async with heartbeat(run_id):
+        await drive_run(run_id, conversation_id, user_id, assistant_message_id, graph_input, "")
+
+
+async def resume_claimed(
+    run_id: int,
+    conversation_id: int,
+    user_id: int,
+    assistant_message_id: int,
+    answer: dict[str, Any],
+    final_status: RunStatus = RunStatus.completed,
+    ) -> None:
+
+    """Carry on a decided run this worker already took, passing the answer back to the paused approval gate, with its heartbeat going."""
+
+    reply = await saved_reply(run_id)
+    graph_input = Command(resume=answer)
+
+    async with heartbeat(run_id):
+        await drive_run(run_id, conversation_id, user_id, assistant_message_id, graph_input, reply, final_status)
 
 
 async def execute_run(
@@ -480,14 +586,12 @@ async def execute_run(
     user_text: str,
     ) -> None:
 
-    """Take a queued run and drive the graph from the user's new message."""
+    """Take a queued run for this worker and drive the graph from the user's new message."""
 
-    if not await mark_running(run_id):
+    if not await claim_run(run_id, starting=True):
         return
 
-    graph_input = {"messages": [HumanMessage(content=user_text)]}
-
-    await drive_run(run_id, conversation_id, user_id, assistant_message_id, graph_input, "")
+    await start_claimed(run_id, conversation_id, user_id, assistant_message_id, user_text)
 
 
 async def resume_run(
@@ -499,19 +603,18 @@ async def resume_run(
     final_status: RunStatus = RunStatus.completed,
     ) -> None:
 
-    """Carry on a run that was decided, passing the answer back to the paused approval gate."""
+    """Take a decided run for this worker and carry it on from the paused approval gate."""
 
-    reply = await saved_reply(run_id)
-    graph_input = Command(resume=answer)
+    if not await claim_run(run_id, starting=False):
+        return
 
-    await drive_run(run_id, conversation_id, user_id, assistant_message_id, graph_input, reply, final_status)
+    await resume_claimed(run_id, conversation_id, user_id, assistant_message_id, answer, final_status)
 
 
 async def fail_orphaned_runs() -> list[int]:
 
-    """On startup, fail runs a previous process left active, since no task here is running them."""
+    """On startup of an inline API, fail runs a previous process left active, since no task here is running them."""
 
-    # TODO(runs): with several workers, only fail runs whose heartbeat is stale, or a restart kills live runs elsewhere.
     # TODO(idempotency): resuming these runs from the checkpoint instead is safe; write tools replay from tool_operations.
     async with SessionLocal() as session:
 

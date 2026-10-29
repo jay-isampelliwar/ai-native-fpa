@@ -5,8 +5,10 @@ from datetime import date
 import logging
 
 from langchain_core.language_models import LanguageModelInput
-from langchain_core.messages import AIMessage, AIMessageChunk, AnyMessage, SystemMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, AnyMessage, RemoveMessage, SystemMessage
+from langchain_core.tools import BaseTool
 from langchain_core.runnables import Runnable
+from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from langgraph.runtime import Runtime
 
 from app.agent.budget import (
@@ -20,11 +22,13 @@ from app.agent.budget import (
     new_budget,
     with_limit,
     )
+from app.agent.cancellation import stop_if_cancelled
 from app.agent.context import PlannerContext
 from app.agent.intents import detect_current_intents
 from app.agent.prompt import SYSTEM_BASE_INSTRUCTIONS, TOOL_USAGE_INSTRUCTIONS
+from app.agent.repair import repaired_history
 from app.agent.state import PlannerState
-from app.agent.tools import ALL_TOOLS
+from app.agent.tools.selection import tools_for
 from app.db.session import SessionLocal
 from app.features.memory.context import describe_memories, describe_memory
 from app.features.memory.repository import MemoryRepository
@@ -52,6 +56,7 @@ WRAP_UP_NOTE = (
 
 FALLBACK_TEXT = "I've done part of this, but couldn't finish it in one go. Ask me to continue and I'll pick up from here."
 
+REPAIR_NODE = "repair_history"
 INTENT_NODE = "classify_intents"
 MEMORY_NODE = "load_memories"
 AGENT_NODE = "agent"
@@ -69,6 +74,20 @@ def describe_user(profile: dict[str, str]) -> str:
     details = "\n".join(f"- {name}: {value}" for name, value in profile.items())
 
     return f"About the user (from your memory):\n{details}"
+
+
+async def repair_history(state: PlannerState) -> dict:
+
+    """Give every unanswered tool call left by a stopped turn a stopped reply, rewriting the saved history only when one is missing."""
+
+    fixed = repaired_history(state["messages"])
+
+    if fixed is None:
+        return {}
+
+    log.warning("repaired %s unanswered tool calls in the history", len(fixed) - len(state["messages"]))
+
+    return {"messages": [RemoveMessage(id=REMOVE_ALL_MESSAGES), *fixed]}
 
 
 async def classify_intents(state: PlannerState) -> dict:
@@ -109,12 +128,13 @@ async def stream_answer(
 async def wrap_up(
     messages: list[AnyMessage],
     limit: str,
+    tools: list[BaseTool],
     ) -> AIMessage:
 
     """Ask for a short closing reply that says what was done and what is left, with no tool allowed, or fall back to a fixed line."""
 
     note = SystemMessage(WRAP_UP_NOTE.format(reason=LIMIT_REASONS[limit]))
-    model = llm_service.without_acting(ALL_TOOLS, get_settings().WRAP_UP_MAX_TOKENS)
+    model = llm_service.without_acting(tools, get_settings().WRAP_UP_MAX_TOKENS)
 
     try:
         answer = await stream_answer(model, [*messages, note])
@@ -133,7 +153,9 @@ async def wrap_up(
 
 async def run_agent(state: PlannerState, runtime: Runtime[PlannerContext]) -> dict:
 
-    """Stream one model answer or tool request, or a closing reply once the turn has reached a limit, and count it."""
+    """Stop if the run was asked to, then stream one model answer or tool request with the tools the turn's intents need, or a closing reply at a limit, and count it."""
+
+    await stop_if_cancelled(runtime.context.run_id)
 
     system = (
         f"{SYSTEM_PROMPT}\n{describe_user(runtime.context.profile)}\n"
@@ -144,16 +166,17 @@ async def run_agent(state: PlannerState, runtime: Runtime[PlannerContext]) -> di
 
     messages = [SystemMessage(system), SystemMessage(memory), *state["messages"]]
     budget: Budget = state.get("budget") or new_budget()
+    tools = tools_for(state.get("current_intents", []))
 
     limit = limit_reached(budget)
 
     if limit is not None:
 
-        answer = await wrap_up(messages, limit)
+        answer = await wrap_up(messages, limit, tools)
 
         return {"messages": [answer], "budget": with_limit(add_model_call(budget, answer), limit)}
 
-    model = llm_service.with_tools(ALL_TOOLS, max_tokens=get_settings().MAX_OUTPUT_TOKENS_PER_CALL)
+    model = llm_service.with_tools(tools, max_tokens=get_settings().MAX_OUTPUT_TOKENS_PER_CALL)
 
     answer = await stream_answer(model, messages)
 

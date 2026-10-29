@@ -86,6 +86,16 @@ class AgentRun(Base):
         Index("idx_agent_runs_status", "status"),
         Index("idx_agent_runs_worker_status", "worker_id", "status"),
         Index(
+            "idx_agent_runs_heartbeat",
+            "heartbeat_at",
+            postgresql_where=text("status IN ('running', 'cancel_requested')"),
+            ),
+        Index(
+            "idx_agent_runs_queued_unsent",
+            "created_at",
+            postgresql_where=text("status = 'queued' AND enqueued_at IS NULL"),
+            ),
+        Index(
             "uq_agent_runs_one_active",
             "conversation_id",
             unique=True,
@@ -114,12 +124,37 @@ class AgentRun(Base):
     cancel_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    enqueued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     version: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     model_calls: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     tool_calls: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     input_tokens: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     output_tokens: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     cost_usd: Mapped[Decimal | None] = mapped_column(Numeric(12, 6))
+
+
+class RunEventRecord(Base):
+
+    """One saved event of a run, numbered in order, so a listener that reconnects can catch up."""
+
+    __tablename__ = "run_events"
+
+    __table_args__ = (
+        UniqueConstraint("run_id", "seq", name="uq_run_events_run_seq"),
+        Index("idx_run_events_created", "created_at"),
+        )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    run_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("agent_runs.id", ondelete="CASCADE"),
+        nullable=False,
+        )
+    seq: Mapped[int] = mapped_column(Integer, nullable=False)
+    event_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = created_at_column()
 
 
 class ToolCall(Base):

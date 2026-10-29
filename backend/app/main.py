@@ -1,4 +1,4 @@
-"""The FastAPI app: builds the planner graph on startup and mounts the API routes."""
+"""The FastAPI app: mounts the API routes and, when runs execute inline, builds the planner graph on startup."""
 
 import asyncio
 from contextlib import asynccontextmanager, suppress
@@ -12,31 +12,48 @@ from app.core.redis import close_redis
 from app.db.session import engine
 from app.features.approvals.sweeper import sweep_forever
 from app.features.memory.worker import consume_forever
+from app.features.runs.jobs import queued_mode
 from app.features.runs.worker import fail_orphaned_runs
+
+
+async def stop(tasks: list[asyncio.Task]) -> None:
+
+    """Cancel each background task and wait for it to finish."""
+
+    for task in tasks:
+
+        task.cancel()
+
+        with suppress(asyncio.CancelledError):
+            await task
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
 
-    """Compile the graph, fail runs a crashed process left active, start the memory worker and approval sweep, then stop both and close every pool."""
+    """Start the memory worker, and when running runs inline also compile the graph, fail runs a crashed process left active and start the approval sweep."""
 
-    async with open_checkpointer() as checkpointer:
+    tasks = [asyncio.create_task(consume_forever(), name="memory-worker")]
 
-        planner.planner_graph = planner.build_planner_graph(checkpointer)
-
-        await fail_orphaned_runs()
-
-        memory_task = asyncio.create_task(consume_forever(), name="memory-worker")
-        sweep_task = asyncio.create_task(sweep_forever(), name="approval-sweep")
+    if queued_mode():
 
         yield
 
-        for task in (memory_task, sweep_task):
+        await stop(tasks)
 
-            task.cancel()
+    else:
 
-            with suppress(asyncio.CancelledError):
-                await task
+        async with open_checkpointer() as checkpointer:
+
+            planner.planner_graph = planner.build_planner_graph(checkpointer)
+
+            await fail_orphaned_runs()
+
+            tasks.append(asyncio.create_task(sweep_forever(), name="approval-sweep"))
+
+            yield
+
+            await stop(tasks)
 
     await close_redis()
     await engine.dispose()

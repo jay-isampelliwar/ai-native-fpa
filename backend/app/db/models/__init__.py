@@ -4,7 +4,7 @@ from app.db.models.approvals import ToolApproval
 from app.db.models.assets import BankAccount, FixedDeposit, PhysicalAsset, RetirementAccount
 from app.db.models.cash_flow import Expense, IncomeSource, Transaction
 from app.db.models.coverage import DataCoverage
-from app.db.models.conversations import AgentRun, Conversation, Message, ToolCall
+from app.db.models.conversations import AgentRun, Conversation, Message, RunEventRecord, ToolCall
 from app.db.models.liabilities import CreditCard, Loan
 from app.db.models.memory import MemoryEvent, MemoryItem
 from app.db.models.operations import ToolOperation
@@ -35,6 +35,7 @@ __all__ = [
     "OutboxEvent",
     "PhysicalAsset",
     "RetirementAccount",
+    "RunEventRecord",
     "TaxProfile",
     "ToolApproval",
     "ToolCall",

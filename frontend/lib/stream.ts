@@ -19,6 +19,11 @@
  * `approval.required` means the run paused on a risky tool, such as a delete, and the stream ends
  * there. The run carries on only after `runs.decide`, and its events are then read again with
  * `followRun`. Opening a paused chat sends the same event at once, so the card comes back.
+ *
+ * Every event carries an `id:`, its number in the run. If the connection drops before the run ends
+ * or pauses, `followRun` connects again with `?after=` set to the last number it saw. The server then
+ * sends the steps it missed and a snapshot of the whole reply, and carries on live from there. Lines
+ * starting with `:` are keepalives and are skipped.
  */
 
 import { reportUnauthorized } from "@/lib/api";
@@ -42,6 +47,29 @@ export interface StreamHandlers {
 }
 
 const POST_ATTEMPTS = 2;
+
+const RECONNECT_ATTEMPTS = 5;
+
+const RECONNECT_DELAY_MS = 1000;
+
+const STREAM_END_EVENTS = new Set(["approval.required", "run.completed", "run.failed", "run.cancelled"]);
+
+/** What one event block said: its number, if any, and whether it ends the stream. */
+interface Dispatched {
+  id: string | null;
+  ended: boolean;
+}
+
+function wait(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+
+    signal?.addEventListener("abort", () => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+}
 
 async function createRun(
   conversationId: number | null,
@@ -104,7 +132,7 @@ export async function streamMessage(
 }
 
 /**
- * Read one run's events until it ends.
+ * Read one run's events until it ends or pauses, connecting again after a dropped connection.
  *
  * Also used on its own when a past chat is opened while its reply is still being written: the
  * first event is then a snapshot of the text so far, and the deltas carry on from there.
@@ -114,36 +142,72 @@ export async function followRun(
   handlers: StreamHandlers,
   signal?: AbortSignal,
 ): Promise<void> {
-  const response = await fetch(`/api/runs/${runId}/events`, { signal });
-
-  if (!response.ok || !response.body) {
-    handlers.onError(response.ok ? "The planner could not be reached." : describeFailure(response.status));
-    return;
-  }
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-
-  let buffer = "";
+  let lastEventId: string | null = null;
+  let failures = 0;
 
   while (true) {
-    const { done, value } = await reader.read();
+    const query = lastEventId ? `?after=${encodeURIComponent(lastEventId)}` : "";
 
-    if (done) break;
+    let ended = false;
+    let progressed = false;
 
-    buffer += decoder.decode(value, { stream: true });
+    try {
+      const response = await fetch(`/api/runs/${runId}/events${query}`, { signal });
 
-    const chunks = buffer.split("\n\n");
+      if (!response.ok || !response.body) {
+        handlers.onError(response.ok ? "The planner could not be reached." : describeFailure(response.status));
+        return;
+      }
 
-    buffer = chunks.pop() ?? "";
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
 
-    for (const chunk of chunks) {
-      dispatch(chunk, handlers);
+      let buffer = "";
+
+      const handle = (chunk: string) => {
+        const result = dispatch(chunk, handlers);
+
+        if (result.id !== null) {
+          lastEventId = result.id;
+          progressed = true;
+        }
+
+        ended = ended || result.ended;
+      };
+
+      while (!ended) {
+        const { done, value } = await reader.read();
+
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+
+        const chunks = buffer.split("\n\n");
+
+        buffer = chunks.pop() ?? "";
+
+        for (const chunk of chunks) {
+          handle(chunk);
+        }
+      }
+
+      if (!ended && buffer.trim()) {
+        handle(buffer);
+      }
+    } catch {
+      if (signal?.aborted) return;
     }
-  }
 
-  if (buffer.trim()) {
-    dispatch(buffer, handlers);
+    if (ended || signal?.aborted) return;
+
+    failures = progressed ? 1 : failures + 1;
+
+    if (failures > RECONNECT_ATTEMPTS) {
+      handlers.onError("The connection to the planner was lost. Please refresh to see the reply.");
+      return;
+    }
+
+    await wait(RECONNECT_DELAY_MS, signal);
   }
 }
 
@@ -155,14 +219,16 @@ function finishedStatus(status: string | undefined): ToolStep["status"] {
   return "ok";
 }
 
-function dispatch(chunk: string, handlers: StreamHandlers): void {
+function dispatch(chunk: string, handlers: StreamHandlers): Dispatched {
   const lines = chunk.split("\n");
 
+  const idLine = lines.find((line) => line.startsWith("id:"));
   const nameLine = lines.find((line) => line.startsWith("event:"));
   const dataLine = lines.find((line) => line.startsWith("data:"));
 
-  if (!nameLine || !dataLine) return;
+  if (!nameLine || !dataLine) return { id: null, ended: false };
 
+  const id = idLine ? idLine.slice("id:".length).trim() : null;
   const name = nameLine.slice("event:".length).trim();
   const payload = dataLine.slice("data:".length).trim();
 
@@ -198,5 +264,8 @@ function dispatch(chunk: string, handlers: StreamHandlers): void {
     }
   } catch {
     handlers.onError("The planner sent a response that could not be read.");
+    return { id, ended: true };
   }
+
+  return { id, ended: STREAM_END_EVENTS.has(name) };
 }

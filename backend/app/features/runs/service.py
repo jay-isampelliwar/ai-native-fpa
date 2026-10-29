@@ -7,12 +7,13 @@ from app.db.models import Conversation
 from app.db.enums import RunStatus
 from app.features.approvals.service import CANCELLED, NEW_MESSAGE, ApprovalService
 from app.features.conversations.titles import title_from
-from app.features.runs.events import RUN_CANCELLED, RunEvent, run_events
+from app.features.runs.events import RUN_CANCELLED, RunEvent
 from app.features.runs.exceptions import ConversationNotFound, RunAlreadyActive, RunNotFound
+from app.features.runs.jobs import START, RunJob, submit
+from app.features.runs.publisher import record_event, signal_cancel
 from app.features.runs.registry import run_registry
 from app.features.runs.repository import RunRepository
 from app.features.runs.schemas import CreateRunRequest, RunResponse
-from app.features.runs.worker import execute_run
 
 
 
@@ -89,10 +90,7 @@ class RunService:
 
             return await self.recover_from_conflict(exc, conversation_id, body.client_request_id)
 
-        run_registry.start(
-            run.id,
-            execute_run(run.id, conversation_id, user_id, assistant_message.id, body.message),
-            )
+        await submit(RunJob(START, run.id, conversation_id, user_id, assistant_message.id, user_text=body.message))
 
         return RunResponse.from_run(run)
 
@@ -125,7 +123,10 @@ class RunService:
         await self.session.refresh(run)
 
         if moved or run.status == RunStatus.cancel_requested:
+
             run_registry.cancel(run_id)
+
+            await signal_cancel(run_id)
 
         return RunResponse.from_run(run)
 
@@ -149,7 +150,7 @@ class RunService:
 
         run_registry.cancel(run_id)
 
-        run_events.publish(run_id, RunEvent(RUN_CANCELLED, {"text": ""}))
+        await record_event(run_id, RunEvent(RUN_CANCELLED, {"text": ""}))
 
         return True
 

@@ -1,24 +1,19 @@
 """The runs routes: start a run for one user message, stream its events, cancel it, and decide its approvals."""
 
-from collections.abc import AsyncIterator
-
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user_id
-from app.db.enums import RunStatus
 from app.db.session import get_session
 from app.features.approvals.exceptions import ApprovalExpired, ApprovalNotFound, ApprovalNotPending
-from app.features.approvals.repository import ApprovalRepository
 from app.features.approvals.schemas import ApprovalDecisionRequest
 from app.features.approvals.service import ApprovalService
-from app.features.runs.events import FINAL_EVENT_FOR_STATUS, RunEvent, run_events
 from app.features.runs.exceptions import ConversationNotFound, RunAlreadyActive, RunNotFound
 from app.features.runs.repository import RunRepository
 from app.features.runs.schemas import CreateRunRequest, RunResponse
 from app.features.runs.service import RunService
-from app.features.runs.worker import approval_event
+from app.features.runs.stream import follow
 
 
 router = APIRouter(prefix="/runs", tags=["runs"])
@@ -26,19 +21,14 @@ router = APIRouter(prefix="/runs", tags=["runs"])
 SSE_HEADERS = {"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"}
 
 
-async def as_sse(events: AsyncIterator[RunEvent]) -> AsyncIterator[str]:
+def last_seen(last_event_id: str | None) -> int:
 
-    """Turn run events into server-sent event text."""
+    """Read the number of the last event the listener saw from its Last-Event-ID header, or 0 when it has none."""
 
-    async for event in events:
-        yield event.to_sse()
+    if last_event_id is None or not last_event_id.isdigit():
+        return 0
 
-
-async def one_event(event: RunEvent) -> AsyncIterator[RunEvent]:
-
-    """Yield a single event, for a run that has already ended."""
-
-    yield event
+    return int(last_event_id)
 
 
 @router.post("", status_code=status.HTTP_202_ACCEPTED)
@@ -63,51 +53,20 @@ async def create_run(
 @router.get("/{run_id}/events")
 async def stream_run_events(
     run_id: int,
+    after: int | None = Query(None, ge=0),
+    last_event_id: str | None = Header(None),
     session: AsyncSession = Depends(get_session),
     user_id: int = Depends(get_current_user_id),
     ) -> StreamingResponse:
 
-    """Stream the run's events as server-sent events until it ends or pauses, sending a paused run's approval card at once."""
+    """Stream the run's events after the last one the listener saw, given as Last-Event-ID or ?after=, until it ends or pauses."""
 
-    queue = run_events.subscribe(run_id)
-
-    repo = RunRepository(session)
-
-    run = await repo.get_run_for_user(run_id, user_id)
-
-    if run is None:
-
-        run_events.stop_listening(run_id, queue)
-
+    if await RunRepository(session).get_run_for_user(run_id, user_id) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Run not found") from RunNotFound(run_id)
 
-    final_event = FINAL_EVENT_FOR_STATUS.get(run.status)
+    seen = after if after is not None else last_seen(last_event_id)
 
-    approval = None
-
-    if run.status == RunStatus.awaiting_approval:
-        approval = await ApprovalRepository(session).pending_for_run(run_id)
-
-    if approval is not None:
-
-        run_events.stop_listening(run_id, queue)
-
-        events = one_event(approval_event(approval))
-
-    elif final_event is not None:
-
-        run_events.stop_listening(run_id, queue)
-
-        message = await repo.get_assistant_message(run_id)
-
-        text = message.content.get("text", "") if message is not None else ""
-
-        events = one_event(RunEvent(final_event, {"status": run.status.value, "text": text}))
-
-    else:
-        events = run_events.drain(run_id, queue)
-
-    return StreamingResponse(as_sse(events), media_type="text/event-stream", headers=SSE_HEADERS)
+    return StreamingResponse(follow(run_id, seen), media_type="text/event-stream", headers=SSE_HEADERS)
 
 
 @router.post("/{run_id}/cancel", status_code=status.HTTP_202_ACCEPTED)

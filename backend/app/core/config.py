@@ -1,6 +1,7 @@
 """Settings read from the environment and the .env file."""
 
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -29,6 +30,17 @@ class Settings(BaseSettings):
     MEMORY_WORKER_BATCH_SIZE: int = 10
     MEMORY_WORKER_RETRY_LIMIT: int = 5
     MEMORY_WORKER_CLAIM_AFTER_SECONDS: int = 300
+    REDIS_RUN_STREAM: str = "ai-native-fpa:runs"
+    REDIS_RUN_CONSUMER_GROUP: str = "agent-workers"
+    REDIS_RUN_CHANNEL_PREFIX: str = "ai-native-fpa:run"
+    RUN_EXECUTION: Literal["inline", "queue"] = "inline"
+    RUN_WORKER_CONCURRENCY: int = 8
+    RUN_MAX_ATTEMPTS: int = 3
+    RUN_HEARTBEAT_SECONDS: int = 10
+    RUN_STALE_AFTER_SECONDS: int = 60
+    RUN_RESEND_AFTER_SECONDS: int = 30
+    RUN_CLAIM_AFTER_SECONDS: int = 30
+    RUN_EVENTS_KEEP_HOURS: int = 24
     MEMORY_MODEL: str = "gpt-4o-mini"
     INTENT_MODEL: str = "gpt-4o-mini"
     INTENT_TIMEOUT_SECONDS: float = 5

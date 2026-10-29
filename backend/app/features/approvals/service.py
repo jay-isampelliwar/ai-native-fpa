@@ -1,9 +1,7 @@
 """Business rules for deciding an approval and carrying on its paused run, whether the user, a new message, a cancel or the clock decided it."""
 
-from collections.abc import Coroutine
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,10 +11,9 @@ from app.db.models import ToolApproval, ToolCall
 from app.features.approvals.exceptions import ApprovalExpired, ApprovalNotFound, ApprovalNotPending
 from app.features.approvals.repository import ApprovalRepository
 from app.features.approvals.schemas import ApprovalChoice
-from app.features.runs.registry import run_registry
+from app.features.runs.jobs import RESUME, RunJob, run_and_wait, submit
 from app.features.runs.repository import RunRepository
 from app.features.runs.schemas import RunResponse
-from app.features.runs.worker import resume_run
 
 
 @dataclass(frozen=True)
@@ -76,10 +73,10 @@ class ApprovalService:
 
             raise ApprovalExpired(approval_id)
 
-        resume = await self.decide(approval, USER_CLOSINGS[choice])
+        job = await self.decide(approval, USER_CLOSINGS[choice])
 
-        if resume is not None:
-            run_registry.start(run_id, resume)
+        if job is not None:
+            await submit(job)
 
         run = await self.runs.get_run_for_user(run_id, user_id)
 
@@ -100,24 +97,27 @@ class ApprovalService:
 
         """Decide a locked approval without the user and wait for its run to end, so nothing else starts on the thread first."""
 
-        resume = await self.decide(approval, closing)
+        job = await self.decide(approval, closing)
 
-        if resume is not None:
-            await resume
+        if job is not None:
+            await run_and_wait(job)
 
     async def decide(
         self,
         approval: ToolApproval,
         closing: Closing,
-        ) -> Coroutine[Any, Any, None] | None:
+        ) -> RunJob | None:
 
-        """Commit the decision with the run back to running, and return the resume work, or None if the run was no longer paused."""
+        """Commit the decision with the run back to running and unowned, and return the resume job, or None if the run was no longer paused."""
 
         await self.approvals.decide(approval, closing.status, {"decision": closing.decision, "reason": closing.reason})
 
         call = await self.session.get(ToolCall, approval.tool_call_id)
 
         moved = await self.runs.set_run_status(approval.run_id, [RunStatus.awaiting_approval], RunStatus.running)
+
+        if moved:
+            await self.runs.prepare_resume(approval.run_id)
 
         if moved and closing.status == ApprovalStatus.approved:
 
@@ -142,11 +142,12 @@ class ApprovalService:
             "reply": closing.reply,
             }
 
-        return resume_run(
+        return RunJob(
+            RESUME,
             approval.run_id,
             approval.conversation_id,
             approval.user_id,
             message.id,
-            answer,
-            closing.final_status,
+            answer=answer,
+            final_status=closing.final_status.value,
             )

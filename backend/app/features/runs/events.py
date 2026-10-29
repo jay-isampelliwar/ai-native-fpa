@@ -1,11 +1,12 @@
-"""The in-process channel that carries one run's events from its worker task to every listener."""
+"""The events of one run, their names, and the Redis channels that carry them and cancel requests between processes."""
 
-import asyncio
 import json
-from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any
 
+import orjson
+
+from app.core.config import get_settings
 from app.db.enums import RunStatus
 
 
@@ -22,8 +23,6 @@ FINAL_EVENTS = {RUN_COMPLETED, RUN_FAILED, RUN_CANCELLED}
 
 STREAM_END_EVENTS = FINAL_EVENTS | {APPROVAL_REQUIRED}
 
-TOOL_EVENTS = {TOOL_STARTED, TOOL_FINISHED}
-
 FINAL_EVENT_FOR_STATUS = {
     RunStatus.completed: RUN_COMPLETED,
     RunStatus.failed: RUN_FAILED,
@@ -34,106 +33,59 @@ FINAL_EVENT_FOR_STATUS = {
 @dataclass(frozen=True)
 class RunEvent:
 
-    """One thing that happened in a run, with a name the frontend switches on and its data."""
+    """One thing that happened in a run, with a name the frontend switches on, its data, and its number once saved."""
 
     name: str
     data: dict[str, Any] = field(default_factory=dict)
+    seq: int | None = None
 
     def to_sse(self) -> str:
 
-        """Format the event as one server-sent event block."""
+        """Format the event as one server-sent event block, with its number as the id when it has one."""
 
-        return f"event: {self.name}\ndata: {json.dumps(self.data)}\n\n"
+        event_id = f"id: {self.seq}\n" if self.seq is not None else ""
 
+        return f"{event_id}event: {self.name}\ndata: {json.dumps(self.data)}\n\n"
 
-class RunEvents:
+    def to_wire(self) -> str:
 
-    """Keeps one queue per listener per run, copies every event into each, and remembers each live run's text and tool steps so far."""
+        """Encode the event for a Redis channel."""
 
-    def __init__(self) -> None:
+        return orjson.dumps({"seq": self.seq, "name": self.name, "data": self.data}).decode()
 
-        """Start with no listeners, no live text and no live tool steps."""
+    @classmethod
+    def from_wire(cls, text: str) -> "RunEvent":
 
-        self.listeners: dict[int, set[asyncio.Queue[RunEvent]]] = {}
-        self.texts: dict[int, str] = {}
-        self.tools: dict[int, dict[str, RunEvent]] = {}
+        """Decode an event read from a Redis channel."""
 
-    def publish(self, run_id: int, event: RunEvent) -> None:
+        fields = orjson.loads(text)
 
-        """Update the run's text and tool steps so far, then hand the event to everyone listening, without waiting on any of them."""
-
-        if event.name == ASSISTANT_DELTA:
-            self.texts[run_id] = self.texts.get(run_id, "") + event.data["text"]
-
-        if event.name in TOOL_EVENTS:
-            self.tools.setdefault(run_id, {})[event.data["id"]] = event
-
-        if event.name in FINAL_EVENTS:
-            self.texts.pop(run_id, None)
-            self.tools.pop(run_id, None)
-
-        for queue in self.listeners.get(run_id, set()):
-            queue.put_nowait(event)
-
-    def subscribe(self, run_id: int) -> asyncio.Queue[RunEvent]:
-
-        """Open an inbox for this run, seeded with each tool's latest step and the text so far, so a late listener misses nothing and sees nothing twice."""
-
-        queue: asyncio.Queue[RunEvent] = asyncio.Queue()
-
-        for tool_event in self.tools.get(run_id, {}).values():
-            queue.put_nowait(tool_event)
-
-        text_so_far = self.texts.get(run_id)
-
-        if text_so_far:
-            queue.put_nowait(RunEvent(ASSISTANT_SNAPSHOT, {"text": text_so_far}))
-
-        self.listeners.setdefault(run_id, set()).add(queue)
-
-        return queue
-
-    async def drain(self, run_id: int, queue: asyncio.Queue[RunEvent]) -> AsyncIterator[RunEvent]:
-
-        """Yield events from an open inbox, stop after the final one or a pause for approval, and always close the inbox."""
-
-        try:
-
-            while True:
-
-                event = await queue.get()
-
-                yield event
-
-                if event.name in STREAM_END_EVENTS:
-                    return
-
-        finally:
-
-            self.stop_listening(run_id, queue)
-
-    async def listen(self, run_id: int) -> AsyncIterator[RunEvent]:
-
-        """Subscribe and yield this run's events until the final one."""
-
-        queue = self.subscribe(run_id)
-
-        async for event in self.drain(run_id, queue):
-            yield event
-
-    def stop_listening(self, run_id: int, queue: asyncio.Queue[RunEvent]) -> None:
-
-        """Remove one listener, and drop the run's entry once nobody is left."""
-
-        queues = self.listeners.get(run_id)
-
-        if queues is None:
-            return
-
-        queues.discard(queue)
-
-        if not queues:
-            del self.listeners[run_id]
+        return cls(fields["name"], fields["data"], fields["seq"])
 
 
-run_events = RunEvents()
+def events_channel(run_id: int) -> str:
+
+    """Name the Redis channel that carries one run's live events."""
+
+    return f"{get_settings().REDIS_RUN_CHANNEL_PREFIX}:{run_id}:events"
+
+
+def cancel_channel(run_id: int) -> str:
+
+    """Name the Redis channel that asks whoever runs this run to stop it."""
+
+    return f"{get_settings().REDIS_RUN_CHANNEL_PREFIX}:{run_id}:cancel"
+
+
+def cancel_pattern() -> str:
+
+    """The pattern that matches the cancel channel of every run."""
+
+    return f"{get_settings().REDIS_RUN_CHANNEL_PREFIX}:*:cancel"
+
+
+def run_id_from_channel(channel: str) -> int:
+
+    """Read the run id back out of an events or cancel channel name."""
+
+    return int(channel.rsplit(":", 2)[-2])
