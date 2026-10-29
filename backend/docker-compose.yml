@@ -19,7 +19,6 @@ services:
     env_file: .env
     environment:
       REDIS_URL: redis://redis:6379/0
-      RUN_EXECUTION: queue
     ports:
       - "8000:8000"
     depends_on:
@@ -53,7 +52,20 @@ services:
     env_file: .env
     environment:
       REDIS_URL: redis://redis:6379/0
-      RUN_EXECUTION: queue
+    depends_on:
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_started
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+  memory-worker:
+    image: ai-native-fpa-backend
+    command: ["python", "-m", "app.features.memory.worker"]
+    env_file: .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
     depends_on:
       redis:
         condition: service_healthy

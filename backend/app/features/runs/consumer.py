@@ -10,7 +10,16 @@ from redis.exceptions import RedisError
 from app.agent import graph as planner
 from app.agent.checkpointer import open_checkpointer
 from app.core.config import get_settings
-from app.core.redis import ack, claim_stale, close_redis, ensure_group, get_redis, publish_event, read_group
+from app.core.redis import (
+    ack,
+    claim_stale,
+    close_redis,
+    ensure_group,
+    get_redis,
+    prune_consumers,
+    publish_event,
+    read_group,
+    )
 from app.db.models import AgentRun
 from app.db.session import SessionLocal, engine
 from app.features.approvals.sweeper import expire_due
@@ -282,6 +291,7 @@ async def sweep_once() -> None:
 
     settings = get_settings()
 
+    # TODO(idempotency): resuming stale runs from the checkpoint instead is safe; write tools replay from tool_operations.
     async with SessionLocal() as session:
 
         failed = await RunRepository(session).fail_stale_runs(settings.RUN_STALE_AFTER_SECONDS)
@@ -331,13 +341,18 @@ async def sweep_forever() -> None:
 
 async def start(stream: str, group: str) -> None:
 
-    """Create the consumer group, retrying until Redis is reachable."""
+    """Create the consumer group and delete old idle consumers, retrying until Redis is reachable."""
 
     while True:
 
         try:
 
             await ensure_group(stream, group)
+
+            pruned = await prune_consumers(stream, group, WORKER_ID, get_settings().REDIS_CONSUMER_PRUNE_AFTER_SECONDS * 1000)
+
+            if pruned:
+                log.info("agent worker deleted idle consumers %s", pruned)
 
             return
 

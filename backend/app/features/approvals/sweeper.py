@@ -1,6 +1,5 @@
-"""The loop that expires approvals nobody decided in time, runs their safe calls and ends their runs as cancelled."""
+"""Expiring approvals nobody decided in time, running their safe calls and ending their runs as cancelled; the agent worker's sweep calls it."""
 
-import asyncio
 import logging
 
 from app.db.session import SessionLocal
@@ -9,8 +8,6 @@ from app.features.approvals.service import EXPIRED, ApprovalService
 
 
 log = logging.getLogger(__name__)
-
-SWEEP_INTERVAL_SECONDS = 60
 
 
 async def expire_one() -> bool:
@@ -39,22 +36,3 @@ async def expire_due() -> int:
         count += 1
 
     return count
-
-
-async def sweep_forever() -> None:
-
-    """Expire overdue approvals at startup and then every minute, until cancelled, so the API lifespan can run it as a task."""
-
-    while True:
-
-        try:
-
-            expired = await expire_due()
-
-            if expired:
-                log.info("expired %s approvals", expired)
-
-        except Exception:
-            log.exception("approval sweep failed")
-
-        await asyncio.sleep(SWEEP_INTERVAL_SECONDS)

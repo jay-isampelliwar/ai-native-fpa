@@ -1,13 +1,13 @@
 """The in-process map from run id to the asyncio task running it, so a cancel can find the task."""
 
 import asyncio
-import os
-import socket
 from collections.abc import Coroutine
 from typing import Any
 
+from app.core.redis import process_name
 
-WORKER_ID = f"{socket.gethostname()}:{os.getpid()}"
+
+WORKER_ID = process_name()
 
 
 class RunRegistry:

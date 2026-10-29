@@ -1,6 +1,6 @@
-"""Tests that the shared Redis client reaches the real Redis named in REDIS_URL."""
+"""Tests that the shared Redis client reaches the real Redis named in REDIS_URL, and that old idle consumers are pruned."""
 
-from app.core.redis import close_redis, get_redis
+from app.core.redis import close_redis, ensure_group, get_redis, process_name, prune_consumers
 from app.features.memory.worker import BLOCK_MS
 
 
@@ -37,3 +37,34 @@ async def test_get_redis_returns_same_client() -> None:
 
     finally:
         await close_redis()
+
+
+def test_process_name_is_hostname_and_pid() -> None:
+
+    """The consumer name is this machine's hostname and this process's id."""
+
+    hostname, pid = process_name().rsplit(":", 1)
+
+    assert hostname
+    assert pid.isdigit()
+
+
+async def test_prune_deletes_only_idle_consumers_without_work(redis_stream: str) -> None:
+
+    """Pruning removes a consumer with nothing pending, and keeps the given one and any with pending entries."""
+
+    group = "prune-test"
+
+    await ensure_group(redis_stream, group)
+    await get_redis().xadd(redis_stream, {"n": "1"})
+
+    await get_redis().xreadgroup(group, "busy", {redis_stream: ">"}, count=1)
+    await get_redis().xreadgroup(group, "empty", {redis_stream: ">"}, count=1)
+    await get_redis().xreadgroup(group, "me", {redis_stream: ">"}, count=1)
+
+    pruned = await prune_consumers(redis_stream, group, "me", 0)
+
+    names = {consumer["name"] for consumer in await get_redis().xinfo_consumers(redis_stream, group)}
+
+    assert pruned == ["empty"]
+    assert names == {"busy", "me"}

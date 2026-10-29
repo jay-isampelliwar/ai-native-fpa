@@ -1,4 +1,4 @@
-"""End-to-end tests for approvals on real Postgres and the real checkpointer, with a fake model that asks to delete an expense."""
+"""End-to-end tests for approvals on real Postgres and the real checkpointer, with a fake model that asks to delete an expense and runs driven in this process instead of by the agent worker."""
 
 import asyncio
 from collections.abc import AsyncIterator
@@ -19,10 +19,13 @@ from app.features.approvals.exceptions import ApprovalExpired, ApprovalNotFound,
 from app.features.approvals.schemas import ApprovalChoice
 from app.features.approvals.service import ApprovalService
 from app.features.approvals.sweeper import expire_due
+from app.features.runs import jobs
+from app.features.runs.jobs import START, RunJob
 from app.features.runs.registry import run_registry
 from app.features.runs.schemas import CreateRunRequest, RunResponse
 from app.features.runs.service import RunService
 from app.features.runs.repository import RunRepository
+from app.features.runs.worker import claim_run
 from app.services import llm
 from tests.support import create_user, delete_user_data
 
@@ -77,6 +80,23 @@ class FakeModel:
             return
 
         yield AIMessageChunk(REPLY_TEXT)
+
+
+@pytest.fixture(autouse=True)
+def worker_in_process(monkeypatch: pytest.MonkeyPatch) -> None:
+
+    """Stand in for the agent worker: instead of sending a job to Redis, take its run and drive it as a task in this process."""
+
+    async def take(job: RunJob) -> bool:
+
+        """Claim the job's run and start it here, as the agent worker would."""
+
+        if await claim_run(job.run_id, starting=job.kind == START):
+            run_registry.start(job.run_id, job.claimed_work())
+
+        return True
+
+    monkeypatch.setattr(jobs, "enqueue", take)
 
 
 @pytest.fixture

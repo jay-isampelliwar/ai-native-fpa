@@ -1,5 +1,7 @@
-"""The shared async Redis client used by the outbox publisher and the memory worker."""
+"""The shared async Redis client and the stream helpers used by the outbox publisher, the memory worker and the agent worker."""
 
+import os
+import socket
 from functools import lru_cache
 
 from redis.asyncio import Redis
@@ -11,6 +13,13 @@ from app.core.config import get_settings
 StreamEntry = tuple[str, dict[str, str]]
 
 SOCKET_TIMEOUT_SECONDS = 30
+
+
+def process_name() -> str:
+
+    """Name this process uniquely as hostname:pid, the name it reads a stream under; Docker gives every container its own hostname."""
+
+    return f"{socket.gethostname()}:{os.getpid()}"
 
 
 @lru_cache
@@ -122,3 +131,28 @@ async def ack(
     """Tell the group this entry is done with XACK, so it is never handed out again."""
 
     await get_redis().xack(stream, group, entry_id)
+
+
+async def prune_consumers(
+    stream: str,
+    group: str,
+    keep: str,
+    idle_ms: int,
+    ) -> list[str]:
+
+    """Delete the group's consumers, other than keep, idle for at least idle_ms with no pending entries, and return their names."""
+
+    pruned = []
+
+    for consumer in await get_redis().xinfo_consumers(stream, group):
+
+        name = consumer["name"]
+
+        if name == keep or consumer["pending"] > 0 or consumer["idle"] < idle_ms:
+            continue
+
+        await get_redis().xgroup_delconsumer(stream, group, name)
+
+        pruned.append(name)
+
+    return pruned

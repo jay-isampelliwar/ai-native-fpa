@@ -1,4 +1,4 @@
-"""The jobs that start or resume a run: sent to the Redis run stream for an agent worker, or run in this process when RUN_EXECUTION is inline."""
+"""The jobs that start or resume a run, sent to the Redis run stream for an agent worker to take."""
 
 import asyncio
 import logging
@@ -14,9 +14,8 @@ from app.core.config import get_settings
 from app.core.redis import publish_event
 from app.db.enums import RunStatus
 from app.db.session import SessionLocal
-from app.features.runs.registry import run_registry
 from app.features.runs.repository import FINAL_RUN_STATUSES, RunRepository
-from app.features.runs.worker import execute_run, resume_claimed, resume_run, start_claimed
+from app.features.runs.worker import resume_claimed, start_claimed
 
 
 log = logging.getLogger(__name__)
@@ -56,22 +55,6 @@ class RunJob:
 
         return cls(**orjson.loads(fields["job"]))
 
-    def work(self) -> Coroutine[Any, Any, None]:
-
-        """The coroutine that takes the run for this process and drives it."""
-
-        if self.kind == START:
-            return execute_run(self.run_id, self.conversation_id, self.user_id, self.assistant_message_id, self.user_text)
-
-        return resume_run(
-            self.run_id,
-            self.conversation_id,
-            self.user_id,
-            self.assistant_message_id,
-            self.answer,
-            RunStatus(self.final_status),
-            )
-
     def claimed_work(self) -> Coroutine[Any, Any, None]:
 
         """The coroutine that drives the run once this worker has already taken it."""
@@ -87,13 +70,6 @@ class RunJob:
             self.answer,
             RunStatus(self.final_status),
             )
-
-
-def queued_mode() -> bool:
-
-    """Say whether runs go to agent workers through Redis rather than running in this process."""
-
-    return get_settings().RUN_EXECUTION == "queue"
 
 
 async def enqueue(job: RunJob) -> bool:
@@ -120,15 +96,9 @@ async def enqueue(job: RunJob) -> bool:
 
 async def submit(job: RunJob) -> None:
 
-    """Send the job to the agent workers, or start it as a task in this process when running inline."""
+    """Send the job to the agent workers without waiting for its run."""
 
-    if queued_mode():
-
-        await enqueue(job)
-
-        return
-
-    run_registry.start(job.run_id, job.work())
+    await enqueue(job)
 
 
 async def wait_until_settled(run_id: int, timeout: float) -> RunStatus | None:
@@ -158,13 +128,7 @@ async def wait_until_settled(run_id: int, timeout: float) -> RunStatus | None:
 
 async def run_and_wait(job: RunJob) -> None:
 
-    """Run the job to its end before returning: in this process when inline, or through a worker and polling when queued."""
-
-    if not queued_mode():
-
-        await job.work()
-
-        return
+    """Send the job to the agent workers and poll until its run has ended or paused again."""
 
     await enqueue(job)
 

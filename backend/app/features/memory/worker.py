@@ -1,7 +1,8 @@
-"""The memory worker: a loop that reads memory events from the Redis stream, saves memories in Postgres, then acknowledges them."""
+"""The memory worker: a process that reads memory events from the Redis stream under its own consumer name, saves memories in Postgres, then acknowledges them."""
 
 import asyncio
 import logging
+import signal
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from typing import Any
@@ -9,7 +10,17 @@ from typing import Any
 import orjson
 
 from app.core.config import get_settings
-from app.core.redis import ack, claim_stale, close_redis, delivery_count, ensure_group, publish_event, read_group
+from app.core.redis import (
+    ack,
+    claim_stale,
+    close_redis,
+    delivery_count,
+    ensure_group,
+    process_name,
+    prune_consumers,
+    publish_event,
+    read_group,
+    )
 from app.db.enums import OutboxEventType
 from app.db.session import SessionLocal, engine
 from app.features.memory.extractor import extract_candidates
@@ -192,13 +203,18 @@ async def start(
     consumer: str,
     ) -> None:
 
-    """Create the group and replay this consumer's unfinished entries, retrying until Redis is reachable."""
+    """Create the group, delete old idle consumers, and replay this consumer's unfinished entries, retrying until Redis is reachable."""
 
     while True:
 
         try:
 
             await ensure_group(stream, group)
+
+            pruned = await prune_consumers(stream, group, consumer, get_settings().REDIS_CONSUMER_PRUNE_AFTER_SECONDS * 1000)
+
+            if pruned:
+                log.info("memory worker deleted idle consumers %s", pruned)
 
             replayed = await replay_pending(stream, group, consumer)
 
@@ -215,12 +231,12 @@ async def start(
 
 async def consume_forever() -> None:
 
-    """Start, then process entries until cancelled, without closing any pool, so the API lifespan can run it as a task."""
+    """Start under this process's own consumer name, then process entries until cancelled, without closing any pool."""
 
     settings = get_settings()
     stream = settings.REDIS_MEMORY_STREAM
     group = settings.REDIS_MEMORY_CONSUMER_GROUP
-    consumer = settings.REDIS_MEMORY_CONSUMER_NAME
+    consumer = process_name()
 
     await start(stream, group, consumer)
 
@@ -251,9 +267,19 @@ async def run_forever() -> None:
         log.info("memory worker stopped")
 
 
+async def main() -> None:
+
+    """Run the worker, stopping it the same way on SIGTERM as on Ctrl+C."""
+
+    asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, asyncio.current_task().cancel)
+
+    with suppress(asyncio.CancelledError):
+        await run_forever()
+
+
 if __name__ == "__main__":
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
     with suppress(KeyboardInterrupt):
-        asyncio.run(run_forever())
+        asyncio.run(main())

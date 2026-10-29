@@ -609,20 +609,3 @@ async def resume_run(
         return
 
     await resume_claimed(run_id, conversation_id, user_id, assistant_message_id, answer, final_status)
-
-
-async def fail_orphaned_runs() -> list[int]:
-
-    """On startup of an inline API, fail runs a previous process left active, since no task here is running them."""
-
-    # TODO(idempotency): resuming these runs from the checkpoint instead is safe; write tools replay from tool_operations.
-    async with SessionLocal() as session:
-
-        run_ids = await RunRepository(session).fail_active_runs(failure_code="worker_restart")
-
-        await session.commit()
-
-    if run_ids:
-        log.warning("failed %s runs left active by a previous process: %s", len(run_ids), run_ids)
-
-    return run_ids
