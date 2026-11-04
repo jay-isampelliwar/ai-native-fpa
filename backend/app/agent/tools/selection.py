@@ -10,6 +10,7 @@ from app.agent.intents import (
     DELETE_DATA,
     GENERAL_QUESTION,
     GOAL_CHECK,
+    MARKET_INFO,
     MISSING_DATA,
     SIMULATION,
     VIEW_DATA,
@@ -28,6 +29,9 @@ ADD_TOOLS = (
     "add_fixed_deposit",
     "add_retirement_account",
     "add_physical_asset",
+    "add_holding",
+    "add_sip_plan",
+    "search_instruments",
     "add_loan",
     "add_credit_card",
     "add_insurance_policy",
@@ -39,13 +43,20 @@ ADD_TOOLS = (
     )
 
 TOOLS_BY_INTENT: dict[str, tuple[str, ...]] = {
-    VIEW_DATA: (),
+    VIEW_DATA: ("get_portfolio_exposure",),
     ADD_DATA: ADD_TOOLS,
     CHANGE_DATA: ("update_record", "update_profile", "set_tax_profile", "set_assumption", "allocate_goal"),
     DELETE_DATA: ("delete_record",),
     GOAL_CHECK: ("check_goal_progress", "allocate_goal", "add_goal", "set_assumption"),
     MISSING_DATA: ("update_data_coverage",),
     SIMULATION: ("check_goal_progress", "set_assumption"),
+    MARKET_INFO: (
+        "search_instruments",
+        "get_fund_details",
+        "get_stock_details",
+        "compare_funds",
+        "get_portfolio_exposure",
+        ),
     }
 
 

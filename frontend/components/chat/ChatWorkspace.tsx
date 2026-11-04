@@ -6,7 +6,7 @@ import { ApiError, conversations, runs } from '@/lib/api';
 import { firstNameOf } from '@/lib/format';
 import { useSession } from '@/lib/session';
 import { cancelRun, followRun, streamMessage, type StreamHandlers } from '@/lib/stream';
-import type { ApprovalState, ConversationDetail, ToolStep } from '@/lib/types';
+import type { ApprovalDecision, ApprovalEdits, ApprovalState, ConversationDetail, ToolStep } from '@/lib/types';
 import { useUploads } from '@/lib/useUploads';
 import ChatComposer from '@/components/chat/ChatComposer';
 import ChatHeader from '@/components/chat/ChatHeader';
@@ -245,15 +245,15 @@ export default function ChatWorkspace({
     );
   }
 
-  /** Answer an approval card, then follow the run again as it carries on. */
-  async function decide(answerId: string, decision: 'approve' | 'reject') {
+  /** Answer an approval card, with any values fixed on a confirm card, then follow the run again as it carries on. */
+  async function decide(answerId: string, decision: ApprovalDecision, edits?: ApprovalEdits) {
     const request = turns.find((turn) => turn.id === answerId)?.approval?.request;
     if (!request || busy) return;
 
     setApproval(answerId, 'sending');
 
     try {
-      await runs.decide(request.run_id, request.approval_id, decision);
+      await runs.decide(request.run_id, request.approval_id, decision, edits);
     } catch (error) {
       if (error instanceof ApiError && error.status === 409) {
         setApproval(answerId, error.message.includes('expired') ? 'expired' : 'closed', error.message);
@@ -372,7 +372,7 @@ export default function ChatWorkspace({
             userId={userId}
             busy={busy}
             onRegenerate={regenerate}
-            onDecide={(answerId, decision) => void decide(answerId, decision)}
+            onDecide={(answerId, decision, edits) => void decide(answerId, decision, edits)}
           />
         )}
 

@@ -29,9 +29,9 @@ def test_every_tool_has_a_policy() -> None:
     assert names == set(TOOL_POLICIES)
 
 
-def test_only_update_and_delete_need_approval() -> None:
+def test_only_update_and_delete_always_need_approval() -> None:
 
-    """Approval is asked for changing and removing saved items, and for nothing else."""
+    """Approval is always asked for changing and removing saved items, and for no other tool by name alone."""
 
     approved = {name for name in TOOL_POLICIES if needs_approval(name)}
 
@@ -42,11 +42,38 @@ def test_only_update_and_delete_need_approval() -> None:
 
 def test_read_tools_are_read() -> None:
 
-    """The three tools that only read are marked read."""
+    """The tools that only read are marked read, including every market data tool."""
 
     reads = {name for name, policy in TOOL_POLICIES.items() if policy.risk == Risk.read}
 
-    assert reads == {"list_records", "get_missing_data", "check_goal_progress"}
+    assert reads == {
+        "list_records",
+        "get_missing_data",
+        "check_goal_progress",
+        "search_instruments",
+        "get_fund_details",
+        "get_stock_details",
+        "compare_funds",
+        "get_portfolio_exposure",
+        }
+
+
+@pytest.mark.parametrize(
+    ("arguments", "expected"),
+    [
+        ({"isin": "INF879O01027", "amount": 50000}, True),
+        ({"isin": "INF879O01027", "units": 100}, False),
+        ({"isin": "INF879O01027", "units": 100, "amount": 50000}, False),
+        ({"amount": 50000}, False),
+        ({"isin": "INF879O01027"}, False),
+        ],
+    )
+def test_holding_needs_a_confirm_only_when_units_are_worked_out(arguments: dict, expected: bool) -> None:
+
+    """add_holding pauses for the user only when it has an amount and an ISIN but no units."""
+
+    assert needs_approval("add_holding", arguments) is expected
+    assert needs_approval("add_holding") is False
 
 
 @tool

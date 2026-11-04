@@ -3,7 +3,15 @@
 from app.agent.tools.analysis import check_goal_progress
 from app.agent.tools.assets import add_bank_account, add_fixed_deposit, add_physical_asset, add_retirement_account
 from app.agent.tools.cash_flow import add_expense, add_income_source, add_transaction
+from app.agent.tools.investments import add_holding, add_sip_plan
 from app.agent.tools.liabilities import add_credit_card, add_loan
+from app.agent.tools.market import (
+    compare_funds,
+    get_fund_details,
+    get_portfolio_exposure,
+    get_stock_details,
+    search_instruments,
+    )
 from app.agent.tools.planning import add_goal, allocate_goal, set_assumption, set_tax_profile
 from app.agent.tools.profile import add_family_member, update_profile
 from app.agent.tools.protection import add_insurance_policy
@@ -32,6 +40,13 @@ ALL_TOOLS = [
     add_fixed_deposit,
     add_retirement_account,
     add_physical_asset,
+    add_holding,
+    add_sip_plan,
+    search_instruments,
+    get_fund_details,
+    get_stock_details,
+    compare_funds,
+    get_portfolio_exposure,
     add_loan,
     add_credit_card,
     add_insurance_policy,

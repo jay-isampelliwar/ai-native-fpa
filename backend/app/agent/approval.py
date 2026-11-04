@@ -1,5 +1,6 @@
 """The approval gate: pause before a risky tool call, then run what the user approved and answer the rest as rejected."""
 
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from langchain_core.messages import AIMessage, ToolCall, ToolMessage
@@ -16,6 +17,7 @@ from app.agent.tools.policies import needs_approval
 from app.agent.tools.records import record_fields, show_value
 from app.agent.tools.results import over_limit, rejected, to_message
 from app.db.session import SessionLocal
+from app.features.investments.service import InvestmentService
 from app.features.records.exceptions import RecordError
 from app.features.records.kinds import KINDS
 from app.features.records.record_service import RecordService, editable_fields
@@ -34,6 +36,8 @@ CANCELLED_TEXT = "Not done. The user stopped this reply, so nothing was changed.
 
 
 NOT_SET = "not set"
+
+CONFIRM_EDITS = ("units", "amount")
 
 type Preview = dict[str, Any]
 
@@ -105,7 +109,41 @@ def general_preview(call: ToolCall) -> Preview:
     return {"action": "run", "title": f"Allow: {label_for(call['name'])}?", "fields": fields}
 
 
-PREVIEWS = {"delete_record": remove_preview, "update_record": change_preview}
+async def confirm_preview(call: ToolCall, user_id: int) -> Preview | None:
+
+    """Show the units worked out from the amount and today's price, for the user to say correct or fix them."""
+
+    try:
+
+        async with SessionLocal() as session:
+            estimate = await InvestmentService(session).estimate(call["args"]["isin"], Decimal(str(call["args"]["amount"])))
+
+    except (RecordError, InvalidOperation):
+        return None
+
+    instrument = estimate.instrument
+    units = show_value(estimate.units)
+    amount = show_value(estimate.amount)
+
+    fields = [
+        {"name": "name", "value": instrument.name},
+        {"name": "isin", "value": instrument.isin},
+        {"name": "amount", "value": amount},
+        {"name": instrument.price_label, "value": show_value(instrument.price)},
+        {"name": "price_date", "value": show_value(instrument.price_date) if instrument.price_date else NOT_SET},
+        {"name": "units", "value": units},
+        ]
+
+    return {
+        "action": "confirm",
+        "title": f"Is this correct for {instrument.name}?",
+        "fields": fields,
+        "editable": {"units": units, "amount": amount},
+        "resolved": {"units": units},
+        }
+
+
+PREVIEWS = {"delete_record": remove_preview, "update_record": change_preview, "add_holding": confirm_preview}
 
 
 async def preview_for(call: ToolCall, user_id: int) -> Preview | None:
@@ -129,6 +167,51 @@ def approved(call: ToolCall, answer: dict[str, Any]) -> bool:
         and answer.get("tool_call_id") == call["id"]
         and answer.get("arguments") == call["args"]
         )
+
+
+def checked_edits(
+    preview: Preview,
+    answer: dict[str, Any],
+    ) -> dict[str, str]:
+
+    """Keep only the edits this card allows, each a number not below zero, written as plain text."""
+
+    allowed = preview.get("editable") or {}
+    edits = answer.get("edits") or {}
+    kept = {}
+
+    for name, value in edits.items():
+
+        if name not in allowed or name not in CONFIRM_EDITS:
+            continue
+
+        try:
+            number = Decimal(str(value))
+
+        except InvalidOperation:
+            continue
+
+        if number.is_finite() and number >= 0:
+            kept[name] = format(number.normalize(), "f")
+
+    return kept
+
+
+def final_call(
+    call: ToolCall,
+    preview: Preview,
+    answer: dict[str, Any],
+    ) -> ToolCall:
+
+    """The call to run once approved: with the values the user fixed, else with the values the card showed."""
+
+    edits = checked_edits(preview, answer)
+    resolved = preview.get("resolved") or {}
+
+    if not edits and not resolved:
+        return call
+
+    return {**call, "args": {**call["args"], **resolved, **edits}}
 
 
 def closes_turn(answer: dict[str, Any]) -> bool:
@@ -175,7 +258,7 @@ async def ask_each(
         answers.append(answer)
 
         if approved(call, answer):
-            allowed.append(call)
+            allowed.append(final_call(call, preview, answer))
 
         else:
             refused.append(call)
@@ -203,7 +286,7 @@ async def approval_gate(state: PlannerState, runtime: Runtime[PlannerContext]) -
         return Command(goto=AGENT_NODE, update={"messages": refused, "budget": with_limit(budget, TOOL_CALL_LIMIT)})
 
     budget = add_tool_calls(budget, len(message.tool_calls))
-    risky = [call for call in message.tool_calls if needs_approval(call["name"])]
+    risky = [call for call in message.tool_calls if needs_approval(call["name"], call["args"])]
 
     if not risky:
         return Command(goto=TOOLS_NODE, update={"budget": budget})
@@ -220,10 +303,12 @@ async def approval_gate(state: PlannerState, runtime: Runtime[PlannerContext]) -
 
     update = {"messages": [rejected_message(call) for call in refused], "skip_reply": not reply, "budget": budget}
 
-    if not refused:
+    changed = any(call not in message.tool_calls for call in allowed)
+
+    if not refused and not changed:
         return Command(goto=TOOLS_NODE, update=update)
 
-    to_run = [call for call in message.tool_calls if not needs_approval(call["name"])] + allowed
+    to_run = [call for call in message.tool_calls if not needs_approval(call["name"], call["args"])] + allowed
 
     if to_run:
         return Command(goto=Send(TOOLS_NODE, to_run), update=update)

@@ -97,7 +97,7 @@ async def decide_approval(
     """Approve or reject a paused tool call; the run carries on and its events stream again from /events."""
 
     try:
-        return await ApprovalService(session).submit(run_id, approval_id, user_id, body.decision)
+        return await ApprovalService(session).submit(run_id, approval_id, user_id, body.decision, body.edit_values())
 
     except ApprovalNotFound as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Approval not found") from exc

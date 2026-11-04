@@ -25,6 +25,8 @@
  */
 
 import type {
+  ApprovalDecision,
+  ApprovalEdits,
   CommitResult,
   RunResponse,
   ConversationDetail,
@@ -121,14 +123,14 @@ export const conversations = {
 
 export const runs = {
   /**
-   * Answer the approval card a run paused on. The run carries on in the background, so the reply
-   * is then read with `followRun`. A 409 means the card was already answered or has expired, and
-   * its `detail` says which.
+   * Answer the approval card a run paused on, with any values the person fixed on a confirm card.
+   * The run carries on in the background, so the reply is then read with `followRun`. A 409 means
+   * the card was already answered or has expired, and its `detail` says which.
    */
-  decide(runId: number, approvalId: number, decision: "approve" | "reject") {
+  decide(runId: number, approvalId: number, decision: ApprovalDecision, edits?: ApprovalEdits) {
     return request<RunResponse>(`/api/runs/${runId}/approvals/${approvalId}`, {
       method: "POST",
-      body: JSON.stringify({ decision }),
+      body: JSON.stringify(edits ? { decision, edits } : { decision }),
     });
   },
 };
@@ -158,6 +160,20 @@ export const auth = {
   /** Who the cookie belongs to. Answers 401 when nobody is signed in. */
   me() {
     return request<CurrentUser>("/api/auth/me");
+  },
+};
+
+export const voice = {
+  /**
+   * Turn one recording from the chat mic into text. The backend never saves the audio, and
+   * answers empty text when nothing was said. Hindi comes back in English letters.
+   */
+  transcribe(audio: Blob) {
+    const form = new FormData();
+
+    form.append('audio', audio, 'speech');
+
+    return request<{ text: string }>('/api/voice/transcribe', { method: 'POST', body: form });
   },
 };
 

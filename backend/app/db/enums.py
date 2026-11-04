@@ -366,3 +366,133 @@ ACTIVE_RUN_STATUSES = (
     RunStatus.cancel_requested,
     RunStatus.awaiting_approval,
     )
+
+
+class StockExchange(StrEnum):
+
+    """The exchange a stock is listed on."""
+
+    nse = "nse"
+    bse = "bse"
+
+
+class MarketCapType(StrEnum):
+
+    """SEBI's large, mid or small cap bucket for a stock."""
+
+    large = "large"
+    mid = "mid"
+    small = "small"
+
+
+class StockSector(StrEnum):
+
+    """The sector a listed company belongs to."""
+
+    financial_services = "financial_services"
+    information_technology = "information_technology"
+    oil_gas_energy = "oil_gas_energy"
+    fmcg = "fmcg"
+    automobile = "automobile"
+    healthcare = "healthcare"
+    metals_mining = "metals_mining"
+    capital_goods = "capital_goods"
+    construction = "construction"
+    consumer_durables = "consumer_durables"
+    consumer_services = "consumer_services"
+    telecom = "telecom"
+    power = "power"
+    realty = "realty"
+    chemicals = "chemicals"
+    textiles = "textiles"
+    media = "media"
+    services = "services"
+    diversified = "diversified"
+    other = "other"
+
+
+class FundCategory(StrEnum):
+
+    """The broad kind of a mutual fund scheme."""
+
+    equity = "equity"
+    debt = "debt"
+    hybrid = "hybrid"
+    gold = "gold"
+    other = "other"
+
+
+class FundSubCategory(StrEnum):
+
+    """The SEBI category of a mutual fund scheme."""
+
+    large_cap = "large_cap"
+    mid_cap = "mid_cap"
+    small_cap = "small_cap"
+    large_and_mid_cap = "large_and_mid_cap"
+    multi_cap = "multi_cap"
+    flexi_cap = "flexi_cap"
+    focused = "focused"
+    value = "value"
+    contra = "contra"
+    dividend_yield = "dividend_yield"
+    elss = "elss"
+    sectoral_thematic = "sectoral_thematic"
+    index_fund = "index_fund"
+    liquid = "liquid"
+    overnight = "overnight"
+    ultra_short_duration = "ultra_short_duration"
+    low_duration = "low_duration"
+    money_market = "money_market"
+    short_duration = "short_duration"
+    medium_duration = "medium_duration"
+    long_duration = "long_duration"
+    dynamic_bond = "dynamic_bond"
+    corporate_bond = "corporate_bond"
+    credit_risk = "credit_risk"
+    banking_and_psu = "banking_and_psu"
+    gilt = "gilt"
+    floater = "floater"
+    aggressive_hybrid = "aggressive_hybrid"
+    conservative_hybrid = "conservative_hybrid"
+    balanced_advantage = "balanced_advantage"
+    multi_asset = "multi_asset"
+    arbitrage = "arbitrage"
+    equity_savings = "equity_savings"
+    fund_of_funds = "fund_of_funds"
+    solution_oriented = "solution_oriented"
+    other = "other"
+
+
+class FundPlanType(StrEnum):
+
+    """Whether a fund plan is bought direct or through a distributor."""
+
+    direct = "direct"
+    regular = "regular"
+
+
+class FundOptionType(StrEnum):
+
+    """Whether a fund plan keeps its gains or pays them out."""
+
+    growth = "growth"
+    idcw = "idcw"
+
+
+class HoldingAssetClass(StrEnum):
+
+    """What one line of a fund's portfolio is: shares, bonds, fund units or cash."""
+
+    equity = "equity"
+    debt = "debt"
+    fund_units = "fund_units"
+    cash_and_other = "cash_and_other"
+
+
+class HoldingAssetType(StrEnum):
+
+    """Whether a user's holding is a stock or a mutual fund."""
+
+    stock = "stock"
+    mutual_fund = "mutual_fund"

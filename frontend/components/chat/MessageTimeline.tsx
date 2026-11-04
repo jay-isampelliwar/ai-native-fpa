@@ -5,7 +5,7 @@ import { Check, Copy, Download, Paperclip, PenLine, RefreshCw, ThumbsDown, Thumb
 import { useState } from 'react';
 
 import { clockTime } from '@/lib/format';
-import type { ApprovalRequest, ApprovalState, ToolStep } from '@/lib/types';
+import type { ApprovalDecision, ApprovalEdits, ApprovalRequest, ApprovalState, ToolStep } from '@/lib/types';
 import ApprovalCard from '@/components/chat/ApprovalCard';
 import ImportReview from '@/components/chat/ImportReview';
 import Reply from '@/components/chat/Reply';
@@ -69,7 +69,7 @@ export default function MessageTimeline({
   userId: number | null;
   busy: boolean;
   onRegenerate: (answerId: string) => void;
-  onDecide: (answerId: string, decision: 'approve' | 'reject') => void;
+  onDecide: (answerId: string, decision: ApprovalDecision, edits?: ApprovalEdits) => void;
 }) {
   return (
     <div className="mx-auto w-full max-w-5xl space-y-5 px-4 pt-1 sm:px-6">
@@ -85,7 +85,7 @@ export default function MessageTimeline({
               userId={userId}
               busy={busy}
               onRegenerate={() => onRegenerate(turn.id)}
-              onDecide={(decision) => onDecide(turn.id, decision)}
+              onDecide={(decision, edits) => onDecide(turn.id, decision, edits)}
             />
           )
         ),
@@ -135,7 +135,7 @@ function PlannerTurn({
   userId: number | null;
   busy: boolean;
   onRegenerate: () => void;
-  onDecide: (decision: 'approve' | 'reject') => void;
+  onDecide: (decision: ApprovalDecision, edits?: ApprovalEdits) => void;
 }) {
   return (
     <motion.div

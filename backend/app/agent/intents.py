@@ -23,6 +23,7 @@ DELETE_DATA = "DELETE_DATA"
 GOAL_CHECK = "GOAL_CHECK"
 MISSING_DATA = "MISSING_DATA"
 SIMULATION = "SIMULATION"
+MARKET_INFO = "MARKET_INFO"
 GENERAL_QUESTION = "GENERAL_QUESTION"
 
 ALLOWED_INTENTS = (
@@ -33,6 +34,7 @@ ALLOWED_INTENTS = (
     GOAL_CHECK,
     MISSING_DATA,
     SIMULATION,
+    MARKET_INFO,
     GENERAL_QUESTION,
     )
 
@@ -45,6 +47,7 @@ RULES = (
     (GOAL_CHECK, re.compile(r"\b(goal progress|on track)\b")),
     (MISSING_DATA, re.compile(r"\bwhat( else)? do you need\b|\bwhat('s| is) missing\b")),
     (SIMULATION, re.compile(r"\bwhat (happens )?if\b|\bcalculate\b")),
+    (MARKET_INFO, re.compile(r"\b(price|nav|closing|share price|stock price)\b")),
     )
 
 JOINER = re.compile(r"\b(and|also|then|plus)\b|,\s")
@@ -67,6 +70,9 @@ CLASSIFIER_PROMPT = (
     "- MISSING_DATA: what details the planner still needs.\n"
     "- SIMULATION: a what-if or a calculation, like spending, buying or paying off early. "
     "'What if I remove the car loan?' is SIMULATION, not DELETE_DATA.\n"
+    "- MARKET_INFO: a question about a stock, ETF or mutual fund itself, such as its price or NAV, what a fund holds, "
+    "its sectors, which funds hold a stock, comparing funds, or a list of a fund house's schemes. "
+    "'I have 100 units of HDFC Flexi Cap' is ADD_DATA.\n"
     "- GENERAL_QUESTION: anything else, like greetings or general money questions.\n"
     "A negated action is not that action: 'don't delete it' is not DELETE_DATA."
     )
@@ -85,6 +91,7 @@ class IntentResult(BaseModel):
             "GOAL_CHECK",
             "MISSING_DATA",
             "SIMULATION",
+            "MARKET_INFO",
             "GENERAL_QUESTION",
             ]
         ] = Field(description="Every intent in the latest message, at least one")

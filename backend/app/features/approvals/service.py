@@ -55,9 +55,10 @@ class ApprovalService:
         approval_id: int,
         user_id: int,
         choice: ApprovalChoice,
+        edits: dict[str, str] | None = None,
         ) -> RunResponse:
 
-        """Apply the user's click to their pending approval and carry on the run in the background."""
+        """Apply the user's click, and any values they fixed, to their pending approval and carry on the run in the background."""
 
         approval = await self.approvals.lock_for_user(approval_id, user_id)
 
@@ -73,7 +74,7 @@ class ApprovalService:
 
             raise ApprovalExpired(approval_id)
 
-        job = await self.decide(approval, USER_CLOSINGS[choice])
+        job = await self.decide(approval, USER_CLOSINGS[choice], edits)
 
         if job is not None:
             await submit(job)
@@ -106,11 +107,17 @@ class ApprovalService:
         self,
         approval: ToolApproval,
         closing: Closing,
+        edits: dict[str, str] | None = None,
         ) -> RunJob | None:
 
         """Commit the decision with the run back to running and unowned, and return the resume job, or None if the run was no longer paused."""
 
-        await self.approvals.decide(approval, closing.status, {"decision": closing.decision, "reason": closing.reason})
+        record = {"decision": closing.decision, "reason": closing.reason}
+
+        if edits:
+            record["edits"] = edits
+
+        await self.approvals.decide(approval, closing.status, record)
 
         call = await self.session.get(ToolCall, approval.tool_call_id)
 
@@ -140,6 +147,7 @@ class ApprovalService:
             "tool_call_id": call.tool_call_id,
             "arguments": approval.arguments,
             "reply": closing.reply,
+            "edits": edits or {},
             }
 
         return RunJob(

@@ -36,6 +36,7 @@ class DataCoverage(Base):
     fixed_deposits: Mapped[CoverageStatus] = status_column()
     retirement_accounts: Mapped[CoverageStatus] = status_column()
     physical_assets: Mapped[CoverageStatus] = status_column()
+    holdings: Mapped[CoverageStatus] = status_column()
     loans: Mapped[CoverageStatus] = status_column()
     credit_cards: Mapped[CoverageStatus] = status_column()
     insurance: Mapped[CoverageStatus] = status_column()

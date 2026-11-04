@@ -3,7 +3,15 @@
 import { ArrowRight, Check, Clock, ShieldAlert, Trash2, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
-import type { ApprovalAction, ApprovalField, ApprovalRequest, ApprovalState } from '@/lib/types';
+import HoldingCorrection from '@/components/chat/HoldingCorrection';
+import type {
+  ApprovalAction,
+  ApprovalDecision,
+  ApprovalEdits,
+  ApprovalField,
+  ApprovalRequest,
+  ApprovalState,
+} from '@/lib/types';
 
 /** The words and colours for each kind of approval, so a change never reads like a delete. */
 const COPY: Record<
@@ -28,6 +36,15 @@ const COPY: Record<
     kept: 'You kept it as is.',
     verb: 'changed',
   },
+  confirm: {
+    approve: 'Correct',
+    keep: 'Not correct',
+    note: 'Nothing is saved until you confirm',
+    tone: 'var(--accent)',
+    done: 'You confirmed this, so it was saved.',
+    kept: 'Not saved.',
+    verb: 'saved',
+  },
   run: {
     approve: 'Allow',
     keep: "Don't allow",
@@ -46,6 +63,9 @@ const COPY: Record<
  * pausing, field by field, so the decision is about the real record and not the model's
  * description of it. A change shows each field's saved value and its new one.
  *
+ * A `confirm` card shows values the app worked out, such as fund units from an amount. "Correct"
+ * saves them as shown; "Not correct" opens a box under the card to fix them before saving.
+ *
  * The card greys itself out when `expires_at` passes, because the backend refuses a late click.
  * Once answered it stays in the chat as a one-line record of what was decided.
  */
@@ -58,9 +78,10 @@ export default function ApprovalCard({
   request: ApprovalRequest;
   state: ApprovalState;
   failure?: string;
-  onDecide: (decision: 'approve' | 'reject') => void;
+  onDecide: (decision: ApprovalDecision, edits?: ApprovalEdits) => void;
 }) {
   const expired = useExpired(request.expires_at);
+  const [fixing, setFixing] = useState(false);
   const shown = state === 'pending' && expired ? 'expired' : state;
   const action = request.preview.action ?? 'remove';
   const copy = COPY[action];
@@ -70,6 +91,23 @@ export default function ApprovalCard({
   }
 
   const sending = shown === 'sending';
+  const canFix = action === 'confirm' && request.preview.editable !== undefined;
+
+  if (canFix && fixing) {
+    return (
+      <>
+        <Summary request={request} />
+        <HoldingCorrection
+          name={nameOf(request)}
+          start={request.preview.editable ?? {}}
+          sending={sending}
+          failure={failure}
+          onSave={(edits) => onDecide('approve', edits)}
+          onDiscard={() => onDecide('reject')}
+        />
+      </>
+    );
+  }
 
   return (
     <div className="mt-2 overflow-hidden rounded-xl border border-line bg-panel">
@@ -104,7 +142,7 @@ export default function ApprovalCard({
         <button
           type="button"
           disabled={sending}
-          onClick={() => onDecide('reject')}
+          onClick={() => (canFix ? setFixing(true) : onDecide('reject'))}
           className="flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-[12.5px] text-secondary transition hover:text-primary disabled:opacity-40"
         >
           <X size={14} aria-hidden="true" />
@@ -115,6 +153,24 @@ export default function ApprovalCard({
       </div>
     </div>
   );
+}
+
+/** The confirm card folded to its title and fields once the person chose to fix the values. */
+function Summary({ request }: { request: ApprovalRequest }) {
+  return (
+    <div className="mt-2 rounded-xl border border-line bg-panel-subtle px-3 py-2 text-[12px]">
+      <span className="text-muted">{request.preview.title} </span>
+      <span className="inline-flex items-center gap-1 text-secondary">
+        <X size={13} aria-hidden="true" />
+        You said this is not correct.
+      </span>
+    </div>
+  );
+}
+
+/** The instrument's name from the card's fields, or a plain word when the card has none. */
+function nameOf(request: ApprovalRequest): string {
+  return request.preview.fields.find((field) => field.name === 'name')?.value ?? 'this holding';
 }
 
 /** A removed field's value, or a changed field's saved value struck through next to its new one. */

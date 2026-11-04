@@ -1,7 +1,9 @@
 """The server-side risk policy for every tool: how risky it is and whether the user must approve it first."""
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import Any
 
 
 class Risk(StrEnum):
@@ -33,6 +35,11 @@ TOOL_POLICIES: dict[str, ToolPolicy] = {
     "list_records": READ,
     "get_missing_data": READ,
     "check_goal_progress": READ,
+    "search_instruments": READ,
+    "get_fund_details": READ,
+    "get_stock_details": READ,
+    "compare_funds": READ,
+    "get_portfolio_exposure": READ,
     "update_data_coverage": WRITE,
     "add_family_member": WRITE,
     "add_income_source": WRITE,
@@ -42,6 +49,8 @@ TOOL_POLICIES: dict[str, ToolPolicy] = {
     "add_fixed_deposit": WRITE,
     "add_retirement_account": WRITE,
     "add_physical_asset": WRITE,
+    "add_holding": WRITE,
+    "add_sip_plan": WRITE,
     "add_loan": WRITE,
     "add_credit_card": WRITE,
     "add_insurance_policy": WRITE,
@@ -55,6 +64,18 @@ TOOL_POLICIES: dict[str, ToolPolicy] = {
     }
 
 
+def units_to_confirm(arguments: dict[str, Any]) -> bool:
+
+    """True when a holding has an amount but no units, so the app works out units and the user must confirm them."""
+
+    return arguments.get("units") is None and arguments.get("amount") is not None and bool(arguments.get("isin"))
+
+
+CONFIRM_RULES: dict[str, Callable[[dict[str, Any]], bool]] = {
+    "add_holding": units_to_confirm,
+    }
+
+
 def policy_for(tool_name: str) -> ToolPolicy | None:
 
     """Return the tool's policy, or None for a tool the server does not allow."""
@@ -62,10 +83,21 @@ def policy_for(tool_name: str) -> ToolPolicy | None:
     return TOOL_POLICIES.get(tool_name)
 
 
-def needs_approval(tool_name: str) -> bool:
+def needs_approval(
+    tool_name: str,
+    arguments: dict[str, Any] | None = None,
+    ) -> bool:
 
-    """Say whether the user must approve this tool before it runs."""
+    """Say whether the user must approve this call before it runs: always for some tools, and for others only with some arguments."""
 
     policy = policy_for(tool_name)
 
-    return policy is not None and policy.approval_required
+    if policy is None:
+        return False
+
+    if policy.approval_required:
+        return True
+
+    rule = CONFIRM_RULES.get(tool_name)
+
+    return rule is not None and arguments is not None and rule(arguments)

@@ -63,6 +63,8 @@ export interface ToolStep {
  *
  * `action` says what approving does. A `remove` field has a `value`; a `change` field has its saved
  * `old` value and the `new` one. `run` is a tool with no preview of its own, showing its arguments.
+ * `confirm` shows values the app worked out, such as fund units from an amount, and `editable`
+ * holds the ones the person may fix before saving.
  * Older approvals were saved before `action` existed and are always removals.
  */
 export interface ApprovalRequest {
@@ -74,11 +76,20 @@ export interface ApprovalRequest {
     action?: ApprovalAction;
     title: string;
     fields: ApprovalField[];
+    editable?: ApprovalEdits;
   };
   expires_at: string;
 }
 
-export type ApprovalAction = 'remove' | 'change' | 'run';
+export type ApprovalAction = 'remove' | 'change' | 'run' | 'confirm';
+
+/** Values the person fixed on a confirm card, sent with the approval. */
+export interface ApprovalEdits {
+  units?: string;
+  amount?: string;
+}
+
+export type ApprovalDecision = 'approve' | 'reject';
 
 export interface ApprovalField {
   name: string;

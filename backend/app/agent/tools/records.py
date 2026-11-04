@@ -17,6 +17,7 @@ from app.agent.tools.results import ToolResult, from_record_error, from_validati
 from app.db.models.base import UserOwnedMixin
 from app.features.coverage.schemas import CoverageChoice
 from app.features.coverage.service import SECTIONS, CoverageService
+from app.features.investments.market import MarketService
 from app.features.records.exceptions import RecordError
 from app.features.records.kinds import KINDS, RecordKind
 from app.features.records.record_service import SYSTEM_COLUMNS, RecordService, check_fields
@@ -155,13 +156,15 @@ async def list_records(
         async with tool_session(runtime.context) as session:
             page = await RecordService(session).list_page(runtime.context.user_id, kind, page_size, cursor, filters, sort)
 
+            named = await MarketService(session).describe_holdings(page.items) if kind == RecordKind.holdings else {}
+
     except ValidationError as exc:
         return to_message(from_validation_error(exc), runtime.tool_call_id)
 
     except RecordError as exc:
         return to_message(from_record_error(exc), runtime.tool_call_id)
 
-    items = [chosen_fields(record_fields(record), fields) for record in page.items]
+    items = [chosen_fields({**record_fields(record), **named.get(record.id, {})}, fields) for record in page.items]
 
     data = {"kind": kind.value, "items": items, "total": page.total, "next_cursor": page.next_cursor}
 

@@ -8,7 +8,7 @@ from pydantic import TypeAdapter
 from sqlalchemy import select
 
 from app.db.enums import GoalAssetTable
-from app.db.models import Goal, InsurancePolicy, Loan
+from app.db.models import Goal, InsurancePolicy, Loan, SipPlan
 from app.db.models.base import UserOwnedMixin
 from app.features.coverage.service import CoverageService
 from app.features.planning.repository import PlanningRepository
@@ -163,7 +163,7 @@ class RecordService(BaseRecordService[BaseUserRecordRepository]):
 
     async def refuse_if_linked(self, user_id: int, kind: RecordKind, record_id: int) -> None:
 
-        """Refuse to remove a family member or property that other saved items still point at."""
+        """Refuse to remove a family member, property or holding that other saved items still point at."""
 
         links = []
 
@@ -174,6 +174,10 @@ class RecordService(BaseRecordService[BaseUserRecordRepository]):
         elif kind == RecordKind.physical_assets:
             links = [(Loan, "loan")]
             column = "physical_asset_id"
+
+        elif kind == RecordKind.holdings:
+            links = [(SipPlan, "SIP")]
+            column = "holding_id"
 
         for model, label in links:
 

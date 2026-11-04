@@ -14,11 +14,13 @@ from app.db.models import (
     FixedDeposit,
     Goal,
     GoalAllocation,
+    Holding,
     IncomeSource,
     InsurancePolicy,
     Loan,
     PhysicalAsset,
     RetirementAccount,
+    SipPlan,
     TaxProfile,
     Transaction,
     )
@@ -30,6 +32,7 @@ from app.features.assets.schemas import (
     RetirementAccountCreate,
     )
 from app.features.cash_flow.schemas import ExpenseCreate, IncomeSourceCreate, TransactionCreate
+from app.features.investments.schemas import HoldingCreate, SipPlanCreate
 from app.features.liabilities.schemas import CreditCardCreate, LoanCreate
 from app.features.planning.schemas import AssumptionSet, GoalAllocationCreate, GoalCreate, TaxProfileSet
 from app.features.profile.schemas import FamilyMemberCreate
@@ -48,6 +51,8 @@ class RecordKind(StrEnum):
     fixed_deposits = "fixed_deposits"
     retirement_accounts = "retirement_accounts"
     physical_assets = "physical_assets"
+    holdings = "holdings"
+    sip_plans = "sip_plans"
     loans = "loans"
     credit_cards = "credit_cards"
     insurance = "insurance"
@@ -82,6 +87,8 @@ KINDS: dict[RecordKind, KindInfo] = {
         "retirement_accounts",
         ),
     RecordKind.physical_assets: KindInfo(PhysicalAsset, PhysicalAssetCreate, "physical asset", "physical_assets"),
+    RecordKind.holdings: KindInfo(Holding, HoldingCreate, "stock or fund holding", "holdings"),
+    RecordKind.sip_plans: KindInfo(SipPlan, SipPlanCreate, "SIP", None),
     RecordKind.loans: KindInfo(Loan, LoanCreate, "loan", "loans"),
     RecordKind.credit_cards: KindInfo(CreditCard, CreditCardCreate, "credit card", "credit_cards"),
     RecordKind.insurance: KindInfo(InsurancePolicy, InsurancePolicyCreate, "insurance policy", "insurance"),

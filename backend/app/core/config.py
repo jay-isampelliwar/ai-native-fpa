@@ -59,6 +59,10 @@ class Settings(BaseSettings):
     GRAPH_RECURSION_LIMIT: int = 80
     MODEL_PRICES_USD_PER_MILLION: dict[str, tuple[float, float]] = {"gpt-4o-mini": (0.15, 0.60)}
 
+    TRANSCRIBE_MODEL: str = "gpt-4o-mini-transcribe"
+    TRANSCRIBE_TIMEOUT_SECONDS: float = 20
+    MAX_AUDIO_BYTES: int = 4 * 1024 * 1024
+
 
 @lru_cache
 def get_settings() -> Settings:

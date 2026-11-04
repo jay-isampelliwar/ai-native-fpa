@@ -53,7 +53,7 @@ def test_one_intent_gets_its_tools_and_the_always_set() -> None:
     """A delete gets only delete_record plus the two tools the prompt always needs, in ALL_TOOLS order."""
 
     assert names([DELETE_DATA]) == ["get_missing_data", "list_records", "delete_record"]
-    assert names([VIEW_DATA]) == ["get_missing_data", "list_records"]
+    assert names([VIEW_DATA]) == ["get_missing_data", "list_records", "get_portfolio_exposure"]
 
 
 def test_several_intents_get_the_union_once() -> None:
@@ -69,7 +69,7 @@ def test_several_intents_get_the_union_once() -> None:
 @pytest.mark.parametrize("intents", [[GENERAL_QUESTION], [], [ADD_DATA, GENERAL_QUESTION], ["BANK_BALANCE"]])
 def test_general_empty_or_unknown_gets_all_tools(intents: list[str]) -> None:
 
-    """A general question, no intents, or a name the map does not know gets all 22 tools."""
+    """A general question, no intents, or a name the map does not know gets every tool."""
 
     assert names(intents) == ALL_NAMES
 

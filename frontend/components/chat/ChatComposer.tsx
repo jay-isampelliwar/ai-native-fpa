@@ -1,10 +1,11 @@
 'use client';
 
-import { Lightbulb, Mic, Paperclip, Plus, SendHorizontal, Sparkles, Square, Telescope } from 'lucide-react';
-import { useEffect, useRef } from 'react';
+import { Lightbulb, Loader2, Mic, Paperclip, Plus, SendHorizontal, Sparkles, Square, Telescope, X } from 'lucide-react';
+import { useCallback, useEffect, useRef } from 'react';
 
 import FileChips from '@/components/chat/FileChips';
 import type { Attachment } from '@/lib/useUploads';
+import { useVoiceInput } from '@/lib/useVoiceInput';
 
 /**
  * The composer, pinned to the bottom of the chat pane.
@@ -36,9 +37,28 @@ import type { Attachment } from '@/lib/useUploads';
  * chat, with the Reasoning and Deep Research pills. `dock` is the box pinned to the
  * bottom once the conversation starts. Both put the text on top and the buttons below.
  *
- * Plus, Mic, Reasoning and Deep Research are drawn but do nothing yet. The backend
- * has no speech-to-text and the agent has no mode switch for them to turn on.
+ * The mic records the person and writes their words into the box as they speak, after any
+ * text already there. The box is read-only while recording, so typing cannot fight the live
+ * words, and Send waits until the final words are in. Nothing is sent by itself: the person
+ * reads the text and sends it.
+ *
+ * Plus, Reasoning and Deep Research are drawn but do nothing yet. The agent has no mode switch
+ * for them to turn on.
  */
+
+/** Put spoken words after what was already typed, with one space between them. */
+function withSpoken(typed: string, spoken: string): string {
+  if (!spoken) return typed;
+
+  if (!typed.trim()) return spoken;
+
+  return `${typed.replace(/\s+$/, '')} ${spoken}`;
+}
+
+/** Seconds as m:ss, such as 0:07. */
+function clock(seconds: number): string {
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+}
 
 /** What the pipeline can actually read: the deterministic formats first, then the ones a model reads. */
 const ACCEPTED =
@@ -71,6 +91,19 @@ export default function ChatComposer({
 }) {
   const shell = useRef<HTMLDivElement>(null);
   const picker = useRef<HTMLInputElement>(null);
+  const typedBefore = useRef('');
+
+  const mic = useVoiceInput(
+    useCallback((spoken: string) => onChange(withSpoken(typedBefore.current, spoken)), [onChange]),
+  );
+
+  const recording = mic.state !== 'idle';
+
+  function toggleMic() {
+    if (mic.state === 'idle') typedBefore.current = value;
+
+    mic.toggle();
+  }
 
   // Re-measure on every change, resetting first so the box can shrink again.
   useEffect(() => {
@@ -129,15 +162,18 @@ export default function ChatComposer({
             ref={inputRef}
             value={value}
             onChange={(event) => onChange(event.target.value)}
+            readOnly={recording}
             onKeyDown={(event) => {
               if (event.key === 'Enter' && !event.shiftKey) {
                 event.preventDefault();
-                onSend();
+                if (!recording) onSend();
               }
             }}
             rows={hero ? 3 : 1}
             placeholder={
-              busy
+              mic.state === 'listening'
+                ? 'Listening… speak now'
+                : busy
                 ? 'One moment…'
                 : hero
                   ? 'Start your request, and let Mosaic handle everything.'
@@ -174,8 +210,27 @@ export default function ChatComposer({
           )}
 
           <div className="ml-auto flex items-center gap-1.5">
-            <button type="button" aria-label="Speak your request" title="Speak your request" className="icon-pill h-9 w-9">
-              <Mic size={15} aria-hidden="true" />
+            <button
+              type="button"
+              onClick={toggleMic}
+              disabled={mic.state === 'starting' || mic.state === 'finishing'}
+              aria-label={mic.state === 'listening' ? 'Stop recording' : 'Speak your request'}
+              aria-pressed={mic.state === 'listening'}
+              title={mic.state === 'listening' ? 'Stop recording' : 'Speak your request'}
+              className={`icon-pill h-9 w-9 disabled:opacity-60`}
+              style={
+                mic.state === 'listening'
+                  ? { background: 'var(--negative)', color: 'white', boxShadow: `0 0 0 ${2 + mic.level * 6}px var(--negative-soft)` }
+                  : undefined
+              }
+            >
+              {mic.state === 'listening' ? (
+                <Square size={12} fill="currentColor" aria-hidden="true" />
+              ) : recording ? (
+                <Loader2 size={15} className="animate-spin" aria-hidden="true" />
+              ) : (
+                <Mic size={15} aria-hidden="true" />
+              )}
             </button>
 
             {busy ? (
@@ -192,7 +247,7 @@ export default function ChatComposer({
               <button
                 type="button"
                 onClick={onSend}
-                disabled={reading || !value.trim()}
+                disabled={reading || recording || !value.trim()}
                 aria-label="Send message"
                 className="send-gradient grid h-10 w-10 place-items-center rounded-full transition disabled:cursor-not-allowed disabled:opacity-45 disabled:shadow-none"
               >
@@ -204,6 +259,27 @@ export default function ChatComposer({
       </div>
 
       {reading && <p className="mt-2 text-center text-[11px] text-muted">Reading your files…</p>}
+
+      {mic.state === 'listening' && (
+        <p className="mt-2 text-center text-[11px] text-muted" aria-live="polite">
+          Listening {clock(mic.seconds)} / {clock(mic.limitSeconds)} · tap the mic to stop · stops after 10 seconds of quiet
+        </p>
+      )}
+
+      {mic.state === 'finishing' && (
+        <p className="mt-2 text-center text-[11px] text-muted" aria-live="polite">
+          Checking your words…
+        </p>
+      )}
+
+      {mic.error && (
+        <p className="mt-2 flex items-center justify-center gap-1.5 text-center text-[11px] text-negative" role="alert">
+          {mic.error}
+          <button type="button" onClick={mic.clearError} aria-label="Dismiss" className="text-muted hover:text-primary">
+            <X size={12} aria-hidden="true" />
+          </button>
+        </p>
+      )}
     </div>
   );
 }
