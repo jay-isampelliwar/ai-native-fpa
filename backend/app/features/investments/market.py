@@ -301,7 +301,7 @@ class MarketService:
         fund = await self.session.scalar(select(MutualFund).where(MutualFund.isin == isin.strip().upper()))
 
         if fund is None:
-            raise RecordNotFound(f"No fund plan has ISIN {isin}. Use search_instruments to find it.")
+            raise RecordNotFound(f"No fund plan has ISIN {isin}. Use search_stocks_and_funds to find it.")
 
         return fund
 
@@ -382,7 +382,7 @@ class MarketService:
             )
 
         if stock is None:
-            raise RecordNotFound(f"No stock has ISIN or symbol {isin_or_symbol}. Use search_instruments to find it.")
+            raise RecordNotFound(f"No stock has ISIN or symbol {isin_or_symbol}. Use search_stocks_and_funds to find it.")
 
         holders = await self.session.execute(
             select(FundHolding.base_scheme_name, FundHolding.amc_name, FundHolding.weight_pct)

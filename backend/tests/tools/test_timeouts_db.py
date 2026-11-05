@@ -21,7 +21,7 @@ from app.agent.state import PlannerState
 from app.agent.tools import policies
 from app.agent.tools.limits import tool_session
 from app.agent.tools.operations import run_write
-from app.agent.tools.results import ToolResult, ok, to_message
+from app.agent.tools.results import ToolResult, checked, to_message
 from app.agent.tools.wrapper import finish_tool_call
 from app.core.config import get_settings
 from app.db.enums import LoanType, RunStatus
@@ -88,7 +88,7 @@ async def save_then_hang(runtime: ToolRuntime[PlannerContext]) -> ToolMessage:
 
         await session.flush()
 
-        return ok("Saved loan.", {"id": loan.id})
+        return checked("Saved loan.", {"id": loan.id})
 
     result = await run_write(runtime, save)
 

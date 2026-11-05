@@ -18,7 +18,7 @@ from app.agent.intents import (
 from app.agent.tools import ALL_TOOLS
 
 
-ALWAYS_TOOLS = ("list_records", "get_missing_data")
+ALWAYS_TOOLS = ("list_records", "get_missing_sections")
 
 ADD_TOOLS = (
     "add_family_member",
@@ -29,29 +29,29 @@ ADD_TOOLS = (
     "add_fixed_deposit",
     "add_retirement_account",
     "add_physical_asset",
-    "add_holding",
+    "add_stock_or_fund",
     "add_sip_plan",
-    "search_instruments",
+    "search_stocks_and_funds",
     "add_loan",
     "add_credit_card",
     "add_insurance_policy",
     "add_goal",
     "update_profile",
     "set_tax_profile",
-    "set_assumption",
-    "update_data_coverage",
+    "set_planning_rate",
+    "mark_section_status",
     )
 
 TOOLS_BY_INTENT: dict[str, tuple[str, ...]] = {
     VIEW_DATA: ("get_portfolio_exposure",),
     ADD_DATA: ADD_TOOLS,
-    CHANGE_DATA: ("update_record", "update_profile", "set_tax_profile", "set_assumption", "allocate_goal"),
+    CHANGE_DATA: ("update_record", "update_profile", "set_tax_profile", "set_planning_rate", "link_asset_to_goal"),
     DELETE_DATA: ("delete_record",),
-    GOAL_CHECK: ("check_goal_progress", "allocate_goal", "add_goal", "set_assumption"),
-    MISSING_DATA: ("update_data_coverage",),
-    SIMULATION: ("check_goal_progress", "set_assumption"),
+    GOAL_CHECK: ("check_goal_progress", "link_asset_to_goal", "add_goal", "set_planning_rate"),
+    MISSING_DATA: ("mark_section_status",),
+    SIMULATION: ("check_goal_progress", "set_planning_rate"),
     MARKET_INFO: (
-        "search_instruments",
+        "search_stocks_and_funds",
         "get_fund_details",
         "get_stock_details",
         "compare_funds",

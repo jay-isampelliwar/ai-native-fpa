@@ -143,6 +143,10 @@ async def change_preview(call: ToolCall, user_id: int) -> Preview | None:
         return None
 
     kind, record, described, current = loaded
+
+    if kind == RecordKind.holdings and "isin" in changes:
+        return await move_preview(call, user_id, record, described, current)
+
     changed = real_changes(kind, record, changes)
 
     if not changed:
@@ -162,6 +166,76 @@ async def change_preview(call: ToolCall, user_id: int) -> Preview | None:
             for name, value in changed.items()
             ],
         "note": {"tone": "calm", "text": note},
+        "fields": [
+            {"name": name, "old": current.get(name, NOT_SET), "new": show_value(value)}
+            for name, value in changed.items()
+            ],
+        }
+
+
+INSTRUMENT_COLUMNS = ("asset_type", "stock_id", "mutual_fund_id")
+
+
+async def plan_name(
+    session: Any,
+    stock_id: int | None,
+    mutual_fund_id: int | None,
+    ) -> str:
+
+    """The full name of a fund plan with its plan and option, such as '... - Direct Plan - Growth', or a stock's name."""
+
+    if mutual_fund_id is not None:
+        return await session.scalar(select(MutualFund.scheme_name).where(MutualFund.id == mutual_fund_id)) or NOT_SET
+
+    return await session.scalar(select(Stock.company_name).where(Stock.id == stock_id)) or NOT_SET
+
+
+async def move_preview(
+    call: ToolCall,
+    user_id: int,
+    record: Holding,
+    described: Described,
+    current: dict[str, Any],
+    ) -> Preview | None:
+
+    """Show a holding moving to another stock or fund: old name next to new, then the units, amount and value it will have."""
+
+    try:
+
+        async with SessionLocal() as session:
+            resolved = await InvestmentService(session).move_changes(user_id, record, dict(call["args"]["changes"]))
+            new_isin = str(call["args"]["changes"]["isin"])
+            chips, _ = await instrument_labels(session, new_isin, new_isin)
+            old_name = await plan_name(session, record.stock_id, record.mutual_fund_id)
+            new_name = await plan_name(session, resolved.get("stock_id"), resolved.get("mutual_fund_id"))
+
+    except RecordError:
+        return None
+
+    changed = real_changes(RecordKind.holdings, record, resolved)
+
+    if not changed:
+        return None
+
+    moving = any(name in changed for name in INSTRUMENT_COLUMNS)
+
+    rows = [{"label": "Fund or stock", "old": old_name, "new": new_name}] if moving else []
+
+    rows += [
+        {"label": label_of(name), "old": show(Holding, name, getattr(record, name)), "new": show(Holding, name, value)}
+        for name, value in changed.items()
+        if name not in INSTRUMENT_COLUMNS and name != "as_of_date"
+        ]
+
+    note = "Today's value is worked out from the new fund's latest price." if moving else "Nothing else changes."
+
+    return {
+        "action": "change",
+        "title": "Move this holding to another fund?" if moving else change_title(RecordKind.holdings, described),
+        "subtitle": described.summary,
+        "chips": chips if moving else described.chips,
+        "changes": rows,
+        "note": {"tone": "warn" if moving else "calm", "text": note},
         "fields": [
             {"name": name, "old": current.get(name, NOT_SET), "new": show_value(value)}
             for name, value in changed.items()
@@ -223,6 +297,35 @@ async def confirm_preview(call: ToolCall, user_id: int) -> Preview | None:
         }
 
 
+async def deposit_preview(call: ToolCall, user_id: int) -> Preview:
+
+    """Ask the user to say a deposit is really a bank deposit, when its bank also runs mutual funds."""
+
+    bank = str(call["args"].get("bank_name", ""))
+    fields = [{"name": name, "value": show_value(value)} for name, value in call["args"].items()]
+    facts = []
+
+    if call["args"].get("principal") is not None:
+        facts.append({"label": "Amount", "value": rupees(Decimal(str(call["args"]["principal"])))})
+
+    if call["args"].get("interest_rate") is not None:
+        facts.append({"label": "Interest", "value": f"{show_value(call['args']['interest_rate'])}% a year"})
+
+    return {
+        "action": "confirm",
+        "title": "Is this a bank fixed deposit?",
+        "subtitle": bank,
+        "chips": ["Fixed deposit"],
+        "facts": facts,
+        "note": {
+            "tone": "warn",
+            "text": f"{bank} also runs mutual funds. Approve only if this is a fixed deposit in the bank. "
+            "If it is a mutual fund, reject and say so.",
+            },
+        "fields": fields,
+        }
+
+
 async def instrument_labels(
     session: Any,
     isin: str,
@@ -244,7 +347,12 @@ async def instrument_labels(
     return [], fallback
 
 
-PREVIEWS = {"delete_record": remove_preview, "update_record": change_preview, "add_holding": confirm_preview}
+PREVIEWS = {
+    "delete_record": remove_preview,
+    "update_record": change_preview,
+    "add_stock_or_fund": confirm_preview,
+    "add_fixed_deposit": deposit_preview,
+    }
 
 
 async def preview_for(call: ToolCall, user_id: int) -> Preview | None:

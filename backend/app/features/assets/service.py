@@ -1,6 +1,7 @@
 """Business rules for adding bank accounts, deposits, retirement accounts and physical assets."""
 
 from app.db.models import BankAccount, FixedDeposit, PhysicalAsset, RetirementAccount
+from app.features.assets.fund_houses import refuse_fund_house
 from app.features.assets.repository import AssetRepository
 from app.features.assets.schemas import (
     BankAccountCreate,
@@ -29,7 +30,9 @@ class AssetService(BaseRecordService[AssetRepository]):
 
     async def add_fixed_deposit(self, user_id: int, deposit: FixedDepositCreate) -> FixedDeposit:
 
-        """Add the deposit; repeats are allowed, since many deposits at one bank are normal."""
+        """Add the deposit, refusing a mutual fund house as the bank; repeats are allowed, since many deposits at one bank are normal."""
+
+        refuse_fund_house(deposit.bank_name)
 
         record = await self.repo.add_fixed_deposit(user_id, deposit)
 

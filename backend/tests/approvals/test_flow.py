@@ -48,7 +48,7 @@ class Paused:
 
 class FakeModel:
 
-    """Asks for get_missing_data and delete_record on a delete message, and answers in one line otherwise."""
+    """Asks for get_missing_sections and delete_record on a delete message, and answers in one line otherwise."""
 
     def __init__(self, expense_id: int) -> None:
 
@@ -67,7 +67,7 @@ class FakeModel:
             yield AIMessageChunk(
                 "",
                 tool_call_chunks=[
-                    {"name": "get_missing_data", "args": "{}", "id": "missing", "index": 0},
+                    {"name": "get_missing_sections", "args": "{}", "id": "missing", "index": 0},
                     {
                         "name": "delete_record",
                         "args": f'{{"kind": "expenses", "record_id": {self.expense_id}}}',
@@ -246,7 +246,7 @@ async def test_approve_deletes_and_replies(paused: Paused) -> None:
     assert not await rent_exists(paused.expense_id)
     assert await run_status(paused.run.run_id) == RunStatus.completed
     assert await call_statuses(paused.run.run_id) == {
-        "get_missing_data": ToolCallStatus.completed,
+        "get_missing_sections": ToolCallStatus.completed,
         "delete_record": ToolCallStatus.completed,
         }
     assert (await approval_for(paused.run.run_id)).status == ApprovalStatus.approved
@@ -262,7 +262,7 @@ async def test_reject_keeps_the_record_and_replies(paused: Paused) -> None:
     assert await rent_exists(paused.expense_id)
     assert await run_status(paused.run.run_id) == RunStatus.completed
     assert await call_statuses(paused.run.run_id) == {
-        "get_missing_data": ToolCallStatus.completed,
+        "get_missing_sections": ToolCallStatus.completed,
         "delete_record": ToolCallStatus.rejected,
         }
     assert (await approval_for(paused.run.run_id)).status == ApprovalStatus.rejected
@@ -307,7 +307,7 @@ async def test_new_message_rejects_and_starts_a_new_run(paused: Paused) -> None:
     assert await rent_exists(paused.expense_id)
     assert await run_status(paused.run.run_id) == RunStatus.completed
     assert await call_statuses(paused.run.run_id) == {
-        "get_missing_data": ToolCallStatus.completed,
+        "get_missing_sections": ToolCallStatus.completed,
         "delete_record": ToolCallStatus.rejected,
         }
     assert await reply_text(paused.run.run_id) == ""
@@ -339,7 +339,7 @@ async def test_sweep_expires_and_cancels_the_run(paused: Paused) -> None:
 
     assert await rent_exists(paused.expense_id)
     assert await run_status(paused.run.run_id) == RunStatus.cancelled
-    assert (await call_statuses(paused.run.run_id))["get_missing_data"] == ToolCallStatus.completed
+    assert (await call_statuses(paused.run.run_id))["get_missing_sections"] == ToolCallStatus.completed
     assert (await approval_for(paused.run.run_id)).status == ApprovalStatus.expired
 
 
@@ -367,7 +367,7 @@ async def test_cancel_runs_nothing(paused: Paused) -> None:
     assert await rent_exists(paused.expense_id)
     assert await run_status(paused.run.run_id) == RunStatus.cancelled
     assert await call_statuses(paused.run.run_id) == {
-        "get_missing_data": ToolCallStatus.rejected,
+        "get_missing_sections": ToolCallStatus.rejected,
         "delete_record": ToolCallStatus.rejected,
         }
     assert (await approval_for(paused.run.run_id)).status == ApprovalStatus.cancelled

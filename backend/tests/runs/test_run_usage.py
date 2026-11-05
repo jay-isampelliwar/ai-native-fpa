@@ -22,7 +22,7 @@ TOKENS = {"input_tokens": 1000, "output_tokens": 200, "total_tokens": 1200}
 
 class Answerer:
 
-    """A model that asks for get_missing_data once, then answers in one line."""
+    """A model that asks for get_missing_sections once, then answers in one line."""
 
     async def astream(self, messages: list) -> AsyncIterator[AIMessageChunk]:
 
@@ -34,7 +34,7 @@ class Answerer:
 
             return
 
-        yield AIMessageChunk("", tool_call_chunks=[{"name": "get_missing_data", "args": "{}", "id": "missing", "index": 0}])
+        yield AIMessageChunk("", tool_call_chunks=[{"name": "get_missing_sections", "args": "{}", "id": "missing", "index": 0}])
         yield AIMessageChunk("", usage_metadata=TOKENS)
 
 

@@ -35,7 +35,7 @@ async def add_income_source(
     end_date: Annotated[date | None, "When it will stop, as YYYY-MM-DD, only if stated."] = None,
     ) -> ToolMessage:
 
-    """Add one regular income. Required: source type, name, amount."""
+    """Add one income that comes regularly, such as salary or rent received. Required: source type, name, amount. A one-time amount like a bonus goes in add_transaction."""
 
     return await save_record(
         runtime,
@@ -57,7 +57,7 @@ async def add_expense(
     end_date: Annotated[date | None, "When it will stop, as YYYY-MM-DD, only if stated."] = None,
     ) -> ToolMessage:
 
-    """Add one regular expense. Required: category, name, amount."""
+    """Add one expense paid regularly, such as rent or groceries. Required: category, name, amount. Never for a loan EMI, an insurance premium or a SIP: those belong to their own item."""
 
     return await save_record(
         runtime,
@@ -78,7 +78,7 @@ async def add_transaction(
     description: Annotated[str | None, "A few words on what it was, only if the user said it."] = None,
     ) -> ToolMessage:
 
-    """Add one one-off amount, such as a bonus, gift or big purchase. Required: direction, category, amount, date."""
+    """Add one amount that happened only once, such as a bonus, gift or big purchase. Required: direction, category, amount, date. Regular income or expenses go in add_income_source or add_expense."""
 
     return await save_record(
         runtime,

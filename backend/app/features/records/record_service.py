@@ -10,7 +10,9 @@ from sqlalchemy import select
 from app.db.enums import GoalAssetTable
 from app.db.models import Goal, InsurancePolicy, Loan, SipPlan
 from app.db.models.base import UserOwnedMixin
+from app.features.assets.fund_houses import refuse_fund_house
 from app.features.coverage.service import CoverageService
+from app.features.investments.service import InvestmentService
 from app.features.planning.repository import PlanningRepository
 from app.features.records.base_repository import BaseUserRecordRepository
 from app.features.records.exceptions import RecordConflict, RecordError, RecordNotFound
@@ -137,10 +139,17 @@ class RecordService(BaseRecordService[BaseUserRecordRepository]):
         """Merge the changes into the saved item, run the same checks as when adding, then save the changed fields."""
 
         if kind in NOT_EDITABLE:
-            raise RecordError("Goal allocations are changed with allocate_goal.")
+            raise RecordError("Goal allocations are changed with link_asset_to_goal.")
 
         if not changes:
             raise RecordError("Nothing to update.")
+
+        if kind == RecordKind.holdings and "isin" in changes:
+            record = await self.get_or_fail(user_id, kind, record_id)
+            changes = await InvestmentService(self.session).move_changes(user_id, record, changes)
+
+        if kind == RecordKind.fixed_deposits and changes.get("bank_name"):
+            refuse_fund_house(str(changes["bank_name"]))
 
         allowed = editable_fields(kind)
 

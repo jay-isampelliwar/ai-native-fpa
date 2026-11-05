@@ -1,4 +1,4 @@
-"""Tests for the confirm card on add_holding: correct runs with the shown units, fixed values run with the user's numbers."""
+"""Tests for the confirm card on add_stock_or_fund: correct runs with the shown units, fixed values run with the user's numbers."""
 
 from typing import Any
 
@@ -34,7 +34,7 @@ ran: list[dict[str, Any]] = []
 
 
 @tool
-def add_holding(
+def add_stock_or_fund(
     isin: str,
     units: int | float | str | None = None,
     amount: int | float | str | None = None,
@@ -49,14 +49,14 @@ def add_holding(
 
 def build(args: dict[str, Any]):
 
-    """An agent that asks for one add_holding call, the real gate, and a fake tool."""
+    """An agent that asks for one add_stock_or_fund call, the real gate, and a fake tool."""
 
     def agent(state: PlannerState) -> dict:
 
         """Ask for the call once, then answer."""
 
         if isinstance(state["messages"][-1], HumanMessage):
-            return {"messages": [AIMessage("", tool_calls=[{"name": "add_holding", "args": args, "id": "hold"}])]}
+            return {"messages": [AIMessage("", tool_calls=[{"name": "add_stock_or_fund", "args": args, "id": "hold"}])]}
 
         return {"messages": [AIMessage("done")]}
 
@@ -70,7 +70,7 @@ def build(args: dict[str, Any]):
 
     builder.add_node(AGENT_NODE, agent)
     builder.add_node(APPROVAL_NODE, approval_gate, destinations=(TOOLS_NODE, AGENT_NODE, END))
-    builder.add_node(TOOLS_NODE, ToolNode([add_holding]))
+    builder.add_node(TOOLS_NODE, ToolNode([add_stock_or_fund]))
 
     builder.add_edge(START, AGENT_NODE)
     builder.add_conditional_edges(AGENT_NODE, route, [APPROVAL_NODE, END])

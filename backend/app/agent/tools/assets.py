@@ -29,7 +29,7 @@ async def add_bank_account(
     interest_rate: Annotated[Decimal | None, "Yearly interest in percent, only if stated."] = None,
     ) -> ToolMessage:
 
-    """Add one bank account. Required: bank name, account type, balance."""
+    """Add one bank account with its balance, such as an HDFC savings account. Required: bank name, account type, balance."""
 
     return await save_record(
         runtime,
@@ -43,7 +43,7 @@ async def add_bank_account(
 @tool
 async def add_fixed_deposit(
     runtime: ToolRuntime[PlannerContext],
-    bank_name: Annotated[str | None, "The bank's name."] = None,
+    bank_name: Annotated[str | None, "The bank or post office name. Never a mutual fund house like Axis AMC or Nippon."] = None,
     deposit_type: Annotated[DepositType | None, "fd for fixed deposit, rd for recurring deposit."] = None,
     principal: Annotated[Decimal | None, f"The amount deposited. {RUPEES}"] = None,
     interest_rate: Annotated[Decimal | None, "Yearly interest in percent."] = None,
@@ -52,7 +52,7 @@ async def add_fixed_deposit(
     maturity_amount: Annotated[Decimal | None, f"The amount paid at maturity, only if stated. {RUPEES}"] = None,
     ) -> ToolMessage:
 
-    """Add one fixed or recurring deposit. Required: bank name, deposit type, principal, interest rate, start date, maturity date."""
+    """Add one bank or post office fixed deposit (FD) or recurring deposit (RD). Required: bank name, deposit type, principal, interest rate, start date, maturity date. Never for mutual funds, including liquid or debt funds: use add_stock_or_fund for those."""
 
     return await save_record(
         runtime,
@@ -74,7 +74,7 @@ async def add_retirement_account(
     maturity_date: Annotated[date | None, "When it matures, as YYYY-MM-DD, only if stated."] = None,
     ) -> ToolMessage:
 
-    """Add one EPF, PPF, NPS or VPF account. Required: account type, balance."""
+    """Add one EPF, PPF, NPS or VPF retirement account. Required: account type, balance. Not for mutual funds, even retirement funds: use add_stock_or_fund."""
 
     return await save_record(
         runtime,
@@ -96,7 +96,7 @@ async def add_physical_asset(
     is_self_occupied: Annotated[bool | None, "True if the user lives in this property."] = None,
     ) -> ToolMessage:
 
-    """Add one house, plot, gold, vehicle or other physical asset. Required: asset type, name, current value."""
+    """Add one house, plot, physical gold, vehicle or other physical asset. Required: asset type, name, current value. Gold ETFs and gold funds go in add_stock_or_fund."""
 
     return await save_record(
         runtime,

@@ -384,6 +384,19 @@ def finished_event(message: ToolMessage) -> RunEvent:
     return RunEvent(TOOL_FINISHED, {"id": message.tool_call_id, "name": name, "label": label_for(name), "status": status})
 
 
+def spaced(
+    text: Any,
+    gap: bool,
+    ) -> Any:
+
+    """Start the text on a new paragraph when tools ran after earlier text, so two pieces of the reply never run together."""
+
+    if gap and isinstance(text, str):
+        return f"\n\n{text}"
+
+    return text
+
+
 async def stream_events(
     run_id: int,
     conversation_id: int,
@@ -393,7 +406,7 @@ async def stream_events(
     deadline: float,
     ) -> AsyncIterator[RunEvent]:
 
-    """Run or resume the graph on the conversation's own thread by the deadline, save each tool step, and yield each piece, step and pause."""
+    """Run or resume the graph on the conversation's own thread by the deadline, save each tool step, and yield each piece, step and pause, with a paragraph break after tools."""
 
     async with SessionLocal() as session:
         profile = await ProfileService(session).get_profile(user_id)
@@ -407,6 +420,9 @@ async def stream_events(
         deadline=deadline,
         )
 
+    wrote = False
+    gap = False
+
     async for mode, chunk in planner.planner_graph.astream(
         graph_input,
         config=config,
@@ -415,6 +431,8 @@ async def stream_events(
         ):
 
         if mode == "updates":
+
+            gap = gap or (wrote and bool(update_messages(chunk)))
 
             for interrupt in chunk.get(INTERRUPT_KEY, ()):
                 yield RunEvent(APPROVAL_REQUIRED, interrupt.value)
@@ -440,7 +458,11 @@ async def stream_events(
         message, _ = chunk
 
         if isinstance(message, AIMessageChunk) and message.content:
-            yield RunEvent(ASSISTANT_DELTA, {"text": message.content})
+
+            yield RunEvent(ASSISTANT_DELTA, {"text": spaced(message.content, gap)})
+
+            wrote = True
+            gap = False
 
 
 async def drive_run(

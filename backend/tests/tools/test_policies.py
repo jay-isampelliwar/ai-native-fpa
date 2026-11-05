@@ -48,9 +48,9 @@ def test_read_tools_are_read() -> None:
 
     assert reads == {
         "list_records",
-        "get_missing_data",
+        "get_missing_sections",
         "check_goal_progress",
-        "search_instruments",
+        "search_stocks_and_funds",
         "get_fund_details",
         "get_stock_details",
         "compare_funds",
@@ -70,10 +70,10 @@ def test_read_tools_are_read() -> None:
     )
 def test_holding_needs_a_confirm_only_when_units_are_worked_out(arguments: dict, expected: bool) -> None:
 
-    """add_holding pauses for the user only when it has an amount and an ISIN but no units."""
+    """add_stock_or_fund pauses for the user only when it has an amount and an ISIN but no units."""
 
-    assert needs_approval("add_holding", arguments) is expected
-    assert needs_approval("add_holding") is False
+    assert needs_approval("add_stock_or_fund", arguments) is expected
+    assert needs_approval("add_stock_or_fund") is False
 
 
 @tool

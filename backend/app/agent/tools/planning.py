@@ -1,4 +1,4 @@
-"""The planning tools: add goals, allocate assets to goals, and set assumptions and the tax profile."""
+"""The planning tools: add goals, link assets to goals, and set planning rates and the tax profile."""
 
 from decimal import Decimal
 from typing import Annotated
@@ -26,7 +26,7 @@ async def add_goal(
     family_member_name: Annotated[str | None, "The saved family member this goal is for, if any."] = None,
     ) -> ToolMessage:
 
-    """Add one financial goal. Required: goal type, name, target amount, target year."""
+    """Add one financial goal, such as a house, a child's education or retirement. Required: goal type, name, target amount in today's money, target year."""
 
     return await save_record(
         runtime,
@@ -38,7 +38,7 @@ async def add_goal(
 
 
 @tool
-async def allocate_goal(
+async def link_asset_to_goal(
     runtime: ToolRuntime[PlannerContext],
     goal_id: Annotated[int | None, "The goal's id, from list_records with kind goals."] = None,
     asset_table: Annotated[GoalAssetTable | None, "bank_accounts, fixed_deposits or retirement_accounts."] = None,
@@ -46,7 +46,7 @@ async def allocate_goal(
     allocation_pct: Annotated[Decimal | None, "The percent of the asset to set aside for the goal, above 0 and up to 100."] = None,
     ) -> ToolMessage:
 
-    """Set aside a percent of one saved asset for one saved goal. Setting it again replaces the old percent. Required: all four."""
+    """Set aside a percent of one saved bank account, deposit or retirement account for one saved goal. Setting it again replaces the old percent. Required: all four. Stocks and funds cannot be linked yet."""
 
     return await save_record(
         runtime,
@@ -58,13 +58,13 @@ async def allocate_goal(
 
 
 @tool
-async def set_assumption(
+async def set_planning_rate(
     runtime: ToolRuntime[PlannerContext],
     key: Annotated[AssumptionKey | None, "Which planning rate to set."] = None,
     value: Annotated[Decimal | None, "The yearly rate in percent, such as 6 for 6%."] = None,
     ) -> ToolMessage:
 
-    """Set one planning rate the user chose, such as inflation or equity return. Replaces the old value. Required: key, value."""
+    """Set one yearly rate the user chose for planning maths, such as inflation or equity return. Replaces the old value. Required: key, value. Not for the user's own interest rates on loans or deposits."""
 
     return await save_record(
         runtime,
@@ -85,7 +85,7 @@ async def set_tax_profile(
     hra_claimed: Annotated[Decimal | None, f"HRA exemption claimed, only if stated. {RUPEES}"] = None,
     ) -> ToolMessage:
 
-    """Set the tax regime and deductions for one financial year. Updates the year if already saved. Required: financial year, regime."""
+    """Set the user's income tax regime and deductions for one financial year. Updates the year if already saved. Required: financial year, regime."""
 
     return await save_record(
         runtime,

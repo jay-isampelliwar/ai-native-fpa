@@ -28,7 +28,7 @@ async def add_loan(
     end_date: Annotated[date | None, "When the last EMI is due, as YYYY-MM-DD."] = None,
     ) -> ToolMessage:
 
-    """Add one loan. Required: loan type, lender, principal, outstanding, interest rate, EMI, start date, end date."""
+    """Add one loan the user is repaying, such as a home or car loan. Required: loan type, lender, principal, outstanding, interest rate, EMI, start date, end date. Its EMI is saved here, never also as an expense."""
 
     return await save_record(
         runtime,
@@ -48,7 +48,7 @@ async def add_credit_card(
     due_day: Annotated[int | None, "The day of the month the bill is due, 1 to 31, only if stated."] = None,
     ) -> ToolMessage:
 
-    """Add one credit card. Required: bank name."""
+    """Add one credit card and what is owed on it. Required: bank name."""
 
     return await save_record(
         runtime,

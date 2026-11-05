@@ -10,9 +10,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.context import PlannerContext
 from app.agent.tools.common import given_arguments, save_record
-from app.agent.tools.records import show_value
 from app.agent.tools.operations import run_write
-from app.agent.tools.results import ToolResult, from_validation_error, ok, to_message
+from app.agent.tools.results import ToolResult, checked, from_validation_error, to_message
+from app.agent.tools.verify import confirm_saved, show_value
+from app.db.models import User
 from app.db.enums import FamilyRelation, RiskAppetite
 from app.features.profile.schemas import FamilyMemberCreate, ProfileUpdate
 from app.features.profile.service import ProfileService
@@ -29,7 +30,7 @@ async def update_profile(
     life_expectancy: Annotated[int | None, "The age to plan until, greater than retirement age."] = None,
     ) -> ToolMessage:
 
-    """Save the user's own profile details. Pass only the fields the user just told you. Email cannot be changed."""
+    """Save or change the user's own details: name, date of birth, city, risk appetite, retirement age, life expectancy. Pass only the fields the user just told you. Email cannot be changed."""
 
     arguments = dict(locals())
 
@@ -41,11 +42,13 @@ async def update_profile(
 
     async def save(session: AsyncSession) -> ToolResult:
 
-        """Save the profile changes in the guard's session."""
+        """Save the profile changes in the guard's session and read the profile back to check them."""
 
         saved = await ProfileService(session).update_profile(runtime.context.user_id, changes)
 
-        return ok("Saved profile.", {field: show_value(value) for field, value in saved.items()})
+        await confirm_saved(session, User, {"id": runtime.context.user_id}, saved)
+
+        return checked("Saved profile.", {field: show_value(value) for field, value in saved.items()})
 
     return to_message(await run_write(runtime, save), runtime.tool_call_id)
 
@@ -59,7 +62,7 @@ async def add_family_member(
     is_dependent: Annotated[bool | None, "True if they depend on the user for money."] = None,
     ) -> ToolMessage:
 
-    """Add one person in the user's family. Needs their name and relation. If they already exist, you get their id back."""
+    """Add one person in the user's family, such as a spouse, child or parent. Required: their real name and relation. If they are already saved, you get their id back instead."""
 
     return await save_record(
         runtime,

@@ -20,7 +20,7 @@ from app.agent.nodes import (
     )
 from app.agent.state import PlannerState
 from app.agent.tools import ALL_TOOLS
-from app.agent.tools.wrapper import finish_tool_call
+from app.agent.tools.wrapper import finish_tool_call, invocation_error
 
 
 def after_tools(state: PlannerState) -> str:
@@ -44,7 +44,7 @@ def build_planner_graph(checkpointer: BaseCheckpointSaver):
     builder.add_node(MEMORY_NODE, load_memories)
     builder.add_node(AGENT_NODE, run_agent)
     builder.add_node(APPROVAL_NODE, approval_gate, destinations=(TOOLS_NODE, AGENT_NODE, END))
-    builder.add_node(TOOLS_NODE, ToolNode(ALL_TOOLS, awrap_tool_call=finish_tool_call))
+    builder.add_node(TOOLS_NODE, ToolNode(ALL_TOOLS, awrap_tool_call=finish_tool_call, handle_tool_errors=invocation_error))
 
     builder.add_edge(START, REPAIR_NODE)
     builder.add_edge(REPAIR_NODE, INTENT_NODE)

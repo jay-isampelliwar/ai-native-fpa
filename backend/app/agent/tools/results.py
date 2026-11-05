@@ -5,7 +5,10 @@ from typing import Any, Literal
 from langchain_core.messages import ToolMessage
 from pydantic import BaseModel, ValidationError
 
-from app.features.records.exceptions import RecordConflict, RecordError, RecordExists, RecordNotFound
+from app.features.records.exceptions import HoldingMissing, RecordConflict, RecordError, RecordExists, RecordNotFound
+
+
+REPEAT_LIMIT = 3
 
 
 type ToolStatus = Literal[
@@ -16,6 +19,7 @@ type ToolStatus = Literal[
     "retryable_error",
     "rejected",
     "not_allowed",
+    "mismatch",
     ]
 
 
@@ -29,6 +33,7 @@ class ToolResult(BaseModel):
     data: dict[str, Any] | None = None
     error_code: str | None = None
     retryable: bool = False
+    verified: bool | None = None
 
 
 def ok(
@@ -39,6 +44,34 @@ def ok(
     """The tool did what was asked."""
 
     return ToolResult(status="success", message=message, data=data)
+
+
+def checked(
+    message: str,
+    data: dict[str, Any] | None = None,
+    ) -> ToolResult:
+
+    """The write was done and the row read back from the database matches what was asked."""
+
+    return ToolResult(status="success", message=message, data=data, verified=True)
+
+
+def mismatch(fields: dict[str, dict[str, str]]) -> ToolResult:
+
+    """The row read back did not match what was asked, so the whole save was undone."""
+
+    message = "Not saved: the check after saving found different values, so the change was undone."
+
+    return ToolResult(status="mismatch", message=message, data={"wrong_fields": fields}, error_code="save_mismatch")
+
+
+def unverified() -> ToolResult:
+
+    """A write tool returned success without reading its row back, so the save was undone."""
+
+    message = "Not saved: this save could not be checked, so the change was undone."
+
+    return ToolResult(status="mismatch", message=message, error_code="not_verified")
 
 
 def invalid(
@@ -109,6 +142,41 @@ def over_limit(error_code: str) -> ToolResult:
     return ToolResult(status="not_allowed", message=message, error_code=error_code)
 
 
+def repeated_failure(tool_name: str) -> ToolResult:
+
+    """The tool already failed the same way three times in this reply, so it does not run a fourth time."""
+
+    message = (
+        f"{tool_name} failed {REPEAT_LIMIT} times in a row with the same error, so it was not run again. "
+        "Stop calling it in this reply. Tell the user in one line that this did not work."
+        )
+
+    return ToolResult(status="not_allowed", message=message, error_code="repeated_failure")
+
+
+def tool_failed(tool_name: str) -> ToolResult:
+
+    """The tool broke on its own, so this call did nothing and the rest of the reply can go on."""
+
+    message = f"{tool_name} failed inside the app, so nothing was done. Tell the user in one line it did not work. Do not try it again."
+
+    return ToolResult(status="not_allowed", message=message, error_code="tool_failed")
+
+
+def bad_arguments(
+    tool_name: str,
+    errors: list[dict[str, str]],
+    ) -> ToolResult:
+
+    """The model called the tool with missing or wrong arguments, so it never ran."""
+
+    problems = "; ".join(f"{error['field']}: {error['problem']}" for error in errors)
+
+    message = f"{tool_name} was not run because of wrong details: {problems}. Fix them and call it again, or ask the user."
+
+    return invalid("invalid_arguments", message, {"errors": errors})
+
+
 def field_errors(exc: ValidationError) -> list[dict[str, str]]:
 
     """List each pydantic error as the field it is about and the problem in plain words."""
@@ -136,6 +204,9 @@ def from_record_error(exc: RecordError) -> ToolResult:
 
     if isinstance(exc, RecordExists):
         return conflict("already_exists", str(exc), {"existing_id": exc.record_id})
+
+    if isinstance(exc, HoldingMissing):
+        return ToolResult(status="not_found", message=str(exc), error_code="holding_missing")
 
     if isinstance(exc, RecordNotFound):
         return not_found(str(exc))

@@ -3,8 +3,8 @@
 
 TOOL_LABELS = {
     "check_goal_progress": "Checking your goal progress",
-    "get_missing_data": "Looking for missing details",
-    "update_data_coverage": "Updating what we know about you",
+    "get_missing_sections": "Looking for missing details",
+    "mark_section_status": "Noting what you don't have",
     "list_records": "Reading your records",
     "update_record": "Updating a record",
     "delete_record": "Deleting a record",
@@ -17,9 +17,9 @@ TOOL_LABELS = {
     "add_fixed_deposit": "Adding a fixed deposit",
     "add_retirement_account": "Adding a retirement account",
     "add_physical_asset": "Adding an asset",
-    "add_holding": "Adding a stock or fund",
+    "add_stock_or_fund": "Adding a stock or fund",
     "add_sip_plan": "Adding a SIP",
-    "search_instruments": "Searching stocks and funds",
+    "search_stocks_and_funds": "Searching stocks and funds",
     "get_fund_details": "Reading the fund's portfolio",
     "get_stock_details": "Reading the stock's details",
     "compare_funds": "Comparing funds",
@@ -28,8 +28,8 @@ TOOL_LABELS = {
     "add_credit_card": "Adding a credit card",
     "add_insurance_policy": "Adding an insurance policy",
     "add_goal": "Adding a goal",
-    "allocate_goal": "Linking money to a goal",
-    "set_assumption": "Saving a planning assumption",
+    "link_asset_to_goal": "Linking money to a goal",
+    "set_planning_rate": "Saving a planning rate",
     "set_tax_profile": "Saving your tax details",
     }
 

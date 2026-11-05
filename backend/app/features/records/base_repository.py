@@ -61,6 +61,18 @@ class BaseUserRecordRepository:
 
         return await self.session.scalar(query)
 
+    async def list_for_user[ModelT: UserOwnedMixin](
+        self,
+        model: type[ModelT],
+        user_id: int,
+        ) -> Sequence[ModelT]:
+
+        """Return every one of this user's rows in the table, oldest first, for sums that need them all."""
+
+        result = await self.session.scalars(select(model).where(model.user_id == user_id).order_by(model.id))
+
+        return result.all()
+
     async def list_page[ModelT: UserOwnedMixin](
         self,
         model: type[ModelT],

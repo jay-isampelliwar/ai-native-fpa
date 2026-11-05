@@ -4,15 +4,25 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 
+from typing import Any
+
 from app.db.enums import HoldingAssetType
 from app.db.models import Holding, MutualFund, SipPlan, Stock
 from app.features.investments.repository import InvestmentRepository
 from app.features.investments.schemas import HoldingCreate, SipPlanCreate
-from app.features.records.exceptions import RecordError, RecordNotFound
+from app.features.records.exceptions import HoldingMissing, RecordError, RecordExists, RecordNotFound
 from app.features.records.service import BaseRecordService
 
 
 COVERAGE_SECTION = "holdings"
+HOLDING_LABEL = "holding of this stock or fund"
+HOLDING_HINT = "Change its units or amounts with update_record instead of adding it again."
+SIP_HINT = "Do not add it again."
+MOVE_NEEDS = ("units", "invested_amount")
+MOVE_TEXT = (
+    "Moving this holding to another stock or fund needs its units and the amount invested in it. "
+    "Tell the user you are a little confused, ask for both, then call update_record again with isin, units and invested_amount."
+    )
 
 PAISE = Decimal("0.01")
 FUND_UNIT_STEP = Decimal("0.001")
@@ -127,7 +137,7 @@ class InvestmentService(BaseRecordService[InvestmentRepository]):
         if fund is not None:
             return from_fund(fund)
 
-        raise RecordNotFound(f"No stock or fund plan has ISIN {isin}. Use search_instruments to find the right ISIN.")
+        raise RecordNotFound(f"No stock or fund plan has ISIN {isin}. Use search_stocks_and_funds to find the right ISIN.")
 
     async def estimate(
         self,
@@ -150,9 +160,14 @@ class InvestmentService(BaseRecordService[InvestmentRepository]):
         folio_number: str | None,
         ) -> tuple[Holding, Instrument]:
 
-        """Save a holding, working out units from the amount when they are missing, and its value at the latest price."""
+        """Save a new holding, refusing one the user already has, working out units from the amount when they are missing."""
 
         instrument = await self.instrument(isin)
+
+        existing = await self.held(user_id, instrument)
+
+        if existing is not None:
+            raise RecordExists(HOLDING_LABEL, existing.id, HOLDING_HINT)
 
         if units is None:
 
@@ -178,28 +193,89 @@ class InvestmentService(BaseRecordService[InvestmentRepository]):
 
         return record, instrument
 
+    async def held(
+        self,
+        user_id: int,
+        instrument: Instrument,
+        ) -> Holding | None:
+
+        """Return the user's holding of this stock or fund plan, or None."""
+
+        stock_id = instrument.record_id if instrument.asset_type == HoldingAssetType.stock else None
+        fund_id = instrument.record_id if instrument.asset_type == HoldingAssetType.mutual_fund else None
+
+        return await self.repo.holding_for_instrument(user_id, stock_id, fund_id)
+
+    async def move_changes(
+        self,
+        user_id: int,
+        holding: Holding,
+        changes: dict[str, Any],
+        ) -> dict[str, Any]:
+
+        """Turn an isin in a holding's changes into the columns for the new instrument, needing units and amount, with value at its price."""
+
+        rest = {name: value for name, value in changes.items() if name != "isin"}
+
+        instrument = await self.instrument(str(changes["isin"]))
+
+        columns = {
+            "asset_type": instrument.asset_type,
+            "stock_id": instrument.record_id if instrument.asset_type == HoldingAssetType.stock else None,
+            "mutual_fund_id": instrument.record_id if instrument.asset_type == HoldingAssetType.mutual_fund else None,
+            }
+
+        if all(getattr(holding, name) == value for name, value in columns.items()):
+            return rest
+
+        missing = [name for name in MOVE_NEEDS if rest.get(name) is None]
+
+        if missing:
+            raise RecordError(MOVE_TEXT)
+
+        other = await self.held(user_id, instrument)
+
+        if other is not None and other.id != holding.id:
+            raise RecordExists(HOLDING_LABEL, other.id, "Change that one instead, or remove this one.")
+
+        units = Decimal(str(rest["units"]))
+        amount = Decimal(str(rest["invested_amount"]))
+
+        return {
+            **rest,
+            **columns,
+            "units": units,
+            "invested_amount": amount,
+            "avg_buy_price": buy_price(units, amount),
+            "current_value": value_of(instrument, units),
+            "as_of_date": date.today(),
+            }
+
     async def add_sip_plan(
         self,
         user_id: int,
         isin: str,
         plan: dict,
-        ) -> tuple[SipPlan, Holding, bool]:
+        ) -> tuple[SipPlan, Holding, Instrument]:
 
-        """Save a SIP into the user's holding of this instrument, first adding a holding with 0 units when they have none."""
+        """Save a SIP into the user's holding of this instrument, refusing when they do not hold it or have the same SIP."""
 
         instrument = await self.instrument(isin)
 
-        stock_id = instrument.record_id if instrument.asset_type == HoldingAssetType.stock else None
-        fund_id = instrument.record_id if instrument.asset_type == HoldingAssetType.mutual_fund else None
-
-        holding = await self.repo.holding_for_instrument(user_id, stock_id, fund_id)
-        created = holding is None
+        holding = await self.held(user_id, instrument)
 
         if holding is None:
-            holding, _ = await self.add_holding(user_id, isin, Decimal(0), None, None)
+            raise HoldingMissing(instrument.name)
 
-        record = await self.repo.add_sip_plan(user_id, SipPlanCreate(holding_id=holding.id, **plan))
+        sip = SipPlanCreate(holding_id=holding.id, **plan)
+
+        same = await self.repo.active_sip(user_id, holding.id, sip.amount, sip.sip_day)
+
+        if same is not None:
+            raise RecordExists("SIP", same.id, SIP_HINT)
+
+        record = await self.repo.add_sip_plan(user_id, sip)
 
         await self.mark_provided(user_id, COVERAGE_SECTION)
 
-        return record, holding, created
+        return record, holding, instrument

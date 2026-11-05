@@ -1,8 +1,5 @@
 """The memory tools: see what is missing, mark sections none or declined, and list, change or remove saved items."""
 
-from datetime import date
-from decimal import Decimal
-from enum import Enum
 from typing import Annotated, Any
 
 from langchain.tools import ToolRuntime, tool
@@ -13,7 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agent.context import PlannerContext
 from app.agent.tools.limits import tool_session
 from app.agent.tools.operations import run_write
-from app.agent.tools.results import ToolResult, from_record_error, from_validation_error, ok, to_message
+from app.agent.tools.results import ToolResult, checked, from_record_error, from_validation_error, ok, to_message
+from app.agent.tools.verify import confirm_removed, confirm_saved, show_value
+from app.db.models import DataCoverage
 from app.db.models.base import UserOwnedMixin
 from app.features.coverage.schemas import CoverageChoice
 from app.features.coverage.service import SECTIONS, CoverageService
@@ -21,22 +20,6 @@ from app.features.investments.market import MarketService
 from app.features.records.exceptions import RecordError
 from app.features.records.kinds import KINDS, RecordKind
 from app.features.records.record_service import SYSTEM_COLUMNS, RecordService, check_fields
-
-
-def show_value(value: Any) -> str:
-
-    """Write one saved value the way a person would read it."""
-
-    if isinstance(value, Enum):
-        return str(value.value)
-
-    if isinstance(value, Decimal):
-        return format(value.normalize(), "f")
-
-    if isinstance(value, date):
-        return value.isoformat()
-
-    return str(value)
 
 
 def record_fields(record: UserOwnedMixin) -> dict[str, Any]:
@@ -51,9 +34,9 @@ def record_fields(record: UserOwnedMixin) -> dict[str, Any]:
 
 
 @tool
-async def get_missing_data(runtime: ToolRuntime[PlannerContext]) -> ToolMessage:
+async def get_missing_sections(runtime: ToolRuntime[PlannerContext]) -> ToolMessage:
 
-    """See which sections of the user's details are still not asked about, and which profile details are empty."""
+    """List the sections (loans, insurance, goals and so on) the user has not told you about yet, and the empty profile details. Read-only. Use it to decide what to ask next."""
 
     async with tool_session(runtime.context) as session:
         missing = await CoverageService(session).missing(runtime.context.user_id)
@@ -73,7 +56,7 @@ async def get_missing_data(runtime: ToolRuntime[PlannerContext]) -> ToolMessage:
 
 
 @tool
-async def update_data_coverage(
+async def mark_section_status(
     runtime: ToolRuntime[PlannerContext],
     changes: Annotated[
         dict[str, CoverageChoice],
@@ -83,15 +66,17 @@ async def update_data_coverage(
         ],
     ) -> ToolMessage:
 
-    """Remember that the user has none of something, or does not want to share it. Saving an item marks its section as provided by itself."""
+    """Only for "I have no loans" or "I don't want to share my insurance": marks whole sections as none or declined. It never saves, changes or removes any item or amount. Saving an item marks its section as provided by itself."""
 
     async def mark(session: AsyncSession) -> ToolResult:
 
-        """Save the new section statuses in the guard's session."""
+        """Save the new section statuses in the guard's session and read them back."""
 
         statuses = await CoverageService(session).update(runtime.context.user_id, changes)
 
-        return ok("Saved.", {"sections": {section: status.value for section, status in statuses.items()}})
+        await confirm_saved(session, DataCoverage, {"user_id": runtime.context.user_id}, statuses)
+
+        return checked("Saved.", {"sections": {section: status.value for section, status in statuses.items()}})
 
     return to_message(await run_write(runtime, mark), runtime.tool_call_id)
 
@@ -129,7 +114,7 @@ def page_message(
 @tool
 async def list_records(
     runtime: ToolRuntime[PlannerContext],
-    kind: Annotated[RecordKind, "Which kind of saved items to show."],
+    kind: Annotated[RecordKind, "Which kind of saved items to show, such as holdings for stocks and funds or bank_accounts."],
     page_size: Annotated[int | None, "How many items to return, 1 to 50. Default 20."] = None,
     cursor: Annotated[int | None, "next_cursor from an earlier list_records result, to get the next page."] = None,
     filters: Annotated[
@@ -146,7 +131,7 @@ async def list_records(
         ] = None,
     ) -> ToolMessage:
 
-    """Show the user's saved items of one kind, each with its id, a page at a time. Use it to answer questions about them, and before adding, changing, removing or allocating."""
+    """Read the user's saved items of one kind, each with its id, a page at a time. Read-only. Use it to answer any question about the user's own money, and to find an item's id before changing or removing it."""
 
     try:
 
@@ -178,20 +163,28 @@ async def update_record(
     runtime: ToolRuntime[PlannerContext],
     kind: Annotated[RecordKind, "Which kind of item to change."],
     record_id: Annotated[int, "The id of the item, from list_records."],
-    changes: Annotated[dict[str, Any], "Map of field name to its new value, only the fields the user asked to change."],
+    changes: Annotated[
+        dict[str, Any],
+        "Map of field name to its new value, only the fields the user asked to change. "
+        "For a holding saved as the wrong stock or fund, put the right isin here together with units and invested_amount.",
+        ],
     ) -> ToolMessage:
 
-    """Change some fields of one saved item. The same checks as when adding are run again."""
+    """Change some fields of one item that is already saved, such as an amount or a date, or move a holding to the right stock or fund by isin. Never use it to add a new item. The user approves the change on a card first, and the same checks as when adding run again."""
 
     async def change(session: AsyncSession) -> ToolResult:
 
-        """Change the fields in the guard's session."""
+        """Change the fields in the guard's session and read the item back to check them."""
 
-        fields = await RecordService(session).update_record(runtime.context.user_id, kind, record_id, changes)
+        user_id = runtime.context.user_id
+
+        fields = await RecordService(session).update_record(user_id, kind, record_id, changes)
+
+        await confirm_saved(session, KINDS[kind].model, {"id": record_id, "user_id": user_id}, fields)
 
         changed = {name: show_value(value) for name, value in fields.items()}
 
-        return ok(f"Updated {KINDS[kind].label} id {record_id}.", {"id": record_id, "changed": changed})
+        return checked(f"Updated {KINDS[kind].label} id {record_id}.", {"id": record_id, "changed": changed})
 
     return to_message(await run_write(runtime, change), runtime.tool_call_id)
 
@@ -203,18 +196,22 @@ async def delete_record(
     record_id: Annotated[int, "The id of the item, from list_records."],
     ) -> ToolMessage:
 
-    """Remove one saved item. The app asks the user to approve this exact item before it runs."""
+    """Remove one saved item for good, such as an expense that has stopped. The user approves this exact item on a card before it runs."""
 
     async def remove(session: AsyncSession) -> ToolResult:
 
-        """Remove the item in the guard's session, describing it before it is gone."""
+        """Remove the item in the guard's session, describing it before it is gone, and check it is really gone."""
 
-        record = await RecordService(session).get_or_fail(runtime.context.user_id, kind, record_id)
+        user_id = runtime.context.user_id
+
+        record = await RecordService(session).get_or_fail(user_id, kind, record_id)
 
         removed = record_fields(record)
 
-        await RecordService(session).delete_record(runtime.context.user_id, kind, record_id)
+        await RecordService(session).delete_record(user_id, kind, record_id)
 
-        return ok(f"Removed {KINDS[kind].label}.", {"removed": removed})
+        await confirm_removed(session, KINDS[kind].model, {"id": record_id, "user_id": user_id})
+
+        return checked(f"Removed {KINDS[kind].label}.", {"removed": removed})
 
     return to_message(await run_write(runtime, remove), runtime.tool_call_id)

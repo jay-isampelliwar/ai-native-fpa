@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
+from app.features.assets.fund_houses import is_shared_brand
+
 
 class Risk(StrEnum):
 
@@ -33,14 +35,14 @@ DESTRUCTIVE_APPROVED = ToolPolicy(Risk.destructive, approval_required=True)
 
 TOOL_POLICIES: dict[str, ToolPolicy] = {
     "list_records": READ,
-    "get_missing_data": READ,
+    "get_missing_sections": READ,
     "check_goal_progress": READ,
-    "search_instruments": READ,
+    "search_stocks_and_funds": READ,
     "get_fund_details": READ,
     "get_stock_details": READ,
     "compare_funds": READ,
     "get_portfolio_exposure": READ,
-    "update_data_coverage": WRITE,
+    "mark_section_status": WRITE,
     "add_family_member": WRITE,
     "add_income_source": WRITE,
     "add_expense": WRITE,
@@ -49,7 +51,7 @@ TOOL_POLICIES: dict[str, ToolPolicy] = {
     "add_fixed_deposit": WRITE,
     "add_retirement_account": WRITE,
     "add_physical_asset": WRITE,
-    "add_holding": WRITE,
+    "add_stock_or_fund": WRITE,
     "add_sip_plan": WRITE,
     "add_loan": WRITE,
     "add_credit_card": WRITE,
@@ -57,8 +59,8 @@ TOOL_POLICIES: dict[str, ToolPolicy] = {
     "add_goal": WRITE,
     "update_profile": SENSITIVE,
     "set_tax_profile": SENSITIVE,
-    "set_assumption": SENSITIVE,
-    "allocate_goal": SENSITIVE,
+    "set_planning_rate": SENSITIVE,
+    "link_asset_to_goal": SENSITIVE,
     "update_record": SENSITIVE_APPROVED,
     "delete_record": DESTRUCTIVE_APPROVED,
     }
@@ -71,8 +73,16 @@ def units_to_confirm(arguments: dict[str, Any]) -> bool:
     return arguments.get("units") is None and arguments.get("amount") is not None and bool(arguments.get("isin"))
 
 
+def bank_to_confirm(arguments: dict[str, Any]) -> bool:
+
+    """True when a deposit's bank also runs mutual funds, such as Axis or HDFC, so the user must say it is a bank deposit."""
+
+    return is_shared_brand(arguments.get("bank_name"))
+
+
 CONFIRM_RULES: dict[str, Callable[[dict[str, Any]], bool]] = {
-    "add_holding": units_to_confirm,
+    "add_stock_or_fund": units_to_confirm,
+    "add_fixed_deposit": bank_to_confirm,
     }
 
 

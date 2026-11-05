@@ -20,13 +20,34 @@ class RecordExists(RecordConflict):
 
     """A matching row is already saved, so a second one was not added."""
 
-    def __init__(self, label: str, record_id: int) -> None:
+    def __init__(
+        self,
+        label: str,
+        record_id: int,
+        hint: str | None = None,
+        ) -> None:
 
-        """Keep the id of the row already saved, so the model can refer to it."""
+        """Keep the id of the row already saved, so the model can refer to it, and say what to do instead."""
 
-        super().__init__(f"This {label} already exists with id {record_id}.")
+        message = f"This {label} already exists with id {record_id}."
+
+        super().__init__(f"{message} {hint}" if hint else message)
 
         self.record_id = record_id
+
+
+class HoldingMissing(RecordNotFound):
+
+    """A SIP was asked for a stock or fund the user does not hold yet, so nothing was saved."""
+
+    def __init__(self, name: str) -> None:
+
+        """Say which fund is not held and what to do first."""
+
+        super().__init__(
+            f"The user does not hold {name} yet, so the SIP was not saved. Ask how many units they hold "
+            "or how much they have invested in it, save it with add_stock_or_fund, then add the SIP."
+            )
 
 
 class FamilyMemberNotFound(RecordNotFound):

@@ -161,7 +161,7 @@ async def test_failed_write_saves_no_operation(seeded: SeededRun) -> None:
 
 async def test_write_and_operation_commit_together(seeded: SeededRun, monkeypatch: pytest.MonkeyPatch) -> None:
 
-    """When saving the operation fails, the loan is rolled back with it, so a loan never exists without its operation."""
+    """When saving the operation fails, the call comes back failed and the loan is rolled back with it, so a loan never exists without its operation."""
 
     def broken_add(self: OperationRepository, *args: Any) -> None:
 
@@ -171,9 +171,10 @@ async def test_write_and_operation_commit_together(seeded: SeededRun, monkeypatc
 
     monkeypatch.setattr(OperationRepository, "add", broken_add)
 
-    with pytest.raises(RuntimeError):
-        await call(seeded, "call_A", "add_loan", HOME_LOAN)
+    message = await call(seeded, "call_A", "add_loan", HOME_LOAN)
 
+    assert message.status == "error"
+    assert '"tool_failed"' in message.content
     assert await counts(seeded.user_id) == (0, 0)
 
 

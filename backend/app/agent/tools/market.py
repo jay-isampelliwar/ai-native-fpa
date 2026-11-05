@@ -9,7 +9,7 @@ from pydantic import ValidationError
 
 from app.agent.context import PlannerContext
 from app.agent.tools.limits import tool_session
-from app.agent.tools.results import from_record_error, from_validation_error, ok, to_message
+from app.agent.tools.results import from_record_error, from_validation_error, invalid, ok, to_message
 from app.db.enums import FundCategory, FundSubCategory, MarketCapType, StockSector
 from app.features.investments.market import InstrumentKind, MarketService, SearchFilters
 from app.features.records.exceptions import RecordError
@@ -51,9 +51,13 @@ def search_message(data: dict[str, Any]) -> str:
 
 
 @tool
-async def search_instruments(
+async def search_stocks_and_funds(
     runtime: ToolRuntime[PlannerContext],
-    query: Annotated[str, "Name words, an NSE or BSE symbol, or an ISIN, such as 'parag parikh flexi' or 'RELIANCE'."],
+    query: Annotated[
+        str | None,
+        "Name words, an NSE or BSE symbol, or an ISIN, such as 'parag parikh flexi' or 'RELIANCE'. "
+        "Leave it out to list by filters alone, such as every large cap fund.",
+        ] = None,
     kind: Annotated[InstrumentKind, "stock, etf, fund or any."] = InstrumentKind.any,
     sector: Annotated[StockSector | None, "Only stocks in this sector."] = None,
     market_cap: Annotated[MarketCapType | None, "Only large, mid or small cap stocks."] = None,
@@ -63,21 +67,33 @@ async def search_instruments(
     limit: Annotated[int | None, "How many stocks and fund schemes to return, up to 20. Default 8."] = None,
     ) -> ToolMessage:
 
-    """Find stocks, ETFs and mutual funds by name, symbol or ISIN. Each fund scheme comes with all its plans (direct or regular, growth or idcw) and their ISINs."""
+    """Find stocks, ETFs and mutual funds in the market data by name, symbol or ISIN, or list them by filters such as sub_category large_cap or market_cap small. Read-only. Each fund scheme comes with all its plans (direct or regular, growth or idcw) and their ISINs. Give a query, a filter, or both."""
 
     filters = SearchFilters(sector, market_cap, category, sub_category, amc)
 
-    return await read(runtime, lambda market: market.search(query, kind, filters, limit), search_message)
+    words = (query or "").strip()
+
+    if not words and not any((sector, market_cap, category, sub_category, amc)):
+
+        result = invalid(
+            "missing_fields",
+            "Give a name, symbol or ISIN to search, or at least one filter such as sub_category or market_cap.",
+            {"missing": ["query or filter"]},
+            )
+
+        return to_message(result, runtime.tool_call_id)
+
+    return await read(runtime, lambda market: market.search(words, kind, filters, limit), search_message)
 
 
 @tool
 async def get_fund_details(
     runtime: ToolRuntime[PlannerContext],
-    isin: Annotated[str, "The ISIN of any plan of the fund, from search_instruments."],
+    isin: Annotated[str, "The ISIN of any plan of the fund, from search_stocks_and_funds."],
     top: Annotated[int | None, "How many top holdings to return, up to 50. Default 10."] = None,
     ) -> ToolMessage:
 
-    """Show one mutual fund: its plans and NAVs, and from its latest monthly portfolio the top holdings, sector split and asset split."""
+    """Show one mutual fund from the market data: its plans and NAVs, and from its latest monthly portfolio the top holdings, sector split and asset split. Read-only."""
 
     def message(data: dict[str, Any]) -> str:
 
@@ -97,7 +113,7 @@ async def get_stock_details(
     isin_or_symbol: Annotated[str, "The stock's ISIN or NSE or BSE symbol, such as 'HDFCBANK'."],
     ) -> ToolMessage:
 
-    """Show one stock or ETF: price, sector, market cap, and the fund schemes that hold the most of it."""
+    """Show one stock or ETF from the market data: last closing price, sector, market cap, and the fund schemes that hold the most of it. Read-only."""
 
     return await read(runtime, lambda market: market.stock_details(isin_or_symbol), lambda data: f"Details for {data['name']}.")
 
@@ -105,10 +121,10 @@ async def get_stock_details(
 @tool
 async def compare_funds(
     runtime: ToolRuntime[PlannerContext],
-    isins: Annotated[list[str], "2 to 4 fund plan ISINs, from search_instruments."],
+    isins: Annotated[list[str], "2 to 4 fund plan ISINs, from search_stocks_and_funds."],
     ) -> ToolMessage:
 
-    """Compare 2 to 4 mutual funds side by side: category, NAV, sector split, asset split, and how many of their stocks are the same (overlap)."""
+    """Compare 2 to 4 mutual funds side by side: category, NAV, sector split, asset split, and how many of their stocks are the same (overlap). Read-only."""
 
     return await read(runtime, lambda market: market.compare(isins), lambda data: f"Compared {len(data['funds'])} funds.")
 
@@ -116,7 +132,7 @@ async def compare_funds(
 @tool
 async def get_portfolio_exposure(runtime: ToolRuntime[PlannerContext]) -> ToolMessage:
 
-    """Add up the user's own stocks and funds by asset class and sector, splitting each fund by its latest portfolio. Use it for questions like 'how much do I have in banks?'."""
+    """Add up only the user's own stocks and funds by asset class and sector, splitting each fund by its latest portfolio. Read-only. Use it for "how much do I have in banks?". It does not include bank balances, deposits or property, so it is not net worth."""
 
     def message(data: dict[str, Any]) -> str:
 

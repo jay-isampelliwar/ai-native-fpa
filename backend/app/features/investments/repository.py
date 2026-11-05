@@ -1,5 +1,7 @@
 """Database reads and writes for the user's holdings and SIPs, and the instrument lookups they need."""
 
+from decimal import Decimal
+
 from sqlalchemy import select
 
 from app.db.models import Holding, MutualFund, SipPlan, Stock
@@ -53,3 +55,23 @@ class InvestmentRepository(BaseUserRecordRepository):
         """Insert a SIP plan for the user."""
 
         return await self.insert(SipPlan, user_id, plan.model_dump())
+
+    async def active_sip(
+        self,
+        user_id: int,
+        holding_id: int,
+        amount: Decimal,
+        sip_day: int,
+        ) -> SipPlan | None:
+
+        """Return the user's active SIP into this holding with the same amount and day, or None."""
+
+        query = select(SipPlan).where(
+            SipPlan.user_id == user_id,
+            SipPlan.holding_id == holding_id,
+            SipPlan.amount == amount,
+            SipPlan.sip_day == sip_day,
+            SipPlan.is_active.is_(True),
+            )
+
+        return await self.session.scalar(query.order_by(SipPlan.id).limit(1))

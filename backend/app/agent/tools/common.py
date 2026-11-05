@@ -1,4 +1,4 @@
-"""Steps every save tool shares: check required details, validate, save once per tool call, and return a typed result."""
+"""Steps every save tool shares: check required details, validate, save once per tool call, check the saved row, and return a typed result."""
 
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -10,7 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.context import PlannerContext
 from app.agent.tools.operations import run_write
-from app.agent.tools.results import ToolResult, from_validation_error, invalid, ok, to_message
+from app.agent.tools.results import ToolResult, checked, from_validation_error, invalid, to_message
+from app.agent.tools.verify import confirm_saved
 from app.db.models.base import UserOwnedMixin
 
 
@@ -43,7 +44,7 @@ async def save_result[SchemaT: BaseModel](
     label: str,
     ) -> ToolResult:
 
-    """Run one save: report missing required details, validate, save once for this tool call, and return the saved fields with the new id."""
+    """Run one save: report missing required details, validate, save once for this tool call, check it, and return the saved fields with the new id."""
 
     given = given_arguments(arguments)
 
@@ -64,11 +65,13 @@ async def save_result[SchemaT: BaseModel](
 
     async def save(session: AsyncSession) -> ToolResult:
 
-        """Add the item in the guard's session, which commits it together with this call's saved result."""
+        """Add the item in the guard's session, read it back to check every value, then commit it with this call's saved result."""
 
         record = await action(session, runtime.context.user_id, data)
 
-        return ok(f"Saved {label}.", {"id": record.id, **data.model_dump(mode="json", exclude_none=True)})
+        await confirm_saved(session, type(record), {"id": record.id}, data.model_dump(exclude_none=True))
+
+        return checked(f"Saved {label}.", {"id": record.id, **data.model_dump(mode="json", exclude_none=True)})
 
     return await run_write(runtime, save)
 

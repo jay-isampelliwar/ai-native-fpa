@@ -52,8 +52,8 @@ def test_one_intent_gets_its_tools_and_the_always_set() -> None:
 
     """A delete gets only delete_record plus the two tools the prompt always needs, in ALL_TOOLS order."""
 
-    assert names([DELETE_DATA]) == ["get_missing_data", "list_records", "delete_record"]
-    assert names([VIEW_DATA]) == ["get_missing_data", "list_records", "get_portfolio_exposure"]
+    assert names([DELETE_DATA]) == ["get_missing_sections", "list_records", "delete_record"]
+    assert names([VIEW_DATA]) == ["get_missing_sections", "list_records", "get_portfolio_exposure"]
 
 
 def test_several_intents_get_the_union_once() -> None:
@@ -62,7 +62,7 @@ def test_several_intents_get_the_union_once() -> None:
 
     picked = names([GOAL_CHECK, SIMULATION])
 
-    assert set(picked) == {"get_missing_data", "list_records", "check_goal_progress", "allocate_goal", "add_goal", "set_assumption"}
+    assert set(picked) == {"get_missing_sections", "list_records", "check_goal_progress", "link_asset_to_goal", "add_goal", "set_planning_rate"}
     assert len(picked) == len(set(picked))
 
 
@@ -109,4 +109,4 @@ async def test_agent_is_given_only_the_picked_tools(monkeypatch: pytest.MonkeyPa
     await run_agent({"messages": [HumanMessage("Delete my HDFC loan")], "current_intents": [DELETE_DATA]}, runtime)
     await run_agent({"messages": [HumanMessage("hi")]}, runtime)
 
-    assert bound == [["get_missing_data", "list_records", "delete_record"], ALL_NAMES]
+    assert bound == [["get_missing_sections", "list_records", "delete_record"], ALL_NAMES]

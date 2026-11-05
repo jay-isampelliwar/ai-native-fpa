@@ -14,7 +14,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.context import PlannerContext
 from app.agent.tools.limits import tool_session
-from app.agent.tools.results import ToolResult, conflict, from_record_error, from_validation_error
+from app.agent.tools.results import ToolResult, conflict, from_record_error, from_validation_error, mismatch, unverified
+from app.agent.tools.verify import SaveMismatch
 from app.db.models import ToolOperation
 from app.db.session import SessionLocal
 from app.features.operations.repository import OperationRepository
@@ -115,7 +116,7 @@ async def run_write(
     work: WriteWork,
     ) -> ToolResult:
 
-    """Give back the saved result if this call already wrote, otherwise do the write and save its result in the same commit."""
+    """Give back the saved result if this call already wrote, otherwise do the write, require its read-back check, and save its result in the same commit."""
 
     key = operation_key(runtime)
 
@@ -140,6 +141,12 @@ async def run_write(
 
                 return result
 
+            if not result.verified:
+
+                await session.rollback()
+
+                return unverified()
+
             if key is not None:
 
                 operations.add(
@@ -153,6 +160,9 @@ async def run_write(
                     )
 
             await session.commit()
+
+    except SaveMismatch as exc:
+        return mismatch(exc.fields)
 
     except ValidationError as exc:
         return from_validation_error(exc)

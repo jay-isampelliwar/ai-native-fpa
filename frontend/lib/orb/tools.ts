@@ -8,7 +8,7 @@ import type { OrbState } from '@/lib/orb/engine';
  * entry here is treated as a write, the common case.
  */
 
-const READ_TOOLS = new Set(['list_records', 'get_missing_data']);
+const READ_TOOLS = new Set(['list_records', 'get_missing_sections']);
 
 export function orbStateForTool(name: string): OrbState {
   if (READ_TOOLS.has(name)) return 'searching';

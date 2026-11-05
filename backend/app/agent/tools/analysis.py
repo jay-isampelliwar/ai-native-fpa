@@ -15,7 +15,7 @@ from app.features.analysis.service import AnalysisService
 @tool
 async def check_goal_progress(runtime: ToolRuntime[PlannerContext]) -> ToolMessage:
 
-    """Check if the user is on track for every active goal: monthly need, money available and shortfall, with ready formulas."""
+    """Check if the user is on track for every active goal: monthly saving needed, money free each month and shortfall, with ready formulas. Read-only. Use it for any goal or shortfall question."""
 
     async with tool_session(runtime.context) as session:
         progress = await AnalysisService(session).goal_progress(runtime.context.user_id, date.today())

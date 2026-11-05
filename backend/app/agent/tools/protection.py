@@ -30,7 +30,7 @@ async def add_insurance_policy(
     maturity_date: Annotated[date | None, "When the policy matures, as YYYY-MM-DD, only if stated."] = None,
     ) -> ToolMessage:
 
-    """Add one insurance policy. Required: policy type, insurer, cover amount, premium."""
+    """Add one insurance policy, such as term life or health cover. Required: policy type, insurer, cover amount, premium. Its premium is saved here, never also as an expense."""
 
     return await save_record(
         runtime,
