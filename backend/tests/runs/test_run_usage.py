@@ -85,9 +85,14 @@ async def run_once(seeded: SeededRun) -> AgentRun:
         return await session.get(AgentRun, seeded.run_id)
 
 
-async def test_completed_run_saves_its_usage_and_cost(seeded: SeededRun) -> None:
+async def test_completed_run_saves_its_usage_and_cost(
+    seeded: SeededRun,
+    monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
 
-    """Two model calls and one tool call are saved with their tokens and the cost at the model's price."""
+    """Two model calls and one tool call are saved with their tokens and the cost at gpt-4o-mini's price."""
+
+    monkeypatch.setattr(get_settings(), "CHAT_MODEL", "gpt-4o-mini")
 
     run = await run_once(seeded)
 

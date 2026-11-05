@@ -16,7 +16,7 @@ class Settings(BaseSettings):
         )
 
     OPENAI_API_KEY: SecretStr
-    CHAT_MODEL: str = "gpt-4o-mini"
+    CHAT_MODEL: str = "gpt-5.6-luna"
     DATABASE_URL: str | None = None
     JWT_SECRET: SecretStr
     TOKEN_TTL_MINUTES: int = 60 * 24 * 7
@@ -57,7 +57,11 @@ class Settings(BaseSettings):
     MAX_OUTPUT_TOKENS_PER_TURN: int = 12000
     WRAP_UP_MAX_TOKENS: int = 300
     GRAPH_RECURSION_LIMIT: int = 80
-    MODEL_PRICES_USD_PER_MILLION: dict[str, tuple[float, float]] = {"gpt-4o-mini": (0.15, 0.60)}
+    MODEL_PRICES_USD_PER_MILLION: dict[str, tuple[float, float]] = {
+        "gpt-4o-mini": (0.15, 0.60),
+        "gpt-5.4-mini": (0.75, 4.50),
+        "gpt-5.6-luna": (0.20, 1.20),
+        }
 
     TRANSCRIBE_MODEL: str = "gpt-4o-mini-transcribe"
     TRANSCRIBE_TIMEOUT_SECONDS: float = 20
