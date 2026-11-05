@@ -68,7 +68,7 @@ The five tables in the last two rows exist in the database but have no SQLAlchem
 Duplicates: the `add_*` services no longer refuse "the same lender and type" or "the same name".
 Two HDFC home loans can both be saved. The prompt makes the agent call `list_records` first and ask
 "is this a new one?". Only `add_family_member` still refuses the same name and relation,
-because goals and policies find a family member by name. The `set_*` tools and `allocate_goal` update the existing row.
+because goals and policies find a family member by name. The `set_*` tools and `link_asset_to_goal` update the existing row.
 
 ### 1.3 User types and roles
 
@@ -380,7 +380,7 @@ Source: `frontend/lib/stream.ts`, `backend/app/features/runs/`.
 - Before each call, `run_agent` checks the budget (`agent/budget.py`). See section 2.5 for a limit hit.
 - Otherwise: `llm_service.with_tools(ALL_TOOLS, max_tokens=2000).astream(messages)` — OpenAI, streaming.
 - Tools bound = `tools_for(current_intents)` (`agent/tools/selection.py`):
-  - always `list_records` and `get_missing_data`, plus the union of each intent's group;
+  - always `list_records` and `get_missing_sections`, plus the union of each intent's group;
   - `GENERAL_QUESTION`, no intents or an unknown name → all 22 tools;
   - `wrap_up` gets the same set. `ToolNode` still holds all 22, and every call still goes through the policy check.
   - There is no escape tool. If a tool is missing, the prompt makes the agent say so and ask the user to send that request on its own.
@@ -388,12 +388,12 @@ Source: `frontend/lib/stream.ts`, `backend/app/features/runs/`.
 | Intent | Extra tools |
 |---|---|
 | `VIEW_DATA` | none |
-| `ADD_DATA` | all 12 `add_*`, `update_profile`, `set_tax_profile`, `set_assumption`, `update_data_coverage` |
-| `CHANGE_DATA` | `update_record`, `update_profile`, `set_tax_profile`, `set_assumption`, `allocate_goal` |
+| `ADD_DATA` | all 12 `add_*`, `update_profile`, `set_tax_profile`, `set_planning_rate`, `mark_section_status` |
+| `CHANGE_DATA` | `update_record`, `update_profile`, `set_tax_profile`, `set_planning_rate`, `link_asset_to_goal` |
 | `DELETE_DATA` | `delete_record` |
-| `GOAL_CHECK` | `check_goal_progress`, `allocate_goal`, `add_goal`, `set_assumption` |
-| `MISSING_DATA` | `update_data_coverage` |
-| `SIMULATION` | `check_goal_progress`, `set_assumption` |
+| `GOAL_CHECK` | `check_goal_progress`, `link_asset_to_goal`, `add_goal`, `set_planning_rate` |
+| `MISSING_DATA` | `mark_section_status` |
+| `SIMULATION` | `check_goal_progress`, `set_planning_rate` |
 
 - Chunks are added together into one `AIMessage`. Its `usage_metadata` (input and output tokens) is added to the budget.
 
@@ -417,9 +417,9 @@ Source: `frontend/lib/stream.ts`, `backend/app/features/runs/`.
 
 | Risk | Tools | Approval |
 |---|---|---|
-| `read` | `list_records`, `get_missing_data`, `check_goal_progress` | no |
-| `write` | `update_data_coverage`, `add_family_member`, `add_income_source`, `add_expense`, `add_transaction`, `add_bank_account`, `add_fixed_deposit`, `add_retirement_account`, `add_physical_asset`, `add_loan`, `add_credit_card`, `add_insurance_policy`, `add_goal` | no |
-| `sensitive` | `update_profile`, `set_tax_profile`, `set_assumption`, `allocate_goal` | no |
+| `read` | `list_records`, `get_missing_sections`, `check_goal_progress` | no |
+| `write` | `mark_section_status`, `add_family_member`, `add_income_source`, `add_expense`, `add_transaction`, `add_bank_account`, `add_fixed_deposit`, `add_retirement_account`, `add_physical_asset`, `add_loan`, `add_credit_card`, `add_insurance_policy`, `add_goal` | no |
+| `sensitive` | `update_profile`, `set_tax_profile`, `set_planning_rate`, `link_asset_to_goal` | no |
 | `sensitive` | `update_record` | **yes**, card shows old → new |
 | `destructive` | `delete_record` | **yes**, card shows every field |
 
@@ -568,8 +568,8 @@ How a card can end (`Closing` in `features/approvals/service.py`):
 
 **Idempotency** (`agent/tools/operations.py`, table `tool_operations`)
 
-- Every write (all `add_*`, `update_record`, `delete_record`, `update_profile`, `update_data_coverage`, `set_*`,
-  `allocate_goal`) runs inside `run_write`.
+- Every write (all `add_*`, `update_record`, `delete_record`, `update_profile`, `mark_section_status`, `set_*`,
+  `link_asset_to_goal`) runs inside `run_write`.
 - The key is `(conversation_id, tool_call_id)`. The model's own tool call id is reused; nothing is generated.
 - A row found with the same args hash → the saved result is returned, and nothing is written.
 - A row found with a different hash → `conflict`, `idempotency_mismatch`, nothing written.
@@ -914,6 +914,6 @@ Enum values added since `0014`:
 - Intents only pick which tools the model sees. They must never skip `approval_gate` or change a tool's policy.
   Filter in `run_agent` only; `ToolNode` keeps all 22.
 - Every tool must be in `ALWAYS_TOOLS` or some `TOOLS_BY_INTENT` group. A test checks this.
-- `list_records` and `get_missing_data` must stay in `ALWAYS_TOOLS`. The prompt tells the agent to call them on any turn.
+- `list_records` and `get_missing_sections` must stay in `ALWAYS_TOOLS`. The prompt tells the agent to call them on any turn.
 - The worker must keep skipping `repair_history` in `update_messages`, or old tool calls are inserted twice.
 - `classify_intents` starts the budget. Do not move `new_budget()` back into a later node, or the classifier's tokens are lost.
