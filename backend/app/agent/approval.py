@@ -7,8 +7,22 @@ from langchain_core.messages import AIMessage, ToolCall, ToolMessage
 from langgraph.graph import END
 from langgraph.runtime import Runtime
 from langgraph.types import Command, Send, interrupt
+from pydantic import ValidationError
+from sqlalchemy import select
 
 from app.agent.budget import TOOL_CALL_LIMIT, Budget, add_tool_calls, new_budget, over_tool_limit, with_limit
+from app.agent.cards import (
+    Described,
+    change_title,
+    describe,
+    humanize,
+    label_of,
+    plain_number,
+    remove_note,
+    remove_title,
+    rupees,
+    show,
+    )
 from app.agent.context import PlannerContext
 from app.agent.nodes import AGENT_NODE, TOOLS_NODE
 from app.agent.state import PlannerState
@@ -16,10 +30,11 @@ from app.agent.tools.labels import label_for
 from app.agent.tools.policies import needs_approval
 from app.agent.tools.records import record_fields, show_value
 from app.agent.tools.results import over_limit, rejected, to_message
+from app.db.models import Holding, MutualFund, Stock
 from app.db.session import SessionLocal
 from app.features.investments.service import InvestmentService
 from app.features.records.exceptions import RecordError
-from app.features.records.kinds import KINDS
+from app.features.records.kinds import KINDS, RecordKind
 from app.features.records.record_service import RecordService, editable_fields
 
 
@@ -42,9 +57,12 @@ CONFIRM_EDITS = ("units", "amount")
 type Preview = dict[str, Any]
 
 
-async def saved_fields(call: ToolCall, user_id: int) -> dict[str, Any] | None:
+async def load_record(
+    call: ToolCall,
+    user_id: int,
+    ) -> tuple[RecordKind, Any, Described, dict[str, Any]] | None:
 
-    """Read the saved item the call points at as readable fields, or None when it is not this user's."""
+    """Read the saved item the call points at, how it reads on a card and its raw fields, or None when it is not this user's."""
 
     kind = call["args"].get("kind")
     record_id = call["args"].get("record_id")
@@ -56,48 +74,99 @@ async def saved_fields(call: ToolCall, user_id: int) -> dict[str, Any] | None:
 
         async with SessionLocal() as session:
             record = await RecordService(session).get_or_fail(user_id, kind, record_id)
+            described = await describe(session, RecordKind(kind), record)
 
     except RecordError:
         return None
 
-    return record_fields(record)
+    return RecordKind(kind), record, described, record_fields(record)
 
 
 async def remove_preview(call: ToolCall, user_id: int) -> Preview | None:
 
-    """Show every saved field of the item a delete would remove."""
+    """Name the item a delete would remove, with its key facts and a line on what removing does not do."""
 
-    current = await saved_fields(call, user_id)
+    loaded = await load_record(call, user_id)
 
-    if current is None:
+    if loaded is None:
         return None
 
-    fields = [{"name": name, "value": value} for name, value in current.items() if name != "id"]
+    kind, _, described, current = loaded
 
-    return {"action": "remove", "title": f"Remove this {KINDS[call['args']['kind']].label}?", "fields": fields}
+    return {
+        "action": "remove",
+        "title": remove_title(described),
+        "subtitle": described.summary,
+        "chips": described.chips,
+        "facts": described.facts,
+        "note": {"tone": "warn", "text": remove_note(kind)},
+        "fields": [{"name": name, "value": value} for name, value in current.items() if name != "id"],
+        }
+
+
+def real_changes(
+    kind: RecordKind,
+    record: Any,
+    changes: dict[str, Any],
+    ) -> dict[str, Any] | None:
+
+    """The asked-for fields whose checked new value differs from the saved one, or None when the change would be refused."""
+
+    allowed = editable_fields(kind)
+
+    if any(name not in allowed for name in changes):
+        return None
+
+    current = {name: getattr(record, name) for name in allowed}
+
+    try:
+        checked = KINDS[kind].schema(**{**current, **changes})
+
+    except ValidationError:
+        return None
+
+    return {name: getattr(checked, name) for name in changes if getattr(checked, name) != current[name]}
 
 
 async def change_preview(call: ToolCall, user_id: int) -> Preview | None:
 
-    """Show each field an update would change as its saved value and its new value."""
+    """Name the item an update would change and show only the fields that really change, old next to new."""
 
     changes = call["args"].get("changes")
-    current = await saved_fields(call, user_id)
 
-    if current is None or not isinstance(changes, dict) or not changes:
+    if not isinstance(changes, dict) or not changes:
         return None
 
-    kind = call["args"]["kind"]
+    loaded = await load_record(call, user_id)
 
-    if any(name not in editable_fields(kind) for name in changes):
+    if loaded is None:
         return None
 
-    fields = [
-        {"name": name, "old": current.get(name, NOT_SET), "new": show_value(value)}
-        for name, value in changes.items()
-        ]
+    kind, record, described, current = loaded
+    changed = real_changes(kind, record, changes)
 
-    return {"action": "change", "title": f"Change this {KINDS[kind].label}?", "fields": fields}
+    if not changed:
+        return None
+
+    model = type(record)
+    unchanged_units = kind == RecordKind.holdings and "units" not in changed
+    note = f"Nothing else changes. Your units stay {plain_number(record.units)}." if unchanged_units else "Nothing else changes."
+
+    return {
+        "action": "change",
+        "title": change_title(kind, described),
+        "subtitle": described.summary,
+        "chips": described.chips,
+        "changes": [
+            {"label": label_of(name), "old": show(model, name, getattr(record, name)), "new": show(model, name, value)}
+            for name, value in changed.items()
+            ],
+        "note": {"tone": "calm", "text": note},
+        "fields": [
+            {"name": name, "old": current.get(name, NOT_SET), "new": show_value(value)}
+            for name, value in changed.items()
+            ],
+        }
 
 
 def general_preview(call: ToolCall) -> Preview:
@@ -111,12 +180,13 @@ def general_preview(call: ToolCall) -> Preview:
 
 async def confirm_preview(call: ToolCall, user_id: int) -> Preview | None:
 
-    """Show the units worked out from the amount and today's price, for the user to say correct or fix them."""
+    """Show the units worked out from the amount and today's price as one sum, for the user to say right or fix them."""
 
     try:
 
         async with SessionLocal() as session:
             estimate = await InvestmentService(session).estimate(call["args"]["isin"], Decimal(str(call["args"]["amount"])))
+            chips, name = await instrument_labels(session, estimate.instrument.isin, estimate.instrument.name)
 
     except (RecordError, InvalidOperation):
         return None
@@ -124,6 +194,8 @@ async def confirm_preview(call: ToolCall, user_id: int) -> Preview | None:
     instrument = estimate.instrument
     units = show_value(estimate.units)
     amount = show_value(estimate.amount)
+    word = "units" if instrument.price_label == "NAV" else "shares"
+    price_date = f" on {show(Holding, 'as_of_date', instrument.price_date)}" if instrument.price_date else ""
 
     fields = [
         {"name": "name", "value": instrument.name},
@@ -136,11 +208,40 @@ async def confirm_preview(call: ToolCall, user_id: int) -> Preview | None:
 
     return {
         "action": "confirm",
-        "title": f"Is this correct for {instrument.name}?",
+        "title": "Is this right?",
+        "subtitle": name,
+        "chips": chips,
+        "summary": {
+            "lead": f"You put in {rupees(estimate.amount)}, so you have about",
+            "big": f"{plain_number(estimate.units)} {word}",
+            "how": f"{rupees(estimate.amount)} ÷ {rupees(instrument.price, 2)} per {word[:-1]} (price{price_date})",
+            },
+        "note": {"tone": "calm", "text": f"Your statement shows the exact {word}. If it is different, tap \"No, let me fix it\"."},
         "fields": fields,
         "editable": {"units": units, "amount": amount},
         "resolved": {"units": units},
         }
+
+
+async def instrument_labels(
+    session: Any,
+    isin: str,
+    fallback: str,
+    ) -> tuple[list[str], str]:
+
+    """The labels and short name of a fund plan or stock, such as Mutual fund, Direct plan, Growth."""
+
+    fund = await session.scalar(select(MutualFund).where(MutualFund.isin == isin))
+
+    if fund is not None:
+        return ["Mutual fund", f"{humanize(fund.plan_type.value)} plan", humanize(fund.option_type.value)], fund.base_scheme_name or fund.scheme_name
+
+    stock = await session.scalar(select(Stock).where(Stock.isin == isin))
+
+    if stock is not None:
+        return ["ETF" if stock.is_etf else "Stock", stock.symbol], stock.company_name
+
+    return [], fallback
 
 
 PREVIEWS = {"delete_record": remove_preview, "update_record": change_preview, "add_holding": confirm_preview}

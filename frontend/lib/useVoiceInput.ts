@@ -12,8 +12,9 @@ import { voice } from '@/lib/api';
  * long one keeps the whole clip, and when recording stops that clip is turned into text once
  * more and replaces the live words, because the model hears whole sentences better than pieces.
  *
- * A piece with no voice in it is never sent. That saves the cost of silence, and a speech model
- * given silence tends to invent a word or two.
+ * A piece is sent only when it holds enough clear speech, and the whole clip only when the person
+ * spoke for long enough. That saves the cost of silence, and a speech model given silence or a
+ * short noise tends to invent words or repeat its own instructions.
  *
  * Recording stops when the person taps the mic again, after ten quiet seconds, or after one
  * minute. The audio is never saved; only the text comes back.
@@ -25,7 +26,9 @@ const PIECE_MS = 2500;
 const QUIET_STOP_MS = 10_000;
 const LONGEST_MS = 60_000;
 const CHECK_MS = 100;
-const VOICE_LEVEL = 0.02;
+const VOICE_LEVEL = 0.03;
+const PIECE_VOICE_MS = 400;
+const CLIP_VOICE_MS = 600;
 
 const FORMATS = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus'];
 
@@ -36,10 +39,10 @@ interface Session {
   whole: MediaRecorder;
   wholeChunks: Blob[];
   piece: MediaRecorder | null;
-  pieceVoiced: boolean;
+  pieceVoiceMs: number;
   pieceCount: number;
   pieces: string[];
-  heardVoice: boolean;
+  voiceMs: number;
   startedAt: number;
   lastVoiceAt: number;
   timer: ReturnType<typeof setInterval>;
@@ -76,7 +79,7 @@ function recordPieces(current: Session, onPiece: (index: number, blob: Blob) => 
   const index = current.pieceCount;
 
   current.pieceCount += 1;
-  current.pieceVoiced = false;
+  current.pieceVoiceMs = 0;
   current.piece = recorder;
 
   recorder.ondataavailable = (event) => {
@@ -84,7 +87,7 @@ function recordPieces(current: Session, onPiece: (index: number, blob: Blob) => 
   };
 
   recorder.onstop = () => {
-    if (current.pieceVoiced && chunks.length > 0 && !current.done) {
+    if (current.pieceVoiceMs >= PIECE_VOICE_MS && chunks.length > 0 && !current.done) {
       onPiece(index, new Blob(chunks, { type: recorder.mimeType || current.format }));
     }
 
@@ -163,7 +166,7 @@ export function useVoiceInput(onText: (text: string, final: boolean) => void) {
 
       const live = current.pieces.filter(Boolean).join(' ');
 
-      if (current.heardVoice && current.wholeChunks.length > 0) {
+      if (current.voiceMs >= CLIP_VOICE_MS && current.wholeChunks.length > 0) {
         try {
           const blob = new Blob(current.wholeChunks, { type: current.whole.mimeType || current.format });
           const { text } = await voice.transcribe(blob);
@@ -230,10 +233,10 @@ export function useVoiceInput(onText: (text: string, final: boolean) => void) {
       whole,
       wholeChunks: [],
       piece: null,
-      pieceVoiced: false,
+      pieceVoiceMs: 0,
       pieceCount: 0,
       pieces: [],
-      heardVoice: false,
+      voiceMs: 0,
       startedAt: now,
       lastVoiceAt: now,
       timer: setInterval(() => {
@@ -246,8 +249,8 @@ export function useVoiceInput(onText: (text: string, final: boolean) => void) {
 
         if (loudness > VOICE_LEVEL) {
           current.lastVoiceAt = at;
-          current.pieceVoiced = true;
-          current.heardVoice = true;
+          current.pieceVoiceMs += CHECK_MS;
+          current.voiceMs += CHECK_MS;
         }
 
         setLevel(Math.min(loudness / (VOICE_LEVEL * 6), 1));

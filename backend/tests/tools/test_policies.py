@@ -144,7 +144,8 @@ async def test_change_preview_shows_old_and_new(rent: tuple[int, int]) -> None:
     preview = await change_preview(update_call(expense_id, {"amount": 25000}), user_id)
 
     assert preview["action"] == "change"
-    assert preview["title"] == "Change this expense?"
+    assert preview["title"] == "Change your Rent expense?"
+    assert preview["changes"] == [{"label": "Amount", "old": "₹20,000", "new": "₹25,000"}]
     assert preview["fields"] == [{"name": "amount", "old": "20000", "new": "25000"}]
 
 

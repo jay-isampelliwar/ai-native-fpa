@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from app.features.auth.security import SESSION_COOKIE, create_token
 from app.features.voice import router as voice_router
-from app.features.voice.service import TranscriptionFailed, TranscriptionTimedOut
+from app.features.voice.service import TranscriptionFailed, TranscriptionTimedOut, repeats_prompt
 
 
 heard: list[tuple[bytes, str, str]] = []
@@ -139,3 +139,20 @@ def test_a_model_failure_is_a_clear_error(
 
     assert response.status_code == code
     assert "try again" in response.json()["detail"]
+
+
+@pytest.mark.parametrize(
+    ("text", "dropped"),
+    [
+        ("Use English letters only, never Devanagari.", True),
+        ("personal finance talk in English", True),
+        ("mera SIP 5000 ka hai", False),
+        ("I have 50,000 in HDFC Flexi Cap and a SIP of 5,000", False),
+        ("I talk in English with my bank", False),
+        ],
+    )
+def test_text_that_repeats_the_instructions_is_dropped(text: str, dropped: bool) -> None:
+
+    """A run of four instruction words in a row marks an echo; normal speech that shares a word or two is kept."""
+
+    assert repeats_prompt(text) is dropped

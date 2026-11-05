@@ -155,7 +155,10 @@ class RecordService(BaseRecordService[BaseUserRecordRepository]):
 
         checked = KINDS[kind].schema(**{**current, **changes})
 
-        fields = {name: getattr(checked, name) for name in changes}
+        fields = {name: getattr(checked, name) for name in changes if getattr(checked, name) != current[name]}
+
+        if not fields:
+            raise RecordError(f"Nothing to change: these values are already saved for this {KINDS[kind].label}.")
 
         await self.repo.update_for_user(KINDS[kind].model, record_id, user_id, fields)
 

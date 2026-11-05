@@ -77,6 +77,12 @@ export interface ApprovalRequest {
     title: string;
     fields: ApprovalField[];
     editable?: ApprovalEdits;
+    subtitle?: string | null;
+    chips?: string[];
+    changes?: ApprovalChange[];
+    facts?: ApprovalFact[];
+    summary?: { lead: string; big: string; how: string };
+    note?: { tone: 'calm' | 'warn'; text: string };
   };
   expires_at: string;
 }
@@ -90,6 +96,19 @@ export interface ApprovalEdits {
 }
 
 export type ApprovalDecision = 'approve' | 'reject';
+
+/** One field a change card will change, in plain words, such as "Money you put in" ₹5,000 → ₹6,000. */
+export interface ApprovalChange {
+  label: string;
+  old: string;
+  new: string;
+}
+
+/** One key fact a remove card shows about the item, such as "Units" 551.241. */
+export interface ApprovalFact {
+  label: string;
+  value: string;
+}
 
 export interface ApprovalField {
   name: string;

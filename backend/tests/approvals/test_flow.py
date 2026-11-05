@@ -232,7 +232,7 @@ async def test_delete_pauses_with_a_pending_approval(paused: Paused) -> None:
     assert await run_status(paused.run.run_id) == RunStatus.awaiting_approval
     assert (await call_statuses(paused.run.run_id))["delete_record"] == ToolCallStatus.awaiting_approval
     assert paused.approval.status == ApprovalStatus.pending
-    assert paused.approval.preview["title"] == "Remove this expense?"
+    assert paused.approval.preview["title"] == "Remove Rent expense from your list?"
     assert {"name": "name", "value": "Rent"} in paused.approval.preview["fields"]
     assert await rent_exists(paused.expense_id)
 

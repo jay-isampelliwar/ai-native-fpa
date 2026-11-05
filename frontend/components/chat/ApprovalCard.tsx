@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowRight, Check, Clock, ShieldAlert, Trash2, X } from 'lucide-react';
+import { AlertTriangle, ArrowRight, Calculator, Check, Clock, Info, Pencil, ShieldAlert, Trash2, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 import HoldingCorrection from '@/components/chat/HoldingCorrection';
@@ -19,27 +19,27 @@ const COPY: Record<
   { approve: string; keep: string; note: string; tone: string; done: string; kept: string; verb: string }
 > = {
   remove: {
-    approve: 'Remove',
-    keep: 'Keep it',
-    note: 'Nothing is removed until you approve',
+    approve: 'Yes, remove it',
+    keep: 'No, keep it',
+    note: 'Nothing is removed until you tap Yes',
     tone: 'var(--negative)',
     done: 'You approved this.',
     kept: 'You chose to keep it.',
     verb: 'removed',
   },
   change: {
-    approve: 'Save change',
-    keep: 'Keep as is',
-    note: 'Nothing changes until you approve',
+    approve: 'Yes, change it',
+    keep: 'No, keep it',
+    note: 'Nothing changes until you tap Yes',
     tone: 'var(--accent)',
     done: 'You approved this change.',
     kept: 'You kept it as is.',
     verb: 'changed',
   },
   confirm: {
-    approve: 'Correct',
-    keep: 'Not correct',
-    note: 'Nothing is saved until you confirm',
+    approve: "Yes, that's right",
+    keep: 'No, let me fix it',
+    note: 'Nothing is saved until you tap Yes',
     tone: 'var(--accent)',
     done: 'You confirmed this, so it was saved.',
     kept: 'Not saved.',
@@ -59,9 +59,14 @@ const COPY: Record<
 /**
  * The Approve / Reject card for one risky tool the planner paused on.
  *
- * Nothing changes until the person approves. The card shows the item the backend read before
- * pausing, field by field, so the decision is about the real record and not the model's
- * description of it. A change shows each field's saved value and its new one.
+ * Nothing changes until the person approves. The card is written for anyone to follow: the
+ * question names the real item ("Change your HDFC Flexi Cap Fund?"), small labels say what kind
+ * it is, a change shows only the values that really change, a removal shows four key facts and
+ * says what removing does not do, and the buttons say exactly what happens.
+ *
+ * Every piece comes from what the backend read before pausing, so the decision is about the real
+ * record and not the model's description of it. Cards saved before these pieces existed only have
+ * raw fields, and still show them as a plain list.
  *
  * A `confirm` card shows values the app worked out, such as fund units from an amount. "Correct"
  * saves them as shown; "Not correct" opens a box under the card to fix them before saving.
@@ -109,31 +114,40 @@ export default function ApprovalCard({
     );
   }
 
+  const preview = request.preview;
+  const plain = Boolean(preview.changes || preview.facts || preview.summary || preview.chips);
+
   return (
     <div className="mt-2 overflow-hidden rounded-xl border border-line bg-panel">
-      <div className="flex items-center gap-2 border-b border-line px-3 py-2.5">
-        <ShieldAlert size={15} className="flex-none text-warning" aria-hidden="true" />
-        <span className="text-[12.5px] font-medium text-primary">{request.preview.title}</span>
-      </div>
-
-      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 px-3 py-2.5 text-[12px]">
-        {request.preview.fields.map((field) => (
-          <div key={field.name} className="contents">
-            <dt className="text-muted">{fieldLabel(field.name)}</dt>
-            <FieldValue field={field} />
+      {plain ? (
+        <PlainBody action={action} preview={preview} />
+      ) : (
+        <>
+          <div className="flex items-center gap-2 border-b border-line px-3 py-2.5">
+            <ShieldAlert size={15} className="flex-none text-warning" aria-hidden="true" />
+            <span className="text-[12.5px] font-medium text-primary">{preview.title}</span>
           </div>
-        ))}
-      </dl>
 
-      {failure && <p className="px-3 pb-1 text-[11.5px] text-negative">{failure}</p>}
+          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 px-3 py-2.5 text-[12px]">
+            {preview.fields.map((field) => (
+              <div key={field.name} className="contents">
+                <dt className="text-muted">{fieldLabel(field.name)}</dt>
+                <FieldValue field={field} />
+              </div>
+            ))}
+          </dl>
+        </>
+      )}
 
-      <div className="flex flex-wrap items-center gap-2 border-t border-line px-3 py-2.5">
+      {failure && <p className="px-4 pb-2 text-[11.5px] text-negative">{failure}</p>}
+
+      <div className="flex flex-wrap items-center gap-2 border-t border-line px-4 py-3">
         <button
           type="button"
           disabled={sending}
           onClick={() => onDecide('approve')}
-          className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12.5px] font-medium text-white transition disabled:cursor-not-allowed disabled:opacity-40"
-          style={{ background: copy.tone }}
+          className="flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-[13px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-40"
+          style={{ background: copy.tone, color: action === 'remove' ? 'white' : 'var(--on-accent, #062b14)' }}
         >
           {action === 'remove' ? <Trash2 size={14} aria-hidden="true" /> : <Check size={14} aria-hidden="true" />}
           {copy.approve}
@@ -143,7 +157,7 @@ export default function ApprovalCard({
           type="button"
           disabled={sending}
           onClick={() => (canFix ? setFixing(true) : onDecide('reject'))}
-          className="flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-[12.5px] text-secondary transition hover:text-primary disabled:opacity-40"
+          className="flex items-center gap-1.5 rounded-lg border border-line px-3.5 py-2 text-[13px] text-secondary transition hover:text-primary disabled:opacity-40"
         >
           <X size={14} aria-hidden="true" />
           {copy.keep}
@@ -155,14 +169,123 @@ export default function ApprovalCard({
   );
 }
 
+/** The look of each kind of card: its icon and the soft colour behind it. */
+const BADGE: Record<ApprovalAction, { icon: React.ReactNode; background: string; color: string }> = {
+  change: { icon: <Pencil size={18} aria-hidden="true" />, background: 'var(--accent-soft, rgba(63,212,122,0.12))', color: 'var(--accent)' },
+  remove: { icon: <Trash2 size={18} aria-hidden="true" />, background: 'var(--negative-soft)', color: 'var(--negative)' },
+  confirm: { icon: <Calculator size={18} aria-hidden="true" />, background: 'var(--warning-soft, rgba(243,178,60,0.12))', color: 'var(--warning)' },
+  run: { icon: <ShieldAlert size={18} aria-hidden="true" />, background: 'var(--warning-soft, rgba(243,178,60,0.12))', color: 'var(--warning)' },
+};
+
+/** The plain-words body: question, labels, then the changes, the facts or the sum, and a short note. */
+function PlainBody({ action, preview }: { action: ApprovalAction; preview: ApprovalRequest['preview'] }) {
+  const badge = BADGE[action];
+
+  return (
+    <>
+      <div className="flex gap-3 px-4 pt-4 pb-3">
+        <div
+          className="grid h-10 w-10 flex-none place-items-center rounded-xl"
+          style={{ background: badge.background, color: badge.color }}
+        >
+          {badge.icon}
+        </div>
+
+        <div className="min-w-0">
+          <p className="text-[15.5px] leading-snug font-semibold text-primary">{preview.title}</p>
+          {preview.subtitle && <p className="mt-0.5 text-[13px] text-secondary">{preview.subtitle}</p>}
+
+          {preview.chips && preview.chips.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {preview.chips.map((chip) => (
+                <span key={chip} className="rounded-full border border-line bg-panel-subtle px-2.5 py-0.5 text-[11.5px] text-secondary">
+                  {chip}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {preview.changes && preview.changes.length > 0 && (
+        <div className="px-4 pb-3">
+          <p className="mb-2 text-[11px] font-semibold tracking-wide text-muted uppercase">What will change</p>
+
+          <div className="space-y-2">
+            {preview.changes.map((change) => (
+              <div
+                key={change.label}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line bg-panel-subtle px-3 py-2.5"
+              >
+                <span className="text-[13px] text-primary">{change.label}</span>
+                <span className="flex items-center gap-2 tabular-nums">
+                  <span className="text-[13px] text-muted line-through">{change.old}</span>
+                  <ArrowRight size={13} className="text-muted" aria-hidden="true" />
+                  <span className="text-[15px] font-bold" style={{ color: 'var(--accent)' }}>
+                    {change.new}
+                  </span>
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {preview.facts && preview.facts.length > 0 && (
+        <div className="grid grid-cols-2 gap-2 px-4 pb-3">
+          {preview.facts.map((fact) => (
+            <div key={fact.label} className="rounded-xl border border-line bg-panel-subtle px-3 py-2">
+              <p className="text-[11.5px] text-muted">{fact.label}</p>
+              <p className="text-[14px] font-semibold text-primary tabular-nums">{fact.value}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {preview.summary && (
+        <div className="px-4 pb-3">
+          <div className="rounded-xl border border-line bg-panel-subtle px-3 py-3 text-[13.5px] text-primary">
+            {preview.summary.lead}
+            <p className="text-[22px] font-bold tabular-nums" style={{ color: 'var(--accent)' }}>
+              {preview.summary.big}
+            </p>
+            <p className="mt-1 text-[12px] text-muted">{preview.summary.how}</p>
+          </div>
+        </div>
+      )}
+
+      {preview.note && (
+        <div className="px-4 pb-3">
+          <div
+            className="flex items-start gap-2 rounded-xl px-3 py-2.5 text-[12.5px] text-primary"
+            style={{
+              background:
+                preview.note.tone === 'warn'
+                  ? 'var(--warning-soft, rgba(243,178,60,0.12))'
+                  : 'var(--accent-soft, rgba(63,212,122,0.12))',
+            }}
+          >
+            {preview.note.tone === 'warn' ? (
+              <AlertTriangle size={14} className="mt-0.5 flex-none text-warning" aria-hidden="true" />
+            ) : (
+              <Info size={14} className="mt-0.5 flex-none" style={{ color: 'var(--accent)' }} aria-hidden="true" />
+            )}
+            {preview.note.text}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 /** The confirm card folded to its title and fields once the person chose to fix the values. */
 function Summary({ request }: { request: ApprovalRequest }) {
   return (
     <div className="mt-2 rounded-xl border border-line bg-panel-subtle px-3 py-2 text-[12px]">
-      <span className="text-muted">{request.preview.title} </span>
+      <span className="text-muted">{request.preview.subtitle ?? request.preview.title} </span>
       <span className="inline-flex items-center gap-1 text-secondary">
         <X size={13} aria-hidden="true" />
-        You said this is not correct.
+        You said this is not right.
       </span>
     </div>
   );
@@ -170,7 +293,7 @@ function Summary({ request }: { request: ApprovalRequest }) {
 
 /** The instrument's name from the card's fields, or a plain word when the card has none. */
 function nameOf(request: ApprovalRequest): string {
-  return request.preview.fields.find((field) => field.name === 'name')?.value ?? 'this holding';
+  return request.preview.subtitle ?? request.preview.fields.find((field) => field.name === 'name')?.value ?? 'this holding';
 }
 
 /** A removed field's value, or a changed field's saved value struck through next to its new one. */
