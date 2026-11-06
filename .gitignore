@@ -22,3 +22,5 @@ yarn-error.log*
 
 sql/
 infra/
+.claude/
+skills-lock.json
