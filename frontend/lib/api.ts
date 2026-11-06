@@ -158,8 +158,8 @@ export const auth = {
   },
 
   /** Who the cookie belongs to. Answers 401 when nobody is signed in. */
-  me() {
-    return request<CurrentUser>("/api/auth/me");
+  me(signal?: AbortSignal) {
+    return request<CurrentUser>("/api/auth/me", { signal });
   },
 };
 

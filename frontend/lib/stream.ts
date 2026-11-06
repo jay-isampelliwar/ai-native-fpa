@@ -57,6 +57,9 @@ const RECONNECT_ATTEMPTS = 5;
 
 const RECONNECT_DELAY_MS = 1000;
 
+/** How long to wait for a run's first event before treating the agent worker as down. */
+const FIRST_EVENT_TIMEOUT_MS = 60_000;
+
 const STREAM_END_EVENTS = new Set(["approval.required", "run.completed", "run.failed", "run.cancelled"]);
 
 /** What one event block said: its number, if any, and whether it ends the stream. */
@@ -148,74 +151,104 @@ export async function streamMessage(
 export async function followRun(
   runId: number,
   handlers: StreamHandlers,
-  signal?: AbortSignal,
+  outer?: AbortSignal,
 ): Promise<void> {
   let lastEventId: string | null = null;
   let failures = 0;
 
-  while (true) {
-    const query = lastEventId ? `?after=${encodeURIComponent(lastEventId)}` : "";
+  // Keepalives hold the connection open even when no worker has picked the run up, so the wait for
+  // the first real event has its own clock. When it runs out, the run is cancelled and the person told.
+  const controller = new AbortController();
+  const signal = controller.signal;
+  let stalled = false;
 
-    let ended = false;
-    let progressed = false;
+  const stopWithOuter = () => controller.abort();
+  if (outer?.aborted) controller.abort();
+  outer?.addEventListener("abort", stopWithOuter, { once: true });
 
-    try {
-      const response = await fetch(`/api/runs/${runId}/events${query}`, { signal });
+  const stallTimer = setTimeout(() => {
+    stalled = true;
+    controller.abort();
+  }, FIRST_EVENT_TIMEOUT_MS);
 
-      if (!response.ok || !response.body) {
-        handlers.onError(response.ok ? "The planner could not be reached." : describeFailure(response.status));
+  try {
+    await readRun();
+  } finally {
+    clearTimeout(stallTimer);
+    outer?.removeEventListener("abort", stopWithOuter);
+  }
+
+  if (stalled && !outer?.aborted) {
+    void cancelRun(runId).catch(() => undefined);
+    handlers.onError("The assistant did not start replying. It may be starting up or down. Please try again in a minute.");
+  }
+
+  async function readRun(): Promise<void> {
+    while (true) {
+      const query = lastEventId ? `?after=${encodeURIComponent(lastEventId)}` : "";
+
+      let ended = false;
+      let progressed = false;
+
+      try {
+        const response = await fetch(`/api/runs/${runId}/events${query}`, { signal });
+
+        if (!response.ok || !response.body) {
+          handlers.onError(response.ok ? "The planner could not be reached." : describeFailure(response.status));
+          return;
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+
+        let buffer = "";
+
+        const handle = (chunk: string) => {
+          const result = dispatch(chunk, handlers);
+
+          if (result.id !== null) {
+            lastEventId = result.id;
+            progressed = true;
+            clearTimeout(stallTimer);
+          }
+
+          ended = ended || result.ended;
+        };
+
+        while (!ended) {
+          const { done, value } = await reader.read();
+
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+
+          const chunks = buffer.split("\n\n");
+
+          buffer = chunks.pop() ?? "";
+
+          for (const chunk of chunks) {
+            handle(chunk);
+          }
+        }
+
+        if (!ended && buffer.trim()) {
+          handle(buffer);
+        }
+      } catch {
+        if (signal?.aborted) return;
+      }
+
+      if (ended || signal?.aborted) return;
+
+      failures = progressed ? 1 : failures + 1;
+
+      if (failures > RECONNECT_ATTEMPTS) {
+        handlers.onError("The connection to the planner was lost. Please refresh to see the reply.");
         return;
       }
 
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-
-      let buffer = "";
-
-      const handle = (chunk: string) => {
-        const result = dispatch(chunk, handlers);
-
-        if (result.id !== null) {
-          lastEventId = result.id;
-          progressed = true;
-        }
-
-        ended = ended || result.ended;
-      };
-
-      while (!ended) {
-        const { done, value } = await reader.read();
-
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-
-        const chunks = buffer.split("\n\n");
-
-        buffer = chunks.pop() ?? "";
-
-        for (const chunk of chunks) {
-          handle(chunk);
-        }
-      }
-
-      if (!ended && buffer.trim()) {
-        handle(buffer);
-      }
-    } catch {
-      if (signal?.aborted) return;
+      await wait(RECONNECT_DELAY_MS, signal);
     }
-
-    if (ended || signal?.aborted) return;
-
-    failures = progressed ? 1 : failures + 1;
-
-    if (failures > RECONNECT_ATTEMPTS) {
-      handlers.onError("The connection to the planner was lost. Please refresh to see the reply.");
-      return;
-    }
-
-    await wait(RECONNECT_DELAY_MS, signal);
   }
 }
 

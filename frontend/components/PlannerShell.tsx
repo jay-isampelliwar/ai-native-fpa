@@ -7,6 +7,7 @@ import { useSession } from '@/lib/session';
 import { ThemeProvider } from '@/lib/theme';
 import ChatWorkspace from '@/components/chat/ChatWorkspace';
 import HistoryPanel from '@/components/chat/HistoryPanel';
+import StartupScreen from '@/components/ui/StartupScreen';
 
 /**
  * The list of past chats on the left, with the open chat beside it.
@@ -69,7 +70,7 @@ export default function PlannerShell() {
   }, [session.status, router]);
 
   if (session.status !== 'signed-in') {
-    return <div className="h-dvh bg-background" aria-busy="true" />;
+    return <StartupScreen unreachable={session.status === 'unreachable'} />;
   }
 
   const userId = session.user.id;
