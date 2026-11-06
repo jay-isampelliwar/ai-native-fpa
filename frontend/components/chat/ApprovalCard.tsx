@@ -1,9 +1,10 @@
 'use client';
 
-import { AlertTriangle, ArrowRight, Calculator, Check, Clock, Info, Pencil, ShieldAlert, Trash2, X } from 'lucide-react';
+import { AlertTriangle, ArrowRight, Check, Clock, Info, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 import HoldingCorrection from '@/components/chat/HoldingCorrection';
+import { CheckSum, EditRecord, Guard, RemoveRecord } from '@/components/icons/FinIcons';
 import type {
   ApprovalAction,
   ApprovalDecision,
@@ -124,7 +125,7 @@ export default function ApprovalCard({
       ) : (
         <>
           <div className="flex items-center gap-2 border-b border-line px-3 py-2.5">
-            <ShieldAlert size={15} className="flex-none text-warning" aria-hidden="true" />
+            <Guard size={16} className="text-warning" />
             <span className="text-[12.5px] font-medium text-primary">{preview.title}</span>
           </div>
 
@@ -147,9 +148,9 @@ export default function ApprovalCard({
           disabled={sending}
           onClick={() => onDecide('approve')}
           className="flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-[13px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-40"
-          style={{ background: copy.tone, color: action === 'remove' ? 'white' : 'var(--on-accent, #062b14)' }}
+          style={{ background: copy.tone, color: action === 'remove' ? 'var(--background)' : 'var(--on-accent)' }}
         >
-          {action === 'remove' ? <Trash2 size={14} aria-hidden="true" /> : <Check size={14} aria-hidden="true" />}
+          {action === 'remove' ? <RemoveRecord size={16} /> : <Check size={14} aria-hidden="true" />}
           {copy.approve}
         </button>
 
@@ -171,10 +172,10 @@ export default function ApprovalCard({
 
 /** The look of each kind of card: its icon and the soft colour behind it. */
 const BADGE: Record<ApprovalAction, { icon: React.ReactNode; background: string; color: string }> = {
-  change: { icon: <Pencil size={18} aria-hidden="true" />, background: 'var(--accent-soft, rgba(63,212,122,0.12))', color: 'var(--accent)' },
-  remove: { icon: <Trash2 size={18} aria-hidden="true" />, background: 'var(--negative-soft)', color: 'var(--negative)' },
-  confirm: { icon: <Calculator size={18} aria-hidden="true" />, background: 'var(--warning-soft, rgba(243,178,60,0.12))', color: 'var(--warning)' },
-  run: { icon: <ShieldAlert size={18} aria-hidden="true" />, background: 'var(--warning-soft, rgba(243,178,60,0.12))', color: 'var(--warning)' },
+  change: { icon: <EditRecord size={20} />, background: 'var(--accent-soft)', color: 'var(--accent)' },
+  remove: { icon: <RemoveRecord size={20} />, background: 'var(--negative-soft)', color: 'var(--negative)' },
+  confirm: { icon: <CheckSum size={20} />, background: 'var(--warning-soft)', color: 'var(--warning)' },
+  run: { icon: <Guard size={20} />, background: 'var(--warning-soft)', color: 'var(--warning)' },
 };
 
 /** The plain-words body: question, labels, then the changes, the facts or the sum, and a short note. */
@@ -185,7 +186,7 @@ function PlainBody({ action, preview }: { action: ApprovalAction; preview: Appro
     <>
       <div className="flex gap-3 px-4 pt-4 pb-3">
         <div
-          className="grid h-10 w-10 flex-none place-items-center rounded-xl"
+          className="fi-host grid h-10 w-10 flex-none place-items-center rounded-xl"
           style={{ background: badge.background, color: badge.color }}
         >
           {badge.icon}

@@ -328,6 +328,31 @@ button, a { -webkit-tap-highlight-color: transparent; }
   white-space: nowrap;
 }
 
+/* ── Icons ──────────────────────────────────────────────────────────────────
+   Mosaic's own duotone icons (components/icons/FinIcons.tsx). One part is a soft
+   fill; one detail shifts when the control around the icon is hovered or focused.
+   Nothing loops. Reduced motion makes the shift instant via the rule at the end. */
+
+.fin-icon { flex: none; overflow: visible; }
+
+.fin-icon .fi-fill {
+  fill: currentColor;
+  fill-opacity: .14;
+  transition: fill-opacity .2s ease;
+}
+
+.fin-icon .fi-move {
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform .24s cubic-bezier(.22, 1, .36, 1);
+}
+
+:where(button:not(:disabled), a, .fi-host):is(:hover, :focus-visible) .fin-icon .fi-fill,
+.fin-icon:hover .fi-fill { fill-opacity: .26; }
+
+:where(button:not(:disabled), a, .fi-host):is(:hover, :focus-visible) .fin-icon .fi-move,
+.fin-icon:hover .fi-move { transform: var(--fi-move); }
+
 /* ── Split pane ─────────────────────────────────────────────────────────────
    The panes float with a gap between them, so the divider is that gap. A short
    grip in the middle lights up on hover, which is the only part that is drawn. */

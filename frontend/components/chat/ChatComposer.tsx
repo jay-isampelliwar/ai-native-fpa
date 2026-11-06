@@ -1,10 +1,11 @@
 'use client';
 
-import { Lightbulb, Loader2, Mic, Paperclip, Plus, SendHorizontal, Sparkles, Square, Telescope, X } from 'lucide-react';
+import { Lightbulb, Loader2, Mic, Plus, Sparkles, Square, Telescope, X } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useCallback, useEffect, useRef } from 'react';
 
 import FileChips from '@/components/chat/FileChips';
+import { SendPlane, Statement } from '@/components/icons/FinIcons';
 import type { Attachment } from '@/lib/useUploads';
 import { useVoiceInput } from '@/lib/useVoiceInput';
 
@@ -201,7 +202,7 @@ export default function ChatComposer({
             title="Attach a bank or holdings statement"
             className="icon-ghost h-8 w-8"
           >
-            <Paperclip size={15} aria-hidden="true" />
+            <Statement size={17} />
           </button>
 
           {hero && (
@@ -266,7 +267,7 @@ export default function ChatComposer({
                   transition={{ duration: 0.14 }}
                   className="send-gradient grid h-8 w-8 place-items-center rounded-lg disabled:cursor-not-allowed disabled:opacity-35"
                 >
-                  <SendHorizontal size={15} strokeWidth={2.2} aria-hidden="true" />
+                  <SendPlane size={16} />
                 </motion.button>
               )}
             </AnimatePresence>

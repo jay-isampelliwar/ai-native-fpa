@@ -1,7 +1,6 @@
-import { CircleCheck, TriangleAlert } from 'lucide-react';
-
 import type { GoalProgressBlock } from '@/lib/types';
 import { BlockTitle } from '@/components/blocks/TableCard';
+import { StatusAlert, StatusOk } from '@/components/icons/FinIcons';
 
 /**
  * A `goal_progress` block: the free money each month, then one row per goal saying in words whether
@@ -34,8 +33,8 @@ export default function GoalProgressCard({ block }: { block: GoalProgressBlock }
         {block.goals.map((goal) => {
           const covered = Math.max(0, Math.min(100, goal.covered_pct));
           const tone = goal.on_track
-            ? { color: 'var(--positive)', label: 'On track', Icon: CircleCheck }
-            : { color: 'var(--negative)', label: 'Not on track', Icon: TriangleAlert };
+            ? { color: 'var(--positive)', label: 'On track', Icon: StatusOk }
+            : { color: 'var(--negative)', label: 'Not on track', Icon: StatusAlert };
 
           return (
             <li key={goal.name} className="border-t border-line py-4 last:pb-0">
@@ -43,8 +42,8 @@ export default function GoalProgressCard({ block }: { block: GoalProgressBlock }
                 <span className="text-[15px] font-semibold tracking-[-0.01em] text-primary">{goal.name}</span>
                 <span className="text-[13px] text-muted">by Dec {goal.target_year}</span>
 
-                <span className="status-tag ml-auto" style={{ color: tone.color }}>
-                  <tone.Icon size={13} aria-hidden="true" />
+                <span className="fi-host status-tag ml-auto" style={{ color: tone.color }}>
+                  <tone.Icon size={15} />
                   {tone.label}
                 </span>
               </div>

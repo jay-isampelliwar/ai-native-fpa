@@ -1,22 +1,7 @@
 'use client';
 
 import { AnimatePresence, motion } from 'framer-motion';
-import {
-  Ban,
-  Check,
-  ChevronRight,
-  CircleCheck,
-  CircleX,
-  ClipboardList,
-  Copy,
-  Download,
-  Paperclip,
-  PenLine,
-  RefreshCw,
-  Square,
-  ThumbsDown,
-  ThumbsUp,
-} from 'lucide-react';
+import { Check, ChevronRight, Copy, Download, Paperclip, PenLine, RefreshCw, ThumbsDown, ThumbsUp } from 'lucide-react';
 import { useState } from 'react';
 
 import { splitCards, withoutCards } from '@/lib/cards';
@@ -32,6 +17,14 @@ import type {
   UiBlockEntry,
 } from '@/lib/types';
 import BlockView from '@/components/blocks/BlockView';
+import {
+  DetailsShared,
+  FormSheet,
+  StatusOk,
+  StepError,
+  StepRejected,
+  StepStopped,
+} from '@/components/icons/FinIcons';
 import ApprovalCard from '@/components/chat/ApprovalCard';
 import ImportReview from '@/components/chat/ImportReview';
 import Reply from '@/components/chat/Reply';
@@ -163,9 +156,9 @@ function UserTurn({ turn }: { turn: Turn }) {
       <div className="flex max-w-[80%] flex-col items-end">
         {turn.form ? (
           <p
-            className="user-bubble inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-[14.5px] font-medium"
+            className="fi-host user-bubble inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-[14.5px] font-medium"
           >
-            <CircleCheck size={14} className="text-accent" aria-hidden="true" />
+            <DetailsShared size={17} className="text-positive" />
             Details shared · {FORMS[turn.form.kind]?.title ?? 'Form'}
           </p>
         ) : (
@@ -331,8 +324,8 @@ function FormButton({
 }) {
   if (sent) {
     return (
-      <p className="mt-2 inline-flex items-center gap-1.5 text-[14px] text-muted">
-        <CircleCheck size={13} className="text-accent" aria-hidden="true" />
+      <p className="fi-host mt-3 inline-flex items-center gap-1.5 text-[14px] text-muted">
+        <DetailsShared size={16} className="text-positive" />
         {title} details shared
       </p>
     );
@@ -345,7 +338,7 @@ function FormButton({
       disabled={disabled || open}
       className="chip-button mt-3 h-8 gap-2 px-3 text-[13.5px] font-medium text-primary disabled:cursor-default disabled:opacity-60"
     >
-      <ClipboardList size={14} className="text-accent" aria-hidden="true" />
+      <FormSheet size={16} className="text-accent" />
       {open ? `${title} form is open` : `Open ${title.toLowerCase()} form`}
     </button>
   );
@@ -446,11 +439,11 @@ function duration(ms: number): string {
 }
 
 const STEP_ICON: Record<ToolStep['status'], React.ReactNode> = {
-  ok: <Check size={12} className="text-positive" aria-hidden="true" />,
-  running: <Check size={12} className="text-muted" aria-hidden="true" />,
-  error: <CircleX size={12} className="text-negative" aria-hidden="true" />,
-  stopped: <Square size={10} className="text-muted" aria-hidden="true" />,
-  rejected: <Ban size={12} className="text-muted" aria-hidden="true" />,
+  ok: <StatusOk size={14} className="text-positive" />,
+  running: <StatusOk size={14} className="text-muted" />,
+  error: <StepError size={14} className="text-negative" />,
+  stopped: <StepStopped size={14} className="text-muted" />,
+  rejected: <StepRejected size={14} className="text-muted" />,
 };
 
 /**
