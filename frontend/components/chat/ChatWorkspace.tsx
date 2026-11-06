@@ -1,6 +1,7 @@
 'use client';
 
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, MotionConfig, motion } from 'framer-motion';
+import { ArrowDown } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { ApiError, conversations, runs } from '@/lib/api';
@@ -29,6 +30,12 @@ import ThinkingOrb from '@/components/ui/ThinkingOrb';
 import { orbStateForTool } from '@/lib/orb/tools';
 
 const newId = () => Math.random().toString(36).slice(2, 10);
+
+/** The one ease every chat entrance uses: fast out, soft landing. */
+const EASE = [0.22, 1, 0.36, 1] as const;
+
+/** How close to the bottom, in px, still counts as reading the newest words. */
+const NEAR_BOTTOM = 80;
 
 /** "Good morning" before noon, "Good afternoon" until five, "Good evening" after. */
 function greeting(now: Date): string {
@@ -108,6 +115,12 @@ function turnsFrom(detail: ConversationDetail): Turn[] {
  * `onFormChange` tells the shell to hide the history list so each side gets half. On a phone the form
  * covers the screen. Sending it starts a turn like a typed message, with the form instead of text.
  * Closing it tells no one; the reply that opened it keeps a button to open it again.
+ *
+ * The pane follows new words only while the person is at the bottom. Scrolling up to read stops
+ * the follow and shows a "Jump to latest" button; sending a message always follows again.
+ *
+ * Every animation in the pane drops its movement and keeps only its fade when the system asks
+ * for reduced motion; `MotionConfig` does that for all of them at once.
  */
 export default function ChatWorkspace({
   userId,
@@ -150,6 +163,12 @@ export default function ChatWorkspace({
   const scroller = useRef<HTMLDivElement>(null);
   const composer = useRef<HTMLTextAreaElement>(null);
 
+  // Whether new words should keep the pane scrolled to the bottom, and whether a smooth jump there
+  // is still on its way (its scroll events pass through the middle and must not unpin it).
+  const pinned = useRef(true);
+  const jumping = useRef(false);
+  const [away, setAway] = useState(false);
+
   useEffect(() => {
     conversationIdRef.current = conversationId;
   }, [conversationId]);
@@ -169,11 +188,39 @@ export default function ChatWorkspace({
     return () => controller.abort();
   }, []);
 
-  // Pin to the newest turn as it grows.
+  // Stay on the newest words as they arrive, unless the person scrolled up to read.
   useEffect(() => {
     const element = scroller.current;
-    if (element) element.scrollTop = element.scrollHeight;
+    if (element && pinned.current) element.scrollTop = element.scrollHeight;
   }, [turns, step]);
+
+  function onScroll() {
+    const element = scroller.current;
+    if (!element) return;
+
+    const near = element.scrollHeight - element.scrollTop - element.clientHeight < NEAR_BOTTOM;
+
+    if (jumping.current) {
+      if (near) jumping.current = false;
+      return;
+    }
+
+    pinned.current = near;
+    setAway(!near);
+  }
+
+  /** Scroll to the newest words and follow them again. */
+  function jumpToLatest() {
+    const element = scroller.current;
+    if (!element) return;
+
+    const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    pinned.current = true;
+    jumping.current = !still;
+    setAway(false);
+    element.scrollTo({ top: element.scrollHeight, behavior: still ? 'auto' : 'smooth' });
+  }
 
   /** Put the caret back in the composer when a turn finishes, so typing needs no click. */
   useEffect(() => {
@@ -224,6 +271,7 @@ export default function ChatWorkspace({
   async function listen(answerId: string, start: (handlers: StreamHandlers, signal?: AbortSignal) => Promise<void>) {
     const signal = listening.current?.signal;
     const handlers = handlersFor(answerId);
+    const began = Date.now();
 
     setBusy(true);
     setStep('connecting');
@@ -235,6 +283,12 @@ export default function ChatWorkspace({
     });
 
     if (signal?.aborted) return;
+
+    // Time at work only: a wait on an approval card falls between two listens and is not counted.
+    const worked = Date.now() - began;
+    setTurns((current) =>
+      current.map((turn) => (turn.id === answerId ? { ...turn, workedMs: (turn.workedMs ?? 0) + worked } : turn)),
+    );
 
     const finishedIn = runId.current === null ? null : conversationIdRef.current;
 
@@ -330,6 +384,11 @@ export default function ChatWorkspace({
 
     if (!shown.form) setDraft('');
     uploads.clear();
+
+    // A new question is always followed, even if the person had scrolled up before sending it.
+    pinned.current = true;
+    jumping.current = false;
+    setAway(false);
     setTurns((current) => [
       ...current.map((turn) =>
         turn.approval?.state === 'pending' ? { ...turn, approval: { ...turn.approval, state: 'skipped' as const } } : turn,
@@ -417,28 +476,50 @@ export default function ChatWorkspace({
   };
 
   return (
+    <MotionConfig reducedMotion="user">
     <div className="flex h-full min-h-0">
       <main aria-label="Conversation" className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <ChatHeader started={!empty} onShowHistory={onShowHistory} />
 
         {/* min-h-0 is load-bearing: without it this flex child will not shrink below
             its content, so it never scrolls and the column grows past the viewport. */}
-        <div ref={scroller} className="quiet-scroll min-h-0 flex-1 overflow-y-auto pb-4">
+        <div ref={scroller} onScroll={onScroll} className="quiet-scroll min-h-0 flex-1 overflow-y-auto pb-2">
           {empty ? (
             <div className="flex min-h-full flex-col items-center justify-center px-4 py-8 sm:px-8">
-              <Orb size={76} />
+              <motion.div
+                initial={{ opacity: 0, scale: 0.92 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ duration: 0.5, ease: EASE }}
+              >
+                <Orb size={64} />
+              </motion.div>
 
-              <h2 className="mt-6 max-w-[22ch] text-center text-[28px] leading-[1.3] font-semibold tracking-[-0.015em] text-primary">
+              <motion.h2
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.4, delay: 0.08, ease: EASE }}
+                className="mt-6 max-w-[24ch] text-center text-[30px] leading-[1.2] font-semibold tracking-[-0.025em] text-primary sm:text-[34px]">
                 {greeting(new Date())}{firstName ? `, ${firstName}` : ''}! How can I assist you?
-              </h2>
+              </motion.h2>
 
-              <div className="mt-8 w-full max-w-[768px]">
+              <motion.div
+                layoutId="composer"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.4, delay: 0.14, ease: EASE }}
+                className="mt-8 w-full max-w-[768px]"
+              >
                 <ChatComposer {...composerProps} variant="hero" />
-              </div>
+              </motion.div>
 
-              <div className="mt-6 w-full max-w-[768px]">
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.4, delay: 0.22, ease: EASE }}
+                className="mt-6 w-full max-w-[768px]"
+              >
                 <SuggestedPrompts onPick={send} />
-              </div>
+              </motion.div>
             </div>
           ) : loading ? (
             <p className="mx-auto max-w-[816px] px-6 pt-4 text-[14px] text-muted">Loading conversation…</p>
@@ -459,23 +540,72 @@ export default function ChatWorkspace({
             />
           )}
 
-          {step && (
-            <div className="mx-auto mt-3 w-full max-w-[816px] px-4 sm:px-6">
-              <p
-                aria-live="polite"
-                className="inline-flex items-center gap-2.5 rounded-full border border-[var(--pane-border)] bg-panel-subtle py-1.5 pr-4 pl-2"
+          <AnimatePresence>
+            {step && (
+              <motion.div
+                key="pill"
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, transition: { duration: 0.12 } }}
+                transition={{ duration: 0.24, ease: EASE }}
+                className="mx-auto mt-4 w-full max-w-[816px] px-4 sm:px-6"
               >
-                <ThinkingOrb state={pill.state} size={22} label="" />
-                <span className="thinking-shimmer text-[14px] font-medium">{pill.label}</span>
-              </p>
-            </div>
-          )}
+                <motion.p
+                  layout
+                  aria-live="polite"
+                  transition={{ layout: { duration: 0.22, ease: EASE } }}
+                  className="relative inline-flex items-center gap-2 overflow-hidden rounded-lg border border-line bg-panel-elevated py-1 pr-3 pl-1.5"
+                >
+                  <ThinkingOrb state={pill.state} size={22} label="" />
+                  {/* The label slides up and out as the next tool's label slides in. */}
+                  <AnimatePresence mode="popLayout" initial={false}>
+                    <motion.span
+                      key={pill.label}
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -8 }}
+                      transition={{ duration: 0.2, ease: EASE }}
+                      className="thinking-shimmer text-[13.5px] font-medium whitespace-nowrap"
+                    >
+                      {pill.label}
+                    </motion.span>
+                  </AnimatePresence>
+                </motion.p>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
 
         {!empty && (
-          <div className="mx-auto w-full max-w-[816px] px-1 sm:px-2">
+          <motion.div
+            layoutId="composer"
+            transition={{ duration: 0.42, ease: EASE }}
+            className="relative mx-auto -mt-6 w-full max-w-[816px] px-1 sm:px-2"
+          >
+            <AnimatePresence>
+              {away && (
+                <motion.div
+                  key="jump"
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 6 }}
+                  transition={{ duration: 0.18, ease: EASE }}
+                  className="pointer-events-none absolute inset-x-0 -top-7 z-10 flex justify-center"
+                >
+                  <button
+                    type="button"
+                    onClick={jumpToLatest}
+                    className="chip-button pointer-events-auto h-8 gap-1.5 px-3 text-[13px] font-medium shadow-[var(--shadow-card)]"
+                  >
+                    <ArrowDown size={13} aria-hidden="true" />
+                    Jump to latest
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
             <ChatComposer {...composerProps} />
-          </div>
+          </motion.div>
         )}
       </main>
 
@@ -488,7 +618,7 @@ export default function ChatWorkspace({
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: 24 }}
             transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-            className="fixed inset-0 z-50 min-h-0 overflow-hidden bg-panel-subtle lg:static lg:inset-auto lg:z-auto lg:flex-1 lg:border-l lg:border-[var(--pane-border)]"
+            className="fixed inset-0 z-50 min-h-0 overflow-hidden bg-panel-subtle lg:static lg:inset-auto lg:z-auto lg:flex-1 lg:border-l lg:border-line"
           >
             <FormPanel
               kind={form.block.form}
@@ -502,5 +632,6 @@ export default function ChatWorkspace({
         )}
       </AnimatePresence>
     </div>
+    </MotionConfig>
   );
 }

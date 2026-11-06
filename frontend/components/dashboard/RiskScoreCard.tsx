@@ -57,10 +57,8 @@ export default function RiskScoreCard({
           <svg viewBox="0 0 104 60" className="w-full" role="img" aria-label={`Risk score ${risk.score} out of 10, ${risk.category}`}>
             <defs>
               <linearGradient id={gradientId} x1="0" y1="0" x2="1" y2="0">
-                <stop offset="0%" stopColor="var(--accent)" />
-                <stop offset="28%" stopColor="var(--accent-bright)" />
-                <stop offset="55%" stopColor="var(--yellow)" />
-                <stop offset="80%" stopColor="var(--orange)" />
+                <stop offset="0%" stopColor="var(--positive)" />
+                <stop offset="50%" stopColor="var(--warning)" />
                 <stop offset="100%" stopColor="var(--negative)" />
               </linearGradient>
             </defs>

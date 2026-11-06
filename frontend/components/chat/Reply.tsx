@@ -47,7 +47,30 @@ const INLINE = new RegExp(
  * even when the emphasis is what wrapped it. The depth guard is what makes that
  * recursion terminate on input this function did not write.
  */
-function inline(text: string, depth = 0): ReactNode[] {
+/**
+ * Plain text, or — while a reply is arriving — one span per word so each new word can fade in.
+ *
+ * Words are keyed by where they start in the line. Text only grows at the end, so a word already
+ * on screen keeps its key and its span, and only the words that just arrived run the fade.
+ */
+function plain(text: string, offset: number, animate: boolean): ReactNode[] {
+  if (!animate) return [text];
+
+  const out: ReactNode[] = [];
+  let at = offset;
+
+  for (const part of text.split(/(\s+)/)) {
+    if (part) {
+      out.push(/\s/.test(part) ? part : <span className="stream-word" key={`w${at}`}>{part}</span>);
+    }
+
+    at += part.length;
+  }
+
+  return out;
+}
+
+function inline(text: string, depth = 0, animate = false): ReactNode[] {
   const nodes: ReactNode[] = [];
   let cursor = 0;
   let key = 0;
@@ -56,27 +79,27 @@ function inline(text: string, depth = 0): ReactNode[] {
     const token = match[0];
     const at = match.index;
 
-    if (at > cursor) nodes.push(text.slice(cursor, at));
+    if (at > cursor) nodes.push(...plain(text.slice(cursor, at), cursor, animate));
     cursor = at + token.length;
 
     if (token.startsWith('`')) {
       nodes.push(<code key={key++}>{token.slice(1, -1)}</code>);
     } else if (token.startsWith('**')) {
       const inner = token.slice(2, -2);
-      nodes.push(<strong key={key++}>{depth < 3 ? inline(inner, depth + 1) : inner}</strong>);
+      nodes.push(<strong key={key++}>{depth < 3 ? inline(inner, depth + 1, animate) : inner}</strong>);
     } else if (token.startsWith('*')) {
       const inner = token.slice(1, -1);
-      nodes.push(<em key={key++}>{depth < 3 ? inline(inner, depth + 1) : inner}</em>);
+      nodes.push(<em key={key++}>{depth < 3 ? inline(inner, depth + 1, animate) : inner}</em>);
     } else {
       nodes.push(
-        <span className="amount" key={key++}>
+        <span className={animate ? 'amount stream-word' : 'amount'} key={key++}>
           {token}
         </span>,
       );
     }
   }
 
-  if (cursor < text.length) nodes.push(text.slice(cursor));
+  if (cursor < text.length) nodes.push(...plain(text.slice(cursor), cursor, animate));
 
   return nodes;
 }
@@ -250,6 +273,9 @@ export default function Reply({ text, streaming = false }: { text: string; strea
   const last = parsed.length - 1;
   const caret = <span className="caret" key="caret" aria-hidden="true" />;
 
+  // Only the reply being written fades its words in. A finished reply is plain text again.
+  const words = (source: string) => inline(source, 0, streaming);
+
   return (
     <div className="reply">
       {parsed.map((block, index) => {
@@ -258,7 +284,7 @@ export default function Reply({ text, streaming = false }: { text: string; strea
         if (block.kind === 'heading') {
           return (
             <h3 key={index}>
-              {inline(block.text)}
+              {words(block.text)}
               {tail && caret}
             </h3>
           );
@@ -289,7 +315,7 @@ export default function Reply({ text, streaming = false }: { text: string; strea
                   <tr>
                     {block.head.map((cell, at) => (
                       <th key={at} style={{ textAlign: block.align[at] ?? 'left' }}>
-                        {inline(cell)}
+                        {words(cell)}
                       </th>
                     ))}
                   </tr>
@@ -299,7 +325,7 @@ export default function Reply({ text, streaming = false }: { text: string; strea
                     <tr key={rowAt}>
                       {row.map((cell, at) => (
                         <td key={at} style={{ textAlign: block.align[at] ?? 'left' }}>
-                          {inline(cell)}
+                          {words(cell)}
                           {tail && rowAt === lastRow && at === row.length - 1 && caret}
                         </td>
                       ))}
@@ -314,7 +340,7 @@ export default function Reply({ text, streaming = false }: { text: string; strea
         if (block.kind === 'para') {
           return (
             <p key={index}>
-              {inline(block.text)}
+              {words(block.text)}
               {tail && caret}
             </p>
           );
@@ -322,7 +348,7 @@ export default function Reply({ text, streaming = false }: { text: string; strea
 
         const items = block.items.map((item, at) => (
           <li key={at} className={item.sub ? 'sub' : undefined}>
-            {inline(item.text)}
+            {words(item.text)}
             {tail && at === block.items.length - 1 && caret}
           </li>
         ));

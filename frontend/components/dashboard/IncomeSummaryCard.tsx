@@ -61,7 +61,7 @@ export default function IncomeSummaryCard({
               aria-hidden="true"
               className="mt-0.5 w-[3px] flex-none rounded-full"
               style={{
-                background: source.accent === 'yellow' ? 'var(--yellow)' : 'var(--accent)',
+                background: source.accent === 'yellow' ? 'var(--chart-2)' : 'var(--chart-1)',
               }}
             />
             <div className="min-w-0">

@@ -29,10 +29,10 @@ import ChangeBadge from '@/components/ui/ChangeBadge';
  */
 
 const TINTS: Record<AllocationKey, string> = {
-  equity: 'var(--accent)',
-  debt: 'var(--blue)',
-  gold: 'var(--orange)',
-  mutualFunds: 'var(--yellow)',
+  equity: 'var(--chart-1)',
+  debt: 'var(--chart-2)',
+  gold: 'var(--chart-3)',
+  mutualFunds: 'var(--chart-4)',
 };
 
 export default function InvestmentDetailCard({
@@ -68,7 +68,7 @@ export default function InvestmentDetailCard({
 
       {/* One track, four segments, one transition across all of them. */}
       <div
-        className="mt-2 flex h-2.5 w-full gap-1 overflow-hidden rounded-full"
+        className="mt-2 flex h-2.5 w-full gap-0.5 overflow-hidden rounded-[4px]"
         role="img"
         aria-label={`Allocation: ${allocation
           .map((slice) => `${slice.label} ${slice.share} percent`)
@@ -81,7 +81,7 @@ export default function InvestmentDetailCard({
             animate={{ flexGrow: slice.share }}
             transition={{ duration: 0.65, ease: [0.22, 1, 0.36, 1] }}
             style={{ background: TINTS[slice.key], flexBasis: 0 }}
-            className="h-full rounded-full"
+            className="h-full rounded-[2px]"
           />
         ))}
       </div>

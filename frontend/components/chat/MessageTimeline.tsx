@@ -1,7 +1,22 @@
 'use client';
 
-import { motion } from 'framer-motion';
-import { Check, CircleCheck, ClipboardList, Copy, Download, Paperclip, PenLine, RefreshCw, ThumbsDown, ThumbsUp } from 'lucide-react';
+import { AnimatePresence, motion } from 'framer-motion';
+import {
+  Ban,
+  Check,
+  ChevronRight,
+  CircleCheck,
+  CircleX,
+  ClipboardList,
+  Copy,
+  Download,
+  Paperclip,
+  PenLine,
+  RefreshCw,
+  Square,
+  ThumbsDown,
+  ThumbsUp,
+} from 'lucide-react';
 import { useState } from 'react';
 
 import { splitCards, withoutCards } from '@/lib/cards';
@@ -41,8 +56,9 @@ import Reply from '@/components/chat/Reply';
  * Regenerate work. Like, Dislike, Edit and Download are drawn but do nothing yet —
  * the backend has no feedback table and no export route for them to call.
  *
- * Tools are not listed in the timeline. While a reply is written, the thinking pill under the
- * chat shows the running tool's orb and label instead.
+ * While a reply is written, the thinking pill under the chat shows the running tool's orb and label.
+ * Once it is done, a quiet "Worked for 6s · 3 steps" line sits above the answer and opens to the
+ * list of steps, so what the planner did stays on record without crowding the reply.
  *
  * A reply that paused for approval is split where it paused: the lines written before the pause,
  * then the card, then whatever the planner wrote after the person decided. So the planner first
@@ -68,6 +84,8 @@ export interface Turn {
   importIds?: string[];
   /** Tools the planner called for this answer, in the order they started. Read by the thinking pill. */
   tools?: ToolStep[];
+  /** How long the planner was at work on this answer, in ms, not counting a wait on an approval card. */
+  workedMs?: number;
   /** The approval card this reply paused on, and where it has got. */
   approval?: { request: ApprovalRequest; state: ApprovalState; failure?: string; at: number };
   /** Cards and forms the tools gave this reply, keyed by tool call id. */
@@ -75,6 +93,16 @@ export interface Turn {
   /** The filled form a user turn was sent from. */
   form?: FormSubmission | null;
 }
+
+/** The one ease every chat entrance uses: fast out, soft landing. */
+const EASE = [0.22, 1, 0.36, 1] as const;
+
+/** A block that fades up into place when it appears, such as an approval card or an error box. */
+const ENTER = {
+  initial: { opacity: 0, y: 6 },
+  animate: { opacity: 1, y: 0 },
+  transition: { duration: 0.24, ease: EASE },
+};
 
 export default function MessageTimeline({
   turns,
@@ -99,7 +127,7 @@ export default function MessageTimeline({
   const sentForms = new Set(turns.map((turn) => turn.form?.block_id).filter((id): id is string => Boolean(id)));
 
   return (
-    <div className="mx-auto w-full max-w-[816px] space-y-8 px-4 pt-4 sm:px-6">
+    <div className="mx-auto w-full max-w-[816px] space-y-9 px-4 pt-6 sm:px-6">
       {turns.map((turn) =>
         turn.role === 'user' ? (
           <UserTurn key={turn.id} turn={turn} />
@@ -129,34 +157,32 @@ function UserTurn({ turn }: { turn: Turn }) {
     <motion.div
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+      transition={{ duration: 0.24, ease: EASE }}
       className="flex justify-end"
     >
-      <div className="flex max-w-[78%] flex-col items-end">
+      <div className="flex max-w-[80%] flex-col items-end">
         {turn.form ? (
           <p
-            className="inline-flex items-center gap-2 rounded-3xl px-5 py-2.5 text-[15px] font-medium text-primary"
-            style={{ background: 'var(--gradient-user)' }}
+            className="user-bubble inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-[14.5px] font-medium"
           >
             <CircleCheck size={14} className="text-accent" aria-hidden="true" />
             Details shared · {FORMS[turn.form.kind]?.title ?? 'Form'}
           </p>
         ) : (
           <p
-            className="rounded-3xl px-5 py-2.5 text-[16px] leading-[1.6] whitespace-pre-wrap text-primary"
-            style={{ background: 'var(--gradient-user)' }}
+            className="user-bubble rounded-xl px-4 py-2.5 text-[15.5px] leading-[1.6] whitespace-pre-wrap"
           >
             {turn.text}
           </p>
         )}
 
         {turn.attached && turn.attached.length > 0 && (
-          <p className="mt-1 pr-1 text-[12.5px] text-muted">
+          <p className="mt-1.5 pr-1 text-[12.5px] text-muted">
             <Paperclip size={10} className="mr-1 inline-block align-[-1px]" aria-hidden="true" />
             {turn.attached.join(', ')}
           </p>
         )}
-        <time className="mt-1 pr-1 text-[12px] text-muted">{clockTime(turn.at)}</time>
+        <time className="tabular mt-1 pr-1 text-[12px] text-muted">{clockTime(turn.at)}</time>
       </div>
     </motion.div>
   );
@@ -194,31 +220,36 @@ function PlannerTurn({
     <motion.div
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+      transition={{ duration: 0.24, ease: EASE }}
     >
       <div className="min-w-0">
+        {!streaming && turn.tools && turn.tools.length > 0 && (
+          <WorkSummary steps={turn.tools} workedMs={turn.workedMs} />
+        )}
+
         {turn.approval && (
           <>
             <ReplyWithCards text={before} blocks={turn.blocks} streaming={false} />
 
-            <div className="my-3">
+            <motion.div {...ENTER} className="my-3">
               <ApprovalCard
                 request={turn.approval.request}
                 state={turn.approval.state}
                 failure={turn.approval.failure}
                 onDecide={onDecide}
               />
-            </div>
+            </motion.div>
           </>
         )}
 
         {turn.failed ? (
-          <div
-            className="rounded-2xl border px-3.5 py-3"
+          <motion.div
+            {...ENTER}
+            className="rounded-xl border px-4 py-3"
             style={{ borderColor: 'var(--negative)', background: 'var(--negative-soft)' }}
           >
             <Reply text={after} streaming={streaming} />
-          </div>
+          </motion.div>
         ) : (
           <ReplyWithCards text={after} blocks={turn.blocks} streaming={streaming} />
         )}
@@ -249,7 +280,7 @@ function PlannerTurn({
           <ReplyActions text={withoutCards(turn.text)} busy={busy} onRegenerate={onRegenerate} />
         )}
 
-        <time className="mt-1.5 pl-1 block text-[12px] text-muted">
+        <time className="tabular mt-1 block text-[12px] text-muted">
           {clockTime(turn.at)}
           {turn.stopped && ' · Response stopped'}
         </time>
@@ -312,7 +343,7 @@ function FormButton({
       type="button"
       onClick={onOpen}
       disabled={disabled || open}
-      className="mt-2 inline-flex items-center gap-2 rounded-full border border-[var(--pane-border)] bg-panel-subtle px-3.5 py-1.5 text-[14px] font-medium text-primary transition hover:border-[var(--border-strong)] disabled:cursor-default disabled:opacity-60"
+      className="chip-button mt-3 h-8 gap-2 px-3 text-[13.5px] font-medium text-primary disabled:cursor-default disabled:opacity-60"
     >
       <ClipboardList size={14} className="text-accent" aria-hidden="true" />
       {open ? `${title} form is open` : `Open ${title.toLowerCase()} form`}
@@ -343,9 +374,25 @@ function ReplyActions({
   }
 
   return (
-    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.3, delay: 0.1, ease: EASE }}
+      className="mt-3 -ml-1.5 flex flex-wrap items-center gap-0.5"
+    >
       <ActionButton label={copied ? 'Copied' : 'Copy'} onClick={copy}>
-        {copied ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.span
+            key={copied ? 'done' : 'copy'}
+            initial={{ opacity: 0, scale: 0.6 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.6 }}
+            transition={{ duration: 0.14 }}
+            className={copied ? 'text-positive' : undefined}
+          >
+            {copied ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}
+          </motion.span>
+        </AnimatePresence>
       </ActionButton>
       <ActionButton label="Good response">
         <ThumbsUp size={13} aria-hidden="true" />
@@ -362,7 +409,7 @@ function ReplyActions({
       <ActionButton label="Regenerate" onClick={onRegenerate} disabled={busy}>
         <RefreshCw size={13} aria-hidden="true" />
       </ActionButton>
-    </div>
+    </motion.div>
   );
 }
 
@@ -384,9 +431,79 @@ function ActionButton({
       title={label}
       onClick={onClick}
       disabled={disabled}
-      className="icon-pill h-7 w-7 disabled:cursor-not-allowed disabled:opacity-40"
+      className="icon-ghost h-7 w-7 disabled:cursor-not-allowed disabled:opacity-40"
     >
       {children}
     </button>
+  );
+}
+
+/** `6s`, `1m 12s`. Under a second still reads as `1s`, so the line never says "0s". */
+function duration(ms: number): string {
+  const seconds = Math.max(1, Math.round(ms / 1000));
+
+  return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+}
+
+const STEP_ICON: Record<ToolStep['status'], React.ReactNode> = {
+  ok: <Check size={12} className="text-positive" aria-hidden="true" />,
+  running: <Check size={12} className="text-muted" aria-hidden="true" />,
+  error: <CircleX size={12} className="text-negative" aria-hidden="true" />,
+  stopped: <Square size={10} className="text-muted" aria-hidden="true" />,
+  rejected: <Ban size={12} className="text-muted" aria-hidden="true" />,
+};
+
+/**
+ * The record of what the planner did for one answer: closed, a single muted line; open, the steps
+ * in order with how each ended. The time is only known for a reply watched live in this tab, so a
+ * reply loaded from history says how many steps it took and leaves the time out.
+ */
+function WorkSummary({ steps, workedMs }: { steps: ToolStep[]; workedMs?: number }) {
+  const [open, setOpen] = useState(false);
+
+  const count = `${steps.length} ${steps.length === 1 ? 'step' : 'steps'}`;
+  const title = workedMs ? `Worked for ${duration(workedMs)} · ${count}` : `Used ${count}`;
+
+  return (
+    <div className="mb-3">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+        className="group -ml-1.5 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[13px] text-muted transition-colors hover:bg-[var(--hover-surface)] hover:text-secondary"
+      >
+        {title}
+        <motion.span animate={{ rotate: open ? 90 : 0 }} transition={{ duration: 0.18, ease: EASE }} className="grid">
+          <ChevronRight size={13} aria-hidden="true" />
+        </motion.span>
+      </button>
+
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.22, ease: EASE }}
+            className="overflow-hidden"
+          >
+            <ol className="mt-1.5 ml-[3px] space-y-1.5 border-l border-line py-0.5 pl-3.5">
+              {steps.map((step, index) => (
+                <motion.li
+                  key={step.id}
+                  initial={{ opacity: 0, x: -4 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ duration: 0.2, delay: 0.03 * index, ease: EASE }}
+                  className="flex items-center gap-2 text-[13px] text-secondary"
+                >
+                  <span className="grid h-4 w-4 flex-none place-items-center">{STEP_ICON[step.status]}</span>
+                  {step.label}
+                </motion.li>
+              ))}
+            </ol>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
   );
 }

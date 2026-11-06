@@ -108,7 +108,7 @@ function GoalRow({ goal }: { goal: Goal }) {
             <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-track" aria-hidden="true">
               <motion.span
                 className="block h-full rounded-full"
-                style={{ background: 'var(--accent)' }}
+                style={{ background: 'var(--meter)' }}
                 initial={reduced ? false : { width: 0 }}
                 animate={{ width: `${progress}%` }}
                 transition={{ duration: 0.68, ease: [0.22, 1, 0.36, 1] }}

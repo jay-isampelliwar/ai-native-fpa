@@ -89,7 +89,7 @@ export default function FinancialDashboard() {
             value={period.income.total}
             delta={period.income.delta}
             trend={trendUpTo(period.id, 'income')}
-            color="var(--accent)"
+            color="var(--chart-1)"
             index={0}
           />
           <KpiSparkCard
@@ -98,7 +98,7 @@ export default function FinancialDashboard() {
             value={period.expense.total}
             delta={period.expense.delta}
             trend={trendUpTo(period.id, 'expense')}
-            color="var(--yellow)"
+            color="var(--chart-2)"
             index={1}
           />
           <KpiSparkCard
@@ -107,7 +107,7 @@ export default function FinancialDashboard() {
             value={period.cashFlow.total}
             delta={period.cashFlow.delta}
             trend={trendUpTo(period.id, 'cashFlow')}
-            color="var(--violet)"
+            color="var(--chart-3)"
             index={2}
           />
           <KpiSparkCard
@@ -116,7 +116,7 @@ export default function FinancialDashboard() {
             value={period.investment.total}
             delta={period.investment.delta}
             trend={trendUpTo(period.id, 'investment')}
-            color="var(--blue)"
+            color="var(--chart-4)"
             index={3}
           />
         </div>
@@ -130,7 +130,7 @@ export default function FinancialDashboard() {
                 key={month.id}
                 period={month}
                 series={series}
-                color={['var(--accent)', 'var(--yellow)', 'var(--violet)'][at]}
+                color={['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)'][at]}
                 index={5 + at}
               />
             ))}

@@ -1,6 +1,6 @@
 'use client';
 
-import { motion, useReducedMotion } from 'framer-motion';
+import { motion } from 'framer-motion';
 import type { ComponentType } from 'react';
 
 import type { FactsBlock, StackBlock, UiBlock } from '@/lib/types';
@@ -14,6 +14,9 @@ import TableCard, { BlockTitle } from '@/components/blocks/TableCard';
  * A new card is a new entry here and a new builder in the backend's `app/agent/blocks.py`. A type
  * this map does not know draws nothing, so an older frontend never breaks on a newer backend.
  * `form` is not here: a form opens beside the chat, and its reply gets an "Open form" button.
+ *
+ * Every card follows one rule: the card is the only box. Parts inside it are split by hairlines and
+ * space, so a card never holds a box that holds another box.
  */
 const PARTS: { [Type in Exclude<UiBlock['type'], 'form'>]: ComponentType<{ block: Extract<UiBlock, { type: Type }> }> } = {
   table: TableCard,
@@ -34,16 +37,15 @@ function Part({ block }: { block: UiBlock }) {
 
 /** One card in a reply, drawn where the text placed it. */
 export default function BlockView({ block }: { block: UiBlock }) {
-  const reduced = useReducedMotion();
-
+  // Reduced motion is handled by the chat's MotionConfig, which keeps the fade and drops the travel.
   if (block.type === 'form' || !(block.type in PARTS)) return null;
 
   return (
     <motion.div
-      initial={reduced ? false : { opacity: 0, y: 6 }}
+      initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-      className="card my-3 p-4"
+      className="card my-4 p-4 sm:p-5"
     >
       <Part block={block} />
     </motion.div>
@@ -56,11 +58,11 @@ function FactsCard({ block }: { block: FactsBlock }) {
     <div>
       {block.title && <BlockTitle title={block.title} />}
 
-      <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+      <dl className={`grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-4 ${block.title ? 'mt-3' : ''}`}>
         {block.facts.map((fact) => (
-          <div key={fact.label} className="min-w-0 rounded-xl bg-panel-subtle px-3 py-2">
-            <dt className="text-[12.5px] text-muted">{fact.label}</dt>
-            <dd className="truncate text-[15px] font-semibold tabular-nums text-primary">{fact.value}</dd>
+          <div key={fact.label} className="min-w-0">
+            <dt className="card-label">{fact.label}</dt>
+            <dd className="card-value mt-1 truncate text-[15.5px]">{fact.value}</dd>
           </div>
         ))}
       </dl>
@@ -72,18 +74,24 @@ function FactsCard({ block }: { block: FactsBlock }) {
 function StackCard({ block }: { block: StackBlock }) {
   return (
     <div>
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <h4 className="text-[14px] font-semibold text-primary">{block.title}</h4>
+      <div className="flex flex-wrap items-center gap-2">
+        <h4 className="text-[15px] font-semibold tracking-[-0.01em] text-primary">{block.title}</h4>
         {block.chips?.map((chip) => (
-          <span key={chip} className="rounded-full bg-panel-subtle px-2 py-0.5 text-[12.5px] text-secondary">
+          <span
+            key={chip}
+            className="rounded-md border border-line px-1.5 py-px text-[12px] font-medium text-secondary"
+          >
             {chip}
           </span>
         ))}
       </div>
 
-      <div className="space-y-4">
+      {/* Each part is a section of the one card, split by a hairline rather than a box of its own. */}
+      <div className="mt-4 divide-y divide-[var(--border)]">
         {block.blocks.map((part, index) => (
-          <Part key={index} block={part} />
+          <div key={index} className="py-4 first:pt-0 last:pb-0">
+            <Part block={part} />
+          </div>
         ))}
       </div>
     </div>

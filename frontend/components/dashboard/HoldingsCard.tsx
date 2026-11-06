@@ -117,7 +117,7 @@ function HoldingRow({ holding, widest }: { holding: Holding; widest: number }) {
           >
             <motion.span
               className="block h-full rounded-full"
-              style={{ background: 'var(--accent)' }}
+              style={{ background: 'var(--meter)' }}
               initial={reduced ? false : { width: 0 }}
               animate={{ width: `${(holding.weight / widest) * 100}%` }}
               transition={{ duration: 0.62, ease: [0.22, 1, 0.36, 1] }}
