@@ -64,6 +64,30 @@ class Settings(BaseSettings):
         "gpt-5.6-luna": (0.20, 1.20),
         }
 
+    TAVILY_API_KEY: SecretStr | None = None
+    REDIS_WEB_SEARCH_PREFIX: str = "ai-native-fpa:websearch"
+    WEB_SEARCH_DEPTH: str = "basic"
+    WEB_SEARCH_MAX_RESULTS: int = 5
+    WEB_SEARCH_COUNTRY: str = "india"
+    WEB_SEARCH_CONTENT_CHARS: int = 1500
+    WEB_SEARCH_TIMEOUT_SECONDS: float = 6
+    WEB_SEARCH_WAIT_SECONDS: float = 3
+    WEB_SEARCH_LOCK_SECONDS: int = 10
+    WEB_SEARCH_TTL_SECONDS: dict[str, int] = {
+        "live": 30 * 60,
+        "today": 24 * 60 * 60,
+        "recent": 7 * 24 * 60 * 60,
+        "evergreen": 10 * 24 * 60 * 60,
+        }
+
+    WEB_PREVIEW_TIMEOUT_SECONDS: float = 2
+    WEB_PREVIEW_MAX_BYTES: int = 200_000
+
+    YAHOO_CHART_URL: str = "https://query1.finance.yahoo.com/v8/finance/chart"
+    REDIS_INDEX_QUOTE_PREFIX: str = "ai-native-fpa:indexquote"
+    INDEX_QUOTE_OPEN_TTL_SECONDS: int = 60
+    INDEX_QUOTE_TIMEOUT_SECONDS: float = 5
+
     TRANSCRIBE_MODEL: str = "gpt-4o-mini-transcribe"
     TRANSCRIBE_TIMEOUT_SECONDS: float = 20
     MAX_AUDIO_BYTES: int = 4 * 1024 * 1024

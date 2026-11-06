@@ -53,7 +53,7 @@ def test_one_intent_gets_its_tools_and_the_always_set() -> None:
     """A delete gets only delete_record plus the two tools the prompt always needs, in ALL_TOOLS order."""
 
     assert names([DELETE_DATA]) == ["get_missing_sections", "list_records", "delete_record"]
-    assert names([VIEW_DATA]) == ["get_missing_sections", "list_records", "get_portfolio_exposure"]
+    assert names([VIEW_DATA]) == ["get_missing_sections", "list_records", "get_portfolio_exposure", "web_search"]
 
 
 def test_several_intents_get_the_union_once() -> None:

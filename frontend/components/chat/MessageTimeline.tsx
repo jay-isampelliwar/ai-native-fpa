@@ -148,6 +148,7 @@ export default function MessageTimeline({
 function UserTurn({ turn }: { turn: Turn }) {
   return (
     <motion.div
+      data-turn-id={turn.id}
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.24, ease: EASE }}

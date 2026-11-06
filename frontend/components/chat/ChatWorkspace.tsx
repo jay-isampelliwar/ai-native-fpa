@@ -2,7 +2,7 @@
 
 import { AnimatePresence, MotionConfig, motion } from 'framer-motion';
 import { ArrowDown } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import { ApiError, conversations, runs } from '@/lib/api';
 import { firstNameOf } from '@/lib/format';
@@ -36,6 +36,9 @@ const EASE = [0.22, 1, 0.36, 1] as const;
 
 /** How close to the bottom, in px, still counts as reading the newest words. */
 const NEAR_BOTTOM = 80;
+
+/** The gap, in px, kept above a just-sent message when it is scrolled to the top of the pane. */
+const ANCHOR_GAP = 24;
 
 /** "Good morning" before noon, "Good afternoon" until five, "Good evening" after. */
 function greeting(now: Date): string {
@@ -167,6 +170,12 @@ export default function ChatWorkspace({
   // is still on its way (its scroll events pass through the middle and must not unpin it).
   const pinned = useRef(true);
   const jumping = useRef(false);
+
+  // The message just sent sits at the top of the pane while its reply grows below it. The spacer
+  // after the timeline gives it room to reach the top, and shrinks to nothing as the reply fills in.
+  const spacer = useRef<HTMLDivElement>(null);
+  const anchorId = useRef<string | null>(null);
+  const scrollToAnchor = useRef(false);
   const [away, setAway] = useState(false);
 
   useEffect(() => {
@@ -188,10 +197,39 @@ export default function ChatWorkspace({
     return () => controller.abort();
   }, []);
 
-  // Stay on the newest words as they arrive, unless the person scrolled up to read.
-  useEffect(() => {
+  // Size the spacer so the just-sent message can sit at the top, scroll it there once, and after
+  // that stay on the newest words as they arrive, unless the person scrolled up to read.
+  useLayoutEffect(() => {
     const element = scroller.current;
-    if (element && pinned.current) element.scrollTop = element.scrollHeight;
+    const gap = spacer.current;
+    if (!element || !gap) return;
+
+    const anchor = anchorId.current
+      ? element.querySelector<HTMLElement>(`[data-turn-id="${anchorId.current}"]`)
+      : null;
+
+    if (!anchor) {
+      gap.style.height = '0px';
+      if (pinned.current) element.scrollTop = element.scrollHeight;
+      return;
+    }
+
+    const top =
+      anchor.getBoundingClientRect().top - element.getBoundingClientRect().top + element.scrollTop - ANCHOR_GAP;
+    const content = element.scrollHeight - gap.offsetHeight;
+
+    gap.style.height = `${Math.max(0, top + element.clientHeight - content)}px`;
+
+    if (scrollToAnchor.current) {
+      const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+      scrollToAnchor.current = false;
+      jumping.current = !still;
+      element.scrollTo({ top, behavior: still ? 'auto' : 'smooth' });
+      return;
+    }
+
+    if (pinned.current) element.scrollTop = element.scrollHeight;
   }, [turns, step]);
 
   function onScroll() {
@@ -314,6 +352,7 @@ export default function ChatWorkspace({
         const loaded = turnsFrom(detail);
         const active = detail.active_run;
 
+        anchorId.current = null;
         setTurns(loaded);
         setLoading(false);
 
@@ -376,6 +415,7 @@ export default function ChatWorkspace({
     if (busy || loading || uploads.reading || typeof userId !== 'number') return;
 
     const answerId = newId();
+    const questionId = newId();
 
     // Read before clearing: the chips are emptied as the message is sent, and these ids are what
     // ties the reply to the files it is about.
@@ -385,7 +425,9 @@ export default function ChatWorkspace({
     if (!shown.form) setDraft('');
     uploads.clear();
 
-    // A new question is always followed, even if the person had scrolled up before sending it.
+    // A new question moves to the top of the pane, even if the person had scrolled up before sending it.
+    anchorId.current = questionId;
+    scrollToAnchor.current = true;
     pinned.current = true;
     jumping.current = false;
     setAway(false);
@@ -393,7 +435,7 @@ export default function ChatWorkspace({
       ...current.map((turn) =>
         turn.approval?.state === 'pending' ? { ...turn, approval: { ...turn.approval, state: 'skipped' as const } } : turn,
       ),
-      { id: newId(), role: 'user', text: shown.text, at: new Date(), attached, form: shown.form ?? null },
+      { id: questionId, role: 'user', text: shown.text, at: new Date(), attached, form: shown.form ?? null },
       { id: answerId, role: 'planner', text: '', at: new Date(), importIds },
     ]);
 
@@ -483,7 +525,7 @@ export default function ChatWorkspace({
 
         {/* min-h-0 is load-bearing: without it this flex child will not shrink below
             its content, so it never scrolls and the column grows past the viewport. */}
-        <div ref={scroller} onScroll={onScroll} className="quiet-scroll min-h-0 flex-1 overflow-y-auto pb-2">
+        <div ref={scroller} onScroll={onScroll} className="quiet-scroll min-h-0 flex-1 overflow-y-auto pb-16">
           {empty ? (
             <div className="flex min-h-full flex-col items-center justify-center px-4 py-8 sm:px-8">
               <motion.div
@@ -574,6 +616,8 @@ export default function ChatWorkspace({
               </motion.div>
             )}
           </AnimatePresence>
+
+          <div ref={spacer} aria-hidden />
         </div>
 
         {!empty && (

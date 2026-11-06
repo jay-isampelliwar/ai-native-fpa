@@ -6,6 +6,9 @@ import type { ComponentType } from 'react';
 import type { FactsBlock, StackBlock, UiBlock } from '@/lib/types';
 import BreakdownCard from '@/components/blocks/BreakdownCard';
 import GoalProgressCard from '@/components/blocks/GoalProgressCard';
+import HoldingsCard from '@/components/blocks/HoldingsCard';
+import QuoteCard from '@/components/blocks/QuoteCard';
+import SourcesCard from '@/components/blocks/SourcesCard';
 import TableCard, { BlockTitle } from '@/components/blocks/TableCard';
 
 /**
@@ -18,12 +21,18 @@ import TableCard, { BlockTitle } from '@/components/blocks/TableCard';
  * Every card follows one rule: the card is the only box. Parts inside it are split by hairlines and
  * space, so a card never holds a box that holds another box.
  */
+/** Blocks drawn straight into the reply with no card around them, such as the row of source tiles. */
+const BARE = new Set<UiBlock['type']>(['sources']);
+
 const PARTS: { [Type in Exclude<UiBlock['type'], 'form'>]: ComponentType<{ block: Extract<UiBlock, { type: Type }> }> } = {
   table: TableCard,
   breakdown: BreakdownCard,
   goal_progress: GoalProgressCard,
   facts: FactsCard,
   stack: StackCard,
+  sources: SourcesCard,
+  quote: QuoteCard,
+  holdings: HoldingsCard,
 };
 
 /** One block drawn bare, for use inside a card. */
@@ -45,7 +54,7 @@ export default function BlockView({ block }: { block: UiBlock }) {
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-      className="card my-4 p-4 sm:p-5"
+      className={BARE.has(block.type) ? 'my-4' : 'card my-4 p-4 sm:p-5'}
     >
       <Part block={block} />
     </motion.div>

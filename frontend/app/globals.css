@@ -65,6 +65,7 @@
   --chart-3: #1baf7a;
   --chart-4: #eda100;
   --chart-5: #e87ba4;
+  --chart-6: #6250d6;
 
   /* A bar that measures how much is done, with no good or bad in it. */
   --meter: #0f1115;
@@ -125,6 +126,7 @@
   --chart-3: #199e70;
   --chart-4: #c98500;
   --chart-5: #d55181;
+  --chart-6: #9085e9;
 
   --meter: #e6e8eb;
 
@@ -172,6 +174,7 @@
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
+  --color-chart-6: var(--chart-6);
   --color-bubble: var(--bubble);
 
   --font-sans: var(--font-chat);

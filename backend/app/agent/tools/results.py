@@ -161,7 +161,7 @@ def repeated_failure(tool_name: str) -> ToolResult:
 
     message = (
         f"{tool_name} failed {REPEAT_LIMIT} times in a row with the same error, so it was not run again. "
-        "Stop calling it in this reply. Tell the user in one line that this did not work."
+        "Stop calling it in this reply. Tell the user that this did not work."
         )
 
     return ToolResult(status="not_allowed", message=message, error_code="repeated_failure")
@@ -171,7 +171,7 @@ def tool_failed(tool_name: str) -> ToolResult:
 
     """The tool broke on its own, so this call did nothing and the rest of the reply can go on."""
 
-    message = f"{tool_name} failed inside the app, so nothing was done. Tell the user in one line it did not work. Do not try it again."
+    message = f"{tool_name} failed inside the app, so nothing was done. Tell the user it did not work. Do not try it again."
 
     return ToolResult(status="not_allowed", message=message, error_code="tool_failed")
 

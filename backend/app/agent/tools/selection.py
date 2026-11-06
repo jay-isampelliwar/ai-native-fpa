@@ -44,7 +44,7 @@ ADD_TOOLS = (
     )
 
 TOOLS_BY_INTENT: dict[str, tuple[str, ...]] = {
-    VIEW_DATA: ("get_portfolio_exposure",),
+    VIEW_DATA: ("get_portfolio_exposure", "web_search"),
     ADD_DATA: ADD_TOOLS,
     CHANGE_DATA: ("update_record", "update_profile", "set_tax_profile", "set_planning_rate", "link_asset_to_goal", "open_form"),
     DELETE_DATA: ("delete_record",),
@@ -57,6 +57,8 @@ TOOLS_BY_INTENT: dict[str, tuple[str, ...]] = {
         "get_stock_details",
         "compare_funds",
         "get_portfolio_exposure",
+        "get_index_quote",
+        "web_search",
         ),
     }
 

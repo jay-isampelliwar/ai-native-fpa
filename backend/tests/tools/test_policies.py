@@ -55,6 +55,8 @@ def test_read_tools_are_read() -> None:
         "get_stock_details",
         "compare_funds",
         "get_portfolio_exposure",
+        "get_index_quote",
+        "web_search",
         "open_form",
         }
 

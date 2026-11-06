@@ -48,7 +48,7 @@ RULES = (
     (GOAL_CHECK, re.compile(r"\b(goal progress|on track)\b")),
     (MISSING_DATA, re.compile(r"\bwhat( else)? do you need\b|\bwhat('s| is) missing\b")),
     (SIMULATION, re.compile(r"\bwhat (happens )?if\b|\bcalculate\b")),
-    (MARKET_INFO, re.compile(r"\b(price|nav|closing|share price|stock price)\b")),
+    (MARKET_INFO, re.compile(r"\b(price|nav|closing|share price|stock price|nifty|sensex|stock market|share market|market news)\b")),
     )
 
 JOINER = re.compile(r"\b(and|also|then|plus)\b|,\s")
@@ -63,7 +63,8 @@ CLASSIFIER_PROMPT = (
     "You sort a user's latest chat message into intents for a personal finance planner for Indian households. "
     "Pick every intent the latest message asks for, in the order it asks. Use the earlier messages only to understand "
     "short replies like 'yes' or 'that one'.\n"
-    "- VIEW_DATA: see or ask about details they already saved (loans, goals, income, expenses, accounts, policies).\n"
+    "- VIEW_DATA: see or ask about details they already saved (loans, goals, income, expenses, accounts, policies), "
+    "including how their own funds or stocks did today or overall.\n"
     "- ADD_DATA: share or save a new detail (a new loan, salary, goal, family member, policy).\n"
     "- CHANGE_DATA: change a detail already saved.\n"
     "- DELETE_DATA: remove a detail already saved.\n"
@@ -73,6 +74,7 @@ CLASSIFIER_PROMPT = (
     "'What if I remove the car loan?' is SIMULATION, not DELETE_DATA.\n"
     "- MARKET_INFO: a question about a stock, ETF or mutual fund itself, such as its price or NAV, what a fund holds, "
     "its sectors, which funds hold a stock, comparing funds, or a list of a fund house's schemes. "
+    "Also index levels such as Nifty or Sensex, and stock market, RBI or SEBI news. "
     "'I have 100 units of HDFC Flexi Cap' is ADD_DATA.\n"
     "- GENERAL_QUESTION: anything else, like greetings or general money questions.\n"
     "A negated action is not that action: 'don't delete it' is not DELETE_DATA."

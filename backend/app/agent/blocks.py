@@ -3,13 +3,15 @@
 import functools
 import logging
 from collections.abc import Callable
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum
 from typing import Any
 
 from app.agent.cards import generic_describe, humanize, plain_number, rupees
 from app.features.analysis.service import GoalProgress
+from app.features.indices.schemas import IndexQuote
+from app.features.indices.service import IST
 from app.features.records.kinds import RecordKind
 
 
@@ -168,21 +170,6 @@ def breakdown_items(
         ]
 
 
-def holding_row(
-    record: Any,
-    named: dict[str, Any],
-    ) -> dict[str, str]:
-
-    """One holding as a table row: what it is, units, money put in and worth today."""
-
-    return {
-        "Name": named.get("name") or "Holding",
-        "Units": plain_number(record.units) if record.units is not None else "—",
-        "Invested": money(record.invested_amount),
-        "Worth today": money(named.get("value_today") if named.get("value_today") is not None else record.current_value),
-        }
-
-
 def record_row(
     kind: RecordKind,
     record: Any,
@@ -202,6 +189,103 @@ def record_row(
     return row
 
 
+def short_name(name: str) -> str:
+
+    """A fund or company name without its plan and option, in normal case, such as 'Bandhan Small Cap Fund'."""
+
+    head = name.split(" - ")[0].strip()
+
+    for ending in (" Limited", " Ltd.", " Ltd"):
+        head = head.removesuffix(ending)
+
+    return head.title() if head.isupper() else head
+
+
+def signed_money(value: Decimal) -> str:
+
+    """A rupee change with its sign, such as +₹1,200 or −₹1,764.46."""
+
+    return f"{'+' if value >= 0 else '−'}{rupees(abs(value), 2)}"
+
+
+def holding_value(
+    record: Any,
+    named: dict[str, Any],
+    ) -> Decimal | None:
+
+    """What a holding is worth now: from the latest NAV or price when known, else its saved current value."""
+
+    value = named.get("value_today")
+
+    if value is None:
+        value = record.current_value
+
+    return None if value is None else Decimal(str(value))
+
+
+def holdings_block(
+    records: list[Any],
+    named: dict[int, dict[str, Any]],
+    total: int,
+    ) -> Block | None:
+
+    """The holdings card: total value and overall gain, then each holding by size with its share of the money."""
+
+    rows = []
+
+    for record in records:
+
+        about = named.get(record.id, {})
+
+        rows.append((record, about, holding_value(record, about)))
+
+    rows.sort(key=lambda row: row[2] if row[2] is not None else Decimal(-1), reverse=True)
+
+    worth = sum((value for _, _, value in rows if value is not None), Decimal(0))
+
+    invested = sum(
+        (Decimal(str(record.invested_amount)) for record, _, value in rows if value is not None and record.invested_amount is not None),
+        Decimal(0),
+        )
+
+    gained = sum(
+        (value for record, _, value in rows if value is not None and record.invested_amount is not None),
+        Decimal(0),
+        ) - invested
+
+    summary: list[dict[str, Any]] = [{"label": "Value", "value": rupees(worth, 2)}]
+
+    if invested:
+
+        summary.append({
+            "label": "Overall",
+            "value": signed_money(gained),
+            "note": f"{'+' if gained >= 0 else '−'}{abs(gained) / invested * 100:.2f}%",
+            "direction": "up" if gained >= 0 else "down",
+            })
+
+    dates = [about.get("nav_date") or about.get("price_date") for _, about, _ in rows]
+    known = [day for day in dates if day is not None]
+
+    items = [
+        {
+            "name": short_name(about.get("name") or "Holding"),
+            "value": rupees(value, 2) if value is not None else "—",
+            "share": round(float(value / worth * 100), 2) if value is not None and worth else 0.0,
+            }
+        for _, about, value in rows
+        ]
+
+    return {
+        "type": "holdings",
+        "title": "Your holdings",
+        "as_of": word(min(known)) if known else None,
+        "subtitle": f"Showing {len(records)} of {total}" if total > len(records) else None,
+        "summary": summary,
+        "items": items,
+        }
+
+
 @never_fails
 def records_block(
     kind: RecordKind,
@@ -216,10 +300,9 @@ def records_block(
         return None
 
     if kind == RecordKind.holdings:
-        rows = [holding_row(record, named.get(record.id, {})) for record in records]
+        return holdings_block(records, named, total)
 
-    else:
-        rows = [record_row(kind, record) for record in records]
+    rows = [record_row(kind, record) for record in records]
 
     title = f"Your {kind.value.replace('_', ' ')}"
     subtitle = f"Showing {len(records)} of {total}" if total > len(records) else None
@@ -438,6 +521,98 @@ def search_block(data: dict[str, Any]) -> Block | None:
         return blocks[0]
 
     return {"type": "stack", "title": "Search results", "blocks": blocks}
+
+
+@never_fails
+def sources_block(data: dict[str, Any]) -> Block | None:
+
+    """The web pages a search found, as titled links with their site and date, or None when it found none."""
+
+    items = [
+        {
+            "title": item["title"],
+            "url": item["url"],
+            "site": item["site"],
+            "published": item.get("published"),
+            "image": item.get("image"),
+            }
+        for item in data.get("results", [])
+        ]
+
+    if not items:
+        return None
+
+    return {"type": "sources", "title": "Sources", "items": items}
+
+
+def index_number(value: float) -> str:
+
+    """An index level or change with Indian commas and two decimals, such as 25,030.35, without its sign."""
+
+    text = rupees(Decimal(f"{abs(value):.2f}"), 2).removeprefix("₹")
+
+    return text if "." in text else f"{text}.00"
+
+
+def ist_time(timestamp: int) -> str:
+
+    """A Unix time as a short IST time, such as 6 Nov, 3:31 pm IST."""
+
+    moment = datetime.fromtimestamp(timestamp, IST)
+
+    return f"{moment.day} {moment:%b}, {moment:%-I:%M} {moment:%p}".replace("AM", "am").replace("PM", "pm") + " IST"
+
+
+def quote_item(
+    quote: IndexQuote,
+    with_stats: bool,
+    ) -> dict[str, Any]:
+
+    """One index's level and change for the quote card, with open, high, low and previous close when asked."""
+
+    change = quote.value - quote.previous_close
+
+    item: dict[str, Any] = {
+        "name": quote.name,
+        "value": index_number(quote.value),
+        "number": round(quote.value, 2),
+        "change": f"{'+' if change >= 0 else '-'}{index_number(change)}",
+        "change_pct": f"{abs(change) / quote.previous_close * 100:.2f}%",
+        "direction": "up" if change >= 0 else "down",
+        }
+
+    if with_stats:
+
+        item["stats"] = [
+            {"label": label, "value": index_number(value) if value is not None else "—"}
+            for label, value in (
+                ("Open", quote.open),
+                ("High", quote.high),
+                ("Low", quote.low),
+                ("Prev close", quote.previous_close),
+                )
+            ]
+
+    return item
+
+
+@never_fails
+def quote_block(
+    quotes: list[IndexQuote],
+    market_open: bool,
+    ) -> Block | None:
+
+    """The quote card: one index with its four stats, or several indices with only their level and change, or None when there are none."""
+
+    if not quotes:
+        return None
+
+    return {
+        "type": "quote",
+        "as_of": ist_time(max(quote.as_of for quote in quotes)),
+        "closed": not market_open,
+        "items": [quote_item(quote, len(quotes) == 1) for quote in quotes],
+        }
 
 
 def form_block(

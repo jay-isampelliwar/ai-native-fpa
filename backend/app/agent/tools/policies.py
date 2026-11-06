@@ -42,6 +42,8 @@ TOOL_POLICIES: dict[str, ToolPolicy] = {
     "get_stock_details": READ,
     "compare_funds": READ,
     "get_portfolio_exposure": READ,
+    "get_index_quote": READ,
+    "web_search": READ,
     "open_form": READ,
     "mark_section_status": WRITE,
     "add_family_member": WRITE,

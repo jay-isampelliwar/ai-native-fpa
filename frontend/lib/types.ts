@@ -142,7 +142,16 @@ export interface ConversationMessage {
  * Typed UI blocks a tool sends with `ui.block`. The backend builds every value from exact data, so
  * the frontend only draws them. A reply's text places a card with a `{{card:<id>}}` line.
  */
-export type UiBlock = TableBlock | BreakdownBlock | GoalProgressBlock | FactsBlock | StackBlock | FormBlock;
+export type UiBlock =
+  | TableBlock
+  | BreakdownBlock
+  | GoalProgressBlock
+  | FactsBlock
+  | StackBlock
+  | SourcesBlock
+  | QuoteBlock
+  | HoldingsBlock
+  | FormBlock;
 
 export interface UiBlockEntry {
   id: string;
@@ -201,7 +210,55 @@ export interface StackBlock {
   blocks: UiBlock[];
 }
 
-export type FormKind = 'goal' | 'income' | 'expense' | 'holding' | 'loan' | 'insurance';
+/** A `sources` block: the web pages a search found, each opened in a new tab. */
+export interface SourcesBlock {
+  type: 'sources';
+  title: string;
+  items: { title: string; url: string; site: string; published?: string | null; image?: string | null }[];
+}
+
+/** A labelled number for a card's top row, coloured by `direction` when it is a change. */
+export interface SummaryStat {
+  label: string;
+  value: string;
+  note?: string | null;
+  direction?: 'up' | 'down' | null;
+}
+
+/** A `holdings` block: total value and gain on top, then each holding by size with its share of the money. */
+export interface HoldingsBlock {
+  type: 'holdings';
+  title: string;
+  as_of?: string | null;
+  subtitle?: string | null;
+  summary: SummaryStat[];
+  items: {
+    name: string;
+    value: string;
+    /** Share of the total value, 0 to 100. */
+    share: number;
+    /** Today's move, only when a fresh NAV or price for today is known. */
+    today?: { text: string; direction: 'up' | 'down' } | null;
+  }[];
+}
+
+/** A `quote` block: one or more index levels. One index also carries four stats; several carry none. */
+export interface QuoteBlock {
+  type: 'quote';
+  as_of: string;
+  closed: boolean;
+  items: {
+    name: string;
+    value: string;
+    number: number;
+    change: string;
+    change_pct: string;
+    direction: 'up' | 'down';
+    stats?: { label: string; value: string }[];
+  }[];
+}
+
+export type FormKind ='goal' | 'income' | 'expense' | 'holding' | 'loan' | 'insurance';
 
 export type FormValue = string | number | boolean;
 

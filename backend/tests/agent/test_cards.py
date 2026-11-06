@@ -107,3 +107,33 @@ def test_only_real_changes_count() -> None:
     assert real_changes(RecordKind.expenses, rent, {"amount": 25000, "name": "Rent"}) == {"amount": Decimal("25000")}
     assert real_changes(RecordKind.expenses, rent, {"amount": "20000"}) == {}
     assert real_changes(RecordKind.expenses, rent, {"user_id": 1}) is None
+
+
+def test_holdings_card_sorts_by_value_and_adds_up_gain() -> None:
+
+    """Holdings come biggest first with short names and shares, and the top row has value and overall gain."""
+
+    from datetime import date
+    from decimal import Decimal
+    from types import SimpleNamespace
+
+    from app.agent.blocks import records_block
+    from app.features.records.kinds import RecordKind
+
+    records = [
+        SimpleNamespace(id=1, current_value=None, invested_amount=Decimal("6000")),
+        SimpleNamespace(id=2, current_value=None, invested_amount=Decimal("110000")),
+        ]
+
+    named = {
+        1: {"name": "BANDHAN SMALL CAP FUND - DIRECT PLAN GROWTH", "value_today": 5999.99, "nav_date": date(2026, 11, 3)},
+        2: {"name": "Nippon India Growth Mid Cap Fund - Direct Plan", "value_today": 109996.45, "nav_date": date(2026, 11, 3)},
+        }
+
+    block = records_block(RecordKind.holdings, records, named, 2)
+
+    assert block is not None and block["type"] == "holdings"
+    assert [item["name"] for item in block["items"]] == ["Nippon India Growth Mid Cap Fund", "Bandhan Small Cap Fund"]
+    assert [item["share"] for item in block["items"]] == [94.83, 5.17]
+    assert block["summary"][1] == {"label": "Overall", "value": "−₹3.56", "note": "−0.00%", "direction": "down"}
+    assert block["as_of"] == "3 Nov 2026"

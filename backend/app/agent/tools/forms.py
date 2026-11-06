@@ -31,7 +31,7 @@ async def open_form(
     filled = known_values(form, values)
 
     message = (
-        f"The {FORM_TITLES[form].lower()} form is open beside the chat. Say in one short line that you opened it "
+        f"The {FORM_TITLES[form].lower()} form is open beside the chat. Say that you opened it "
         "for them to fill in. Do not ask for the details in the chat, and do not call any other tool now."
         )
 

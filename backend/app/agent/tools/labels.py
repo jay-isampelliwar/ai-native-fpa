@@ -24,6 +24,8 @@ TOOL_LABELS = {
     "get_stock_details": "Reading the stock's details",
     "compare_funds": "Comparing funds",
     "get_portfolio_exposure": "Adding up your sector mix",
+    "get_index_quote": "Reading the index level",
+    "web_search": "Searching the web",
     "add_loan": "Adding a loan",
     "add_credit_card": "Adding a credit card",
     "add_insurance_policy": "Adding an insurance policy",
