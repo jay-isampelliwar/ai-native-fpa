@@ -132,6 +132,92 @@ export interface ConversationMessage {
   created_at: string;
   /** Tools the planner called for this answer. Always empty for the person's own messages. */
   tools: ToolStep[];
+  /** Cards and forms the tools gave this answer, keyed by tool call id. */
+  blocks?: UiBlockEntry[];
+  /** The filled form this user message was sent from, shown as a chip instead of its text. */
+  form?: FormSubmission | null;
+}
+
+/**
+ * Typed UI blocks a tool sends with `ui.block`. The backend builds every value from exact data, so
+ * the frontend only draws them. A reply's text places a card with a `{{card:<id>}}` line.
+ */
+export type UiBlock = TableBlock | BreakdownBlock | GoalProgressBlock | FactsBlock | StackBlock | FormBlock;
+
+export interface UiBlockEntry {
+  id: string;
+  block: UiBlock;
+}
+
+export interface TableBlock {
+  type: 'table';
+  title?: string | null;
+  subtitle?: string | null;
+  columns: { key: string; label: string; align: 'left' | 'right' }[];
+  rows: Record<string, string>[];
+}
+
+export interface BreakdownItem {
+  label: string;
+  /** Bar length, 0 to 100. */
+  pct: number;
+  value: string;
+}
+
+export interface BreakdownBlock {
+  type: 'breakdown';
+  title?: string | null;
+  subtitle?: string | null;
+  groups: { title: string; items: BreakdownItem[] }[];
+}
+
+export interface GoalProgressBlock {
+  type: 'goal_progress';
+  title: string;
+  summary: { label: string; value: string }[];
+  goals: {
+    name: string;
+    target_year: number;
+    on_track: boolean;
+    target_today: string;
+    target_future: string;
+    monthly_need: string;
+    monthly_assigned: string;
+    shortfall: string;
+    covered_pct: number;
+  }[];
+}
+
+export interface FactsBlock {
+  type: 'facts';
+  title?: string | null;
+  facts: { label: string; value: string }[];
+}
+
+export interface StackBlock {
+  type: 'stack';
+  title: string;
+  chips?: string[];
+  blocks: UiBlock[];
+}
+
+export type FormKind = 'goal' | 'income' | 'expense' | 'holding' | 'loan' | 'insurance';
+
+export type FormValue = string | number | boolean;
+
+export interface FormBlock {
+  type: 'form';
+  form: FormKind;
+  values: Record<string, FormValue>;
+  record_id: number | null;
+}
+
+/** A filled form as it is sent to start a run, and as it comes back on the saved user message. */
+export interface FormSubmission {
+  kind: FormKind;
+  values: Record<string, FormValue>;
+  record_id: number | null;
+  block_id: string | null;
 }
 
 /**

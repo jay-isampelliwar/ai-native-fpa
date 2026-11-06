@@ -7,6 +7,7 @@ from langchain.tools import ToolRuntime, tool
 from langchain_core.messages import ToolMessage
 from pydantic import ValidationError
 
+from app.agent.blocks import Block, compare_block, exposure_block, fund_block, search_block, stock_block
 from app.agent.context import PlannerContext
 from app.agent.tools.limits import tool_session
 from app.agent.tools.results import from_record_error, from_validation_error, invalid, ok, to_message
@@ -19,9 +20,10 @@ async def read(
     runtime: ToolRuntime[PlannerContext],
     question: Callable[[MarketService], Awaitable[dict[str, Any]]],
     message: Callable[[dict[str, Any]], str],
+    card: Callable[[dict[str, Any]], Block | None],
     ) -> ToolMessage:
 
-    """Answer one read-only market question in its own session and send the result back to the model."""
+    """Answer one read-only market question in its own session and send the result, with its card, back to the model."""
 
     try:
 
@@ -34,7 +36,7 @@ async def read(
     except RecordError as exc:
         return to_message(from_record_error(exc), runtime.tool_call_id)
 
-    return to_message(ok(message(data), data), runtime.tool_call_id)
+    return to_message(ok(message(data), data, card(data)), runtime.tool_call_id)
 
 
 def search_message(data: dict[str, Any]) -> str:
@@ -83,7 +85,7 @@ async def search_stocks_and_funds(
 
         return to_message(result, runtime.tool_call_id)
 
-    return await read(runtime, lambda market: market.search(words, kind, filters, limit), search_message)
+    return await read(runtime, lambda market: market.search(words, kind, filters, limit), search_message, search_block)
 
 
 @tool
@@ -104,7 +106,7 @@ async def get_fund_details(
 
         return f"Details for {data['scheme']}. Its portfolio is not loaded, so holdings and sectors are not known."
 
-    return await read(runtime, lambda market: market.fund_details(isin, top), message)
+    return await read(runtime, lambda market: market.fund_details(isin, top), message, fund_block)
 
 
 @tool
@@ -115,7 +117,7 @@ async def get_stock_details(
 
     """Show one stock or ETF from the market data: last closing price, sector, market cap, and the fund schemes that hold the most of it. Read-only."""
 
-    return await read(runtime, lambda market: market.stock_details(isin_or_symbol), lambda data: f"Details for {data['name']}.")
+    return await read(runtime, lambda market: market.stock_details(isin_or_symbol), lambda data: f"Details for {data['name']}.", stock_block)
 
 
 @tool
@@ -126,7 +128,7 @@ async def compare_funds(
 
     """Compare 2 to 4 mutual funds side by side: category, NAV, sector split, asset split, and how many of their stocks are the same (overlap). Read-only."""
 
-    return await read(runtime, lambda market: market.compare(isins), lambda data: f"Compared {len(data['funds'])} funds.")
+    return await read(runtime, lambda market: market.compare(isins), lambda data: f"Compared {len(data['funds'])} funds.", compare_block)
 
 
 @tool
@@ -143,4 +145,4 @@ async def get_portfolio_exposure(runtime: ToolRuntime[PlannerContext]) -> ToolMe
 
         return f"Added up {data['holdings_counted']} holdings worth ₹{data['total_value']}."
 
-    return await read(runtime, lambda market: market.exposure(runtime.context.user_id), message)
+    return await read(runtime, lambda market: market.exposure(runtime.context.user_id), message, exposure_block)

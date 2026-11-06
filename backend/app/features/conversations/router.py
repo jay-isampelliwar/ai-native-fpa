@@ -11,6 +11,7 @@ from app.db.session import get_session
 from app.features.conversations.repository import ConversationRepository
 from app.features.conversations.schemas import (
     ActiveRun,
+    BlockOut,
     ConversationDetail,
     ConversationList,
     ConversationRename,
@@ -53,6 +54,24 @@ def tool_steps_by_message(tool_calls: list[ToolCall]) -> dict[int, list[ToolStep
         steps.setdefault(tool_call.message_id, []).append(step)
 
     return steps
+
+
+def blocks_by_message(tool_calls: list[ToolCall]) -> dict[int, list[BlockOut]]:
+
+    """Group the cards and forms that finished tools gave under the message they belong to."""
+
+    blocks: dict[int, list[BlockOut]] = {}
+
+    for tool_call in tool_calls:
+
+        block = (tool_call.output or {}).get("block")
+
+        if tool_call.status != ToolCallStatus.completed or not isinstance(block, dict):
+            continue
+
+        blocks.setdefault(tool_call.message_id, []).append(BlockOut(id=tool_call.tool_call_id, block=block))
+
+    return blocks
 
 
 @router.get("")
@@ -150,7 +169,11 @@ async def get_conversation(
 
     messages = await repo.list_messages(conversation_id)
 
-    steps = tool_steps_by_message(list(await repo.list_tool_calls(conversation_id)))
+    tool_calls = list(await repo.list_tool_calls(conversation_id))
+
+    steps = tool_steps_by_message(tool_calls)
+
+    blocks = blocks_by_message(tool_calls)
 
     run = await repo.get_active_run(conversation_id)
 
@@ -168,6 +191,8 @@ async def get_conversation(
                 text=message.content.get("text", ""),
                 created_at=message.created_at,
                 tools=steps.get(message.id, []),
+                blocks=blocks.get(message.id, []),
+                form=message.content.get("form"),
                 )
             for message in messages
             ],

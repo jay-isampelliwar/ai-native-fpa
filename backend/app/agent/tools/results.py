@@ -34,16 +34,29 @@ class ToolResult(BaseModel):
     error_code: str | None = None
     retryable: bool = False
     verified: bool | None = None
+    block: dict[str, Any] | None = None
 
 
 def ok(
     message: str,
     data: dict[str, Any] | None = None,
+    block: dict[str, Any] | None = None,
     ) -> ToolResult:
 
-    """The tool did what was asked."""
+    """The tool did what was asked, with a card for the chat when it has one."""
 
-    return ToolResult(status="success", message=message, data=data)
+    return ToolResult(status="success", message=message, data=data, block=block)
+
+
+def card_hint(tool_call_id: str) -> str:
+
+    """Tell the model how to place this result's card in its answer, and not to repeat its numbers."""
+
+    return (
+        f"This result has a card the app can draw for the user. To show it, write {{{{card:{tool_call_id}}}}} "
+        "on its own line where it should appear in your answer. The card already shows these numbers, "
+        "so do not repeat them in a table. Leave it out when the user does not need to see this data."
+        )
 
 
 def checked(
@@ -224,12 +237,17 @@ def to_message(
     extra_text: str | None = None,
     ) -> ToolMessage:
 
-    """Send the result as JSON to the model, marked error unless it succeeded, with the result kept whole as the artifact."""
+    """Send the result as JSON to the model without its card, marked error unless it succeeded, with the result kept whole as the artifact."""
 
-    content: str | list[dict[str, str]] = result.model_dump_json(exclude_none=True)
+    content: str | list[dict[str, str]] = result.model_dump_json(exclude_none=True, exclude={"block"})
 
-    if extra_text is not None:
-        content = [{"type": "text", "text": content}, {"type": "text", "text": extra_text}]
+    extras = [extra_text] if extra_text is not None else []
+
+    if result.block is not None and result.block.get("type") != "form":
+        extras.append(card_hint(tool_call_id))
+
+    if extras:
+        content = [{"type": "text", "text": content}, *({"type": "text", "text": text} for text in extras)]
 
     return ToolMessage(
         content,

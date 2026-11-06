@@ -10,6 +10,7 @@ from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, SystemM
 from langgraph.constants import TAG_NOSTREAM
 from pydantic import BaseModel, Field
 
+from app.agent.forms import is_edit_form, is_form_text
 from app.core.config import get_settings
 from app.services.llm import llm_service
 
@@ -168,9 +169,12 @@ async def classify_with_model(messages: Sequence[AnyMessage]) -> tuple[list[str]
 
 async def detect_current_intents(messages: Sequence[AnyMessage]) -> tuple[list[str], AIMessage | None]:
 
-    """Find the newest message's intents by rules when it is simple, else by the intent model, and the model's raw answer if it ran."""
+    """Find the newest message's intents from a filled form, by rules when it is simple, else by the intent model, and the model's raw answer if it ran."""
 
     text = latest_user_text(messages)
+
+    if is_form_text(text):
+        return ([CHANGE_DATA] if is_edit_form(text) else [ADD_DATA]), None
 
     hits = match_rules(text)
 

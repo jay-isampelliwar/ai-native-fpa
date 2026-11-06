@@ -40,14 +40,15 @@ ADD_TOOLS = (
     "set_tax_profile",
     "set_planning_rate",
     "mark_section_status",
+    "open_form",
     )
 
 TOOLS_BY_INTENT: dict[str, tuple[str, ...]] = {
     VIEW_DATA: ("get_portfolio_exposure",),
     ADD_DATA: ADD_TOOLS,
-    CHANGE_DATA: ("update_record", "update_profile", "set_tax_profile", "set_planning_rate", "link_asset_to_goal"),
+    CHANGE_DATA: ("update_record", "update_profile", "set_tax_profile", "set_planning_rate", "link_asset_to_goal", "open_form"),
     DELETE_DATA: ("delete_record",),
-    GOAL_CHECK: ("check_goal_progress", "link_asset_to_goal", "add_goal", "set_planning_rate"),
+    GOAL_CHECK: ("check_goal_progress", "link_asset_to_goal", "add_goal", "set_planning_rate", "open_form"),
     MISSING_DATA: ("mark_section_status",),
     SIMULATION: ("check_goal_progress", "set_planning_rate"),
     MARKET_INFO: (

@@ -4,6 +4,7 @@ from app.agent.tools.analysis import check_goal_progress
 from app.agent.tools.assets import add_bank_account, add_fixed_deposit, add_physical_asset, add_retirement_account
 from app.agent.tools.cash_flow import add_expense, add_income_source, add_transaction
 from app.agent.tools.investments import add_stock_or_fund, add_sip_plan
+from app.agent.tools.forms import open_form
 from app.agent.tools.liabilities import add_credit_card, add_loan
 from app.agent.tools.market import (
     compare_funds,
@@ -54,4 +55,5 @@ ALL_TOOLS = [
     link_asset_to_goal,
     set_planning_rate,
     set_tax_profile,
+    open_form,
     ]

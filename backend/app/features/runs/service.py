@@ -3,6 +3,7 @@
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agent.forms import FORM_TITLES
 from app.db.models import Conversation
 from app.db.enums import RunStatus
 from app.features.approvals.service import CANCELLED, NEW_MESSAGE, ApprovalService
@@ -64,7 +65,9 @@ class RunService:
 
         """Return the existing run for a retried request, or reject any pending approval, save a new run with its two messages, commit, and start it."""
 
-        conversation = await self.resolve_conversation(body.conversation_id, user_id, body.message)
+        first_message = f"{FORM_TITLES[body.form.kind]} details" if body.form is not None else body.message
+
+        conversation = await self.resolve_conversation(body.conversation_id, user_id, first_message)
 
         conversation_id = conversation.id
 
@@ -80,6 +83,7 @@ class RunService:
                 conversation_id,
                 body.client_request_id,
                 body.message,
+                body.form.saved() if body.form is not None else None,
                 )
 
             await self.session.commit()

@@ -179,7 +179,7 @@ export default function ChatComposer({
                   ? 'Start your request, and let Mosaic handle everything.'
                   : 'Ask a question or make a request…'
             }
-            className={`max-h-[132px] flex-1 resize-none bg-transparent py-1.5 text-[13.5px] leading-[1.5] text-primary outline-none placeholder:text-muted ${
+            className={`max-h-[132px] flex-1 resize-none bg-transparent py-1.5 text-[16px] leading-[1.5] text-primary outline-none placeholder:text-muted ${
               hero ? 'min-h-[76px]' : 'min-h-[36px]'
             }`}
           />
@@ -258,22 +258,22 @@ export default function ChatComposer({
         </div>
       </div>
 
-      {reading && <p className="mt-2 text-center text-[11px] text-muted">Reading your files…</p>}
+      {reading && <p className="mt-2 text-center text-[12.5px] text-muted">Reading your files…</p>}
 
       {mic.state === 'listening' && (
-        <p className="mt-2 text-center text-[11px] text-muted" aria-live="polite">
+        <p className="mt-2 text-center text-[12.5px] text-muted" aria-live="polite">
           Listening {clock(mic.seconds)} / {clock(mic.limitSeconds)} · tap the mic to stop · stops after 10 seconds of quiet
         </p>
       )}
 
       {mic.state === 'finishing' && (
-        <p className="mt-2 text-center text-[11px] text-muted" aria-live="polite">
+        <p className="mt-2 text-center text-[12.5px] text-muted" aria-live="polite">
           Checking your words…
         </p>
       )}
 
       {mic.error && (
-        <p className="mt-2 flex items-center justify-center gap-1.5 text-center text-[11px] text-negative" role="alert">
+        <p className="mt-2 flex items-center justify-center gap-1.5 text-center text-[12.5px] text-negative" role="alert">
           {mic.error}
           <button type="button" onClick={mic.clearError} aria-label="Dismiss" className="text-muted hover:text-primary">
             <X size={12} aria-hidden="true" />
@@ -289,7 +289,7 @@ function ModePill({ icon, children }: { icon: React.ReactNode; children: React.R
   return (
     <button
       type="button"
-      className="inline-flex h-9 items-center gap-1.5 rounded-full border border-[var(--pane-border)] bg-panel-subtle px-3 text-[12px] text-secondary transition hover:border-line-strong hover:text-primary max-sm:hidden"
+      className="inline-flex h-9 items-center gap-1.5 rounded-full border border-[var(--pane-border)] bg-panel-subtle px-3 text-[13.5px] text-secondary transition hover:border-line-strong hover:text-primary max-sm:hidden"
     >
       {icon}
       {children}

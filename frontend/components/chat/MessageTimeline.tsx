@@ -1,11 +1,22 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { Check, Copy, Download, Paperclip, PenLine, RefreshCw, ThumbsDown, ThumbsUp } from 'lucide-react';
+import { Check, CircleCheck, ClipboardList, Copy, Download, Paperclip, PenLine, RefreshCw, ThumbsDown, ThumbsUp } from 'lucide-react';
 import { useState } from 'react';
 
+import { splitCards, withoutCards } from '@/lib/cards';
 import { clockTime } from '@/lib/format';
-import type { ApprovalDecision, ApprovalEdits, ApprovalRequest, ApprovalState, ToolStep } from '@/lib/types';
+import { FORMS } from '@/lib/forms';
+import type {
+  ApprovalDecision,
+  ApprovalEdits,
+  ApprovalRequest,
+  ApprovalState,
+  FormSubmission,
+  ToolStep,
+  UiBlockEntry,
+} from '@/lib/types';
+import BlockView from '@/components/blocks/BlockView';
 import ApprovalCard from '@/components/chat/ApprovalCard';
 import ImportReview from '@/components/chat/ImportReview';
 import Reply from '@/components/chat/Reply';
@@ -33,8 +44,13 @@ import Reply from '@/components/chat/Reply';
  * Tools are not listed in the timeline. While a reply is written, the thinking pill under the
  * chat shows the running tool's orb and label instead.
  *
- * A reply that paused for approval draws its card above the text, since the text that follows is
- * the planner's answer to what was decided.
+ * A reply that paused for approval is split where it paused: the lines written before the pause,
+ * then the card, then whatever the planner wrote after the person decided. So the planner first
+ * says what it needs checked, and the card sits under those lines.
+ *
+ * Cards sit inside the reply where its text says `{{card:<id>}}`. A reply that opened a form gets an
+ * "Open form" button under it, which turns into "Details shared" once that form is sent. A user turn
+ * that was a filled form shows as a small "Details shared" chip, never as the long text the agent read.
  */
 
 export interface Turn {
@@ -53,7 +69,11 @@ export interface Turn {
   /** Tools the planner called for this answer, in the order they started. Read by the thinking pill. */
   tools?: ToolStep[];
   /** The approval card this reply paused on, and where it has got. */
-  approval?: { request: ApprovalRequest; state: ApprovalState; failure?: string };
+  approval?: { request: ApprovalRequest; state: ApprovalState; failure?: string; at: number };
+  /** Cards and forms the tools gave this reply, keyed by tool call id. */
+  blocks?: UiBlockEntry[];
+  /** The filled form a user turn was sent from. */
+  form?: FormSubmission | null;
 }
 
 export default function MessageTimeline({
@@ -61,31 +81,41 @@ export default function MessageTimeline({
   streamingId,
   userId,
   busy,
+  openFormId,
   onRegenerate,
   onDecide,
+  onOpenForm,
 }: {
   turns: Turn[];
   streamingId?: string;
   userId: number | null;
   busy: boolean;
+  /** The form block now open beside the chat, if any. */
+  openFormId?: string | null;
   onRegenerate: (answerId: string) => void;
   onDecide: (answerId: string, decision: ApprovalDecision, edits?: ApprovalEdits) => void;
+  onOpenForm: (answerId: string, blockId: string) => void;
 }) {
+  const sentForms = new Set(turns.map((turn) => turn.form?.block_id).filter((id): id is string => Boolean(id)));
+
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-5 px-4 pt-1 sm:px-6">
+    <div className="mx-auto w-full max-w-[816px] space-y-8 px-4 pt-4 sm:px-6">
       {turns.map((turn) =>
         turn.role === 'user' ? (
           <UserTurn key={turn.id} turn={turn} />
         ) : (
-          (turn.text || turn.approval) && (
+          (turn.text || turn.approval || turn.blocks?.length) && (
             <PlannerTurn
               key={turn.id}
               turn={turn}
               streaming={turn.id === streamingId}
               userId={userId}
               busy={busy}
+              sentForms={sentForms}
+              openFormId={openFormId}
               onRegenerate={() => onRegenerate(turn.id)}
               onDecide={(decision, edits) => onDecide(turn.id, decision, edits)}
+              onOpenForm={(blockId) => onOpenForm(turn.id, blockId)}
             />
           )
         ),
@@ -102,21 +132,31 @@ function UserTurn({ turn }: { turn: Turn }) {
       transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
       className="flex justify-end"
     >
-      <div className="flex max-w-[88%] flex-col items-end">
-        <p
-          className="rounded-2xl rounded-br-md border border-[var(--pane-border)] px-3.5 py-2.5 text-[13.5px] leading-[1.55] whitespace-pre-wrap text-primary"
-          style={{ background: 'var(--gradient-user)' }}
-        >
-          {turn.text}
-        </p>
+      <div className="flex max-w-[78%] flex-col items-end">
+        {turn.form ? (
+          <p
+            className="inline-flex items-center gap-2 rounded-3xl px-5 py-2.5 text-[15px] font-medium text-primary"
+            style={{ background: 'var(--gradient-user)' }}
+          >
+            <CircleCheck size={14} className="text-accent" aria-hidden="true" />
+            Details shared · {FORMS[turn.form.kind]?.title ?? 'Form'}
+          </p>
+        ) : (
+          <p
+            className="rounded-3xl px-5 py-2.5 text-[16px] leading-[1.6] whitespace-pre-wrap text-primary"
+            style={{ background: 'var(--gradient-user)' }}
+          >
+            {turn.text}
+          </p>
+        )}
 
         {turn.attached && turn.attached.length > 0 && (
-          <p className="mt-1 pr-1 text-[11px] text-muted">
+          <p className="mt-1 pr-1 text-[12.5px] text-muted">
             <Paperclip size={10} className="mr-1 inline-block align-[-1px]" aria-hidden="true" />
             {turn.attached.join(', ')}
           </p>
         )}
-        <time className="mt-1 pr-1 text-[10.5px] text-muted">{clockTime(turn.at)}</time>
+        <time className="mt-1 pr-1 text-[12px] text-muted">{clockTime(turn.at)}</time>
       </div>
     </motion.div>
   );
@@ -127,16 +167,29 @@ function PlannerTurn({
   streaming,
   userId,
   busy,
+  sentForms,
+  openFormId,
   onRegenerate,
   onDecide,
+  onOpenForm,
 }: {
   turn: Turn;
   streaming: boolean;
   userId: number | null;
   busy: boolean;
+  sentForms: Set<string>;
+  openFormId?: string | null;
   onRegenerate: () => void;
   onDecide: (decision: ApprovalDecision, edits?: ApprovalEdits) => void;
+  onOpenForm: (blockId: string) => void;
 }) {
+  const forms = (turn.blocks ?? []).filter((entry) => entry.block.type === 'form');
+
+  // Where the reply paused for its card: the text up to there goes above the card, the rest below.
+  const cut = turn.approval ? Math.min(turn.approval.at, turn.text.length) : 0;
+  const before = turn.text.slice(0, cut);
+  const after = turn.text.slice(cut);
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 6 }}
@@ -145,14 +198,18 @@ function PlannerTurn({
     >
       <div className="min-w-0">
         {turn.approval && (
-          <div className="mb-2">
-            <ApprovalCard
-              request={turn.approval.request}
-              state={turn.approval.state}
-              failure={turn.approval.failure}
-              onDecide={onDecide}
-            />
-          </div>
+          <>
+            <ReplyWithCards text={before} blocks={turn.blocks} streaming={false} />
+
+            <div className="my-3">
+              <ApprovalCard
+                request={turn.approval.request}
+                state={turn.approval.state}
+                failure={turn.approval.failure}
+                onDecide={onDecide}
+              />
+            </div>
+          </>
         )}
 
         {turn.failed ? (
@@ -160,10 +217,23 @@ function PlannerTurn({
             className="rounded-2xl border px-3.5 py-3"
             style={{ borderColor: 'var(--negative)', background: 'var(--negative-soft)' }}
           >
-            <Reply text={turn.text} streaming={streaming} />
+            <Reply text={after} streaming={streaming} />
           </div>
         ) : (
-          <Reply text={turn.text} streaming={streaming} />
+          <ReplyWithCards text={after} blocks={turn.blocks} streaming={streaming} />
+        )}
+
+        {forms.map((entry) =>
+          entry.block.type === 'form' ? (
+            <FormButton
+              key={entry.id}
+              title={FORMS[entry.block.form]?.title ?? 'Form'}
+              sent={sentForms.has(entry.id)}
+              open={openFormId === entry.id}
+              disabled={busy}
+              onOpen={() => onOpenForm(entry.id)}
+            />
+          ) : null,
         )}
 
         {/* One card per attached file, drawn under the answer that describes them. They are the
@@ -176,15 +246,77 @@ function PlannerTurn({
           ))}
 
         {!streaming && turn.text && (
-          <ReplyActions text={turn.text} busy={busy} onRegenerate={onRegenerate} />
+          <ReplyActions text={withoutCards(turn.text)} busy={busy} onRegenerate={onRegenerate} />
         )}
 
-        <time className="mt-1.5 pl-1 block text-[10.5px] text-muted">
+        <time className="mt-1.5 pl-1 block text-[12px] text-muted">
           {clockTime(turn.at)}
           {turn.stopped && ' · Response stopped'}
         </time>
       </div>
     </motion.div>
+  );
+}
+
+/**
+ * The reply's markdown with its cards drawn in place. Only the last text part gets the streaming
+ * caret, and a card line whose card has not arrived yet draws nothing.
+ */
+function ReplyWithCards({ text, blocks, streaming }: { text: string; blocks?: UiBlockEntry[]; streaming: boolean }) {
+  const segments = splitCards(text);
+  const byId = new Map((blocks ?? []).map((entry) => [entry.id, entry.block]));
+  const lastText = segments.findLastIndex((segment) => segment.kind === 'text');
+
+  if (segments.length === 0) return streaming ? <Reply text="" streaming /> : null;
+
+  return (
+    <>
+      {segments.map((segment, index) => {
+        if (segment.kind === 'text') {
+          return <Reply key={index} text={segment.text} streaming={streaming && index === lastText} />;
+        }
+
+        const block = byId.get(segment.id);
+
+        return block ? <BlockView key={index} block={block} /> : null;
+      })}
+    </>
+  );
+}
+
+/** The button under a reply that opened a form: open it again, or a quiet note once it was sent. */
+function FormButton({
+  title,
+  sent,
+  open,
+  disabled,
+  onOpen,
+}: {
+  title: string;
+  sent: boolean;
+  open: boolean;
+  disabled: boolean;
+  onOpen: () => void;
+}) {
+  if (sent) {
+    return (
+      <p className="mt-2 inline-flex items-center gap-1.5 text-[14px] text-muted">
+        <CircleCheck size={13} className="text-accent" aria-hidden="true" />
+        {title} details shared
+      </p>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      disabled={disabled || open}
+      className="mt-2 inline-flex items-center gap-2 rounded-full border border-[var(--pane-border)] bg-panel-subtle px-3.5 py-1.5 text-[14px] font-medium text-primary transition hover:border-[var(--border-strong)] disabled:cursor-default disabled:opacity-60"
+    >
+      <ClipboardList size={14} className="text-accent" aria-hidden="true" />
+      {open ? `${title} form is open` : `Open ${title.toLowerCase()} form`}
+    </button>
   );
 }
 

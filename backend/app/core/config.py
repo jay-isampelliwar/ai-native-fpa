@@ -17,6 +17,7 @@ class Settings(BaseSettings):
 
     OPENAI_API_KEY: SecretStr
     CHAT_MODEL: str = "gpt-5.6-luna"
+    CHAT_REASONING_EFFORT: str | None = "none"
     DATABASE_URL: str | None = None
     JWT_SECRET: SecretStr
     TOKEN_TTL_MINUTES: int = 60 * 24 * 7

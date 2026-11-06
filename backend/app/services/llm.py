@@ -23,14 +23,17 @@ class LLMService:
 
     def get_model(self, model: str | None = None) -> ChatOpenAI:
 
-        """Return the chat model by name, CHAT_MODEL by default, building it on first use."""
+        """Return the chat model by name, CHAT_MODEL by default with its reasoning effort, building it on first use."""
 
         settings = get_settings()
 
         name = model or settings.CHAT_MODEL
 
         if name not in self.models:
-            self.models[name] = ChatOpenAI(model=name, api_key=settings.OPENAI_API_KEY, stream_usage=True)
+
+            extra = {"reasoning_effort": settings.CHAT_REASONING_EFFORT} if name == settings.CHAT_MODEL and settings.CHAT_REASONING_EFFORT else {}
+
+            self.models[name] = ChatOpenAI(model=name, api_key=settings.OPENAI_API_KEY, stream_usage=True, **extra)
 
         return self.models[name]
 

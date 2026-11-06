@@ -1,7 +1,7 @@
 """Request and response bodies for the conversations routes."""
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -55,9 +55,17 @@ class ToolStepOut(BaseModel):
     status: Literal["running", "ok", "error", "stopped", "rejected"]
 
 
+class BlockOut(BaseModel):
+
+    """One card or form a tool gave an answer, keyed by its tool call id, which the answer's text points at."""
+
+    id: str
+    block: dict[str, Any]
+
+
 class MessageOut(BaseModel):
 
-    """One user or assistant message as the chat shows it, with the tools behind it."""
+    """One user or assistant message as the chat shows it, with the tools, cards and filled form behind it."""
 
     id: int
     run_id: int | None
@@ -66,6 +74,8 @@ class MessageOut(BaseModel):
     text: str
     created_at: datetime
     tools: list[ToolStepOut] = []
+    blocks: list[BlockOut] = []
+    form: dict[str, Any] | None = None
 
 
 class ActiveRun(BaseModel):

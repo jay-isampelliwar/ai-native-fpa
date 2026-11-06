@@ -16,6 +16,9 @@
  * `tool.started` and `tool.finished` mark each tool the planner calls, keyed by the call's id. A
  * late listener gets the latest step of every tool so far before the snapshot.
  *
+ * `ui.block` carries a card or a form a tool built, keyed by its tool call id. A late listener gets
+ * every block so far again, like the tool steps, and the same id simply replaces the old one.
+ *
  * `approval.required` means the run paused on a risky tool, such as a delete, and the stream ends
  * there. The run carries on only after `runs.decide`, and its events are then read again with
  * `followRun`. Opening a paused chat sends the same event at once, so the card comes back.
@@ -27,7 +30,7 @@
  */
 
 import { reportUnauthorized } from "@/lib/api";
-import type { ApprovalRequest, RunResponse, ToolStep } from "@/lib/types";
+import type { ApprovalRequest, FormSubmission, RunResponse, ToolStep, UiBlockEntry } from "@/lib/types";
 
 export interface StreamHandlers {
   /** The run was accepted; keep its conversation id to continue the same chat. */
@@ -38,6 +41,8 @@ export interface StreamHandlers {
   onToken?: (text: string) => void;
   /** A tool started or finished. The same id arrives again when its status changes. */
   onTool?: (step: ToolStep) => void;
+  /** A tool gave a card or a form. A card shows where the text places it; a form opens beside the chat. */
+  onBlock?: (entry: UiBlockEntry) => void;
   /** The run paused for the person to approve or reject one tool. The stream ends after this. */
   onApproval?: (request: ApprovalRequest) => void;
   onDone: (text: string) => void;
@@ -71,15 +76,18 @@ function wait(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
+/** What one turn sends: typed words, or a filled form that the backend turns into the agent's message. */
+export type Outgoing = { message: string } | { form: FormSubmission };
+
 async function createRun(
   conversationId: number | null,
-  message: string,
+  outgoing: Outgoing,
   signal?: AbortSignal,
 ): Promise<Response> {
   const body = JSON.stringify({
     conversation_id: conversationId,
     client_request_id: crypto.randomUUID(),
-    message,
+    ...outgoing,
   });
 
   for (let attempt = 1; ; attempt++) {
@@ -113,11 +121,11 @@ export async function cancelRun(runId: number): Promise<void> {
 
 export async function streamMessage(
   conversationId: number | null,
-  message: string,
+  outgoing: Outgoing,
   handlers: StreamHandlers,
   signal?: AbortSignal,
 ): Promise<void> {
-  const created = await createRun(conversationId, message, signal);
+  const created = await createRun(conversationId, outgoing, signal);
 
   if (!created.ok) {
     handlers.onError(describeFailure(created.status));
@@ -253,6 +261,10 @@ function dispatch(chunk: string, handlers: StreamHandlers): Dispatched {
         label: parsed.label || parsed.name || "Using a tool",
         status: name === "tool.started" ? "running" : finishedStatus(parsed.status),
       });
+    } else if (name === "ui.block") {
+      const entry = parsed as unknown as UiBlockEntry;
+
+      if (entry.id && entry.block) handlers.onBlock?.(entry);
     } else if (name === "approval.required") {
       handlers.onApproval?.(parsed as unknown as ApprovalRequest);
     } else if (name === "run.completed") {

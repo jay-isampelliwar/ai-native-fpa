@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { useSession } from '@/lib/session';
 import { ThemeProvider } from '@/lib/theme';
@@ -27,6 +27,12 @@ import HistoryPanel from '@/components/chat/HistoryPanel';
  * list fetch again: a new chat appears in it, and a chat that just got a reply moves
  * to the top.
  *
+ * While the chat has a form open, the history list hides so the chat and the form each get half.
+ *
+ * The layout follows ChatGPT and Claude: a full-height list on the left edge, and the chat filling
+ * the rest of the screen, with its text in one centred column. Nothing is zoomed on a big screen;
+ * the column simply keeps its width and the space around it stays empty.
+ *
  * Nothing renders until the session is known. Someone who is not signed in is sent
  * to `/signin` instead.
  */
@@ -41,6 +47,8 @@ export default function PlannerShell() {
   const [activeId, setActiveId] = useState<number | null>(null);
   const [historyVersion, setHistoryVersion] = useState(0);
   const [drawer, setDrawer] = useState(false);
+  const [formOpen, setFormOpen] = useState(false);
+  const onFormChange = useCallback((open: boolean) => setFormOpen(open), []);
 
   function open(conversationId: number | null) {
     setDrawer(false);
@@ -61,7 +69,7 @@ export default function PlannerShell() {
   }, [session.status, router]);
 
   if (session.status !== 'signed-in') {
-    return <div className="app-backdrop h-dvh" aria-busy="true" />;
+    return <div className="h-dvh bg-background" aria-busy="true" />;
   }
 
   const userId = session.user.id;
@@ -81,38 +89,44 @@ export default function PlannerShell() {
 
   return (
     <ThemeProvider>
-      <div className="app-backdrop flex h-dvh min-h-0 gap-3 p-2 md:p-3">
-        <aside aria-label="Chat history" className="glass-pane hidden min-h-0 w-[320px] flex-none overflow-hidden lg:block">
-          {history()}
-        </aside>
+      <div className="h-dvh bg-background">
+        <div className="flex h-full min-h-0">
+          <aside
+            aria-label="Chat history"
+            className={`hidden min-h-0 w-[272px] flex-none overflow-hidden border-r border-[var(--pane-border)] bg-panel-subtle ${formOpen ? '' : 'lg:block'}`}
+          >
+            {history()}
+          </aside>
 
-        <main aria-label="Conversation" className="glass-pane min-h-0 min-w-0 flex-1 overflow-hidden">
-          <ChatWorkspace
-            key={`${userId}-${opened.key}`}
-            userId={userId}
-            openConversationId={opened.conversationId}
-            onActivity={onActivity}
-            onShowHistory={() => setDrawer(true)}
-          />
-        </main>
-
-        {drawer && (
-          <div className="fixed inset-0 z-50 lg:hidden">
-            <button
-              type="button"
-              aria-label="Close history"
-              onClick={() => setDrawer(false)}
-              className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+          <div className="min-h-0 min-w-0 flex-1">
+            <ChatWorkspace
+              key={`${userId}-${opened.key}`}
+              userId={userId}
+              openConversationId={opened.conversationId}
+              onActivity={onActivity}
+              onShowHistory={() => setDrawer(true)}
+              onFormChange={onFormChange}
             />
-
-            <aside
-              aria-label="Chat history"
-              className="glass-pane absolute top-2 bottom-2 left-2 w-[min(320px,calc(100%-1rem))] overflow-hidden"
-            >
-              {history(() => setDrawer(false))}
-            </aside>
           </div>
-        )}
+
+          {drawer && (
+            <div className="fixed inset-0 z-50 lg:hidden">
+              <button
+                type="button"
+                aria-label="Close history"
+                onClick={() => setDrawer(false)}
+                className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+              />
+
+              <aside
+                aria-label="Chat history"
+                className="absolute top-0 bottom-0 left-0 w-[min(300px,calc(100%-3rem))] overflow-hidden border-r border-[var(--pane-border)] bg-panel-subtle"
+              >
+                {history(() => setDrawer(false))}
+              </aside>
+            </div>
+          )}
+        </div>
       </div>
     </ThemeProvider>
   );

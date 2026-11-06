@@ -62,7 +62,7 @@ def test_several_intents_get_the_union_once() -> None:
 
     picked = names([GOAL_CHECK, SIMULATION])
 
-    assert set(picked) == {"get_missing_sections", "list_records", "check_goal_progress", "link_asset_to_goal", "add_goal", "set_planning_rate"}
+    assert set(picked) == {"get_missing_sections", "list_records", "check_goal_progress", "link_asset_to_goal", "add_goal", "set_planning_rate", "open_form"}
     assert len(picked) == len(set(picked))
 
 

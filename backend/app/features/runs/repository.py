@@ -141,9 +141,10 @@ class RunRepository:
         conversation_id: int,
         client_request_id: str,
         user_text: str,
+        form: dict[str, Any] | None = None,
         ) -> tuple[AgentRun, Message, Message]:
 
-        """Add a queued run, the user message and an empty streaming assistant message, without committing."""
+        """Add a queued run, the user message with its filled form if any, and an empty streaming assistant message, without committing."""
 
         run = AgentRun(
             conversation_id=conversation_id,
@@ -163,7 +164,7 @@ class RunRepository:
             sequence_number=first,
             role=MessageRole.user,
             status=MessageStatus.completed,
-            content={"text": user_text},
+            content={"text": user_text, "form": form} if form is not None else {"text": user_text},
             completed_at=func.now(),
             )
 

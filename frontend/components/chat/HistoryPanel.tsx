@@ -120,7 +120,7 @@ export default function HistoryPanel({
         <button
           type="button"
           onClick={onNewChat}
-          className="ml-auto inline-flex h-9 items-center gap-1.5 rounded-full border border-[var(--pane-border)] bg-background px-3.5 text-[12.5px] font-medium text-primary transition hover:border-line-strong"
+          className="ml-auto inline-flex h-9 items-center gap-1.5 rounded-full border border-[var(--pane-border)] bg-background px-3.5 text-[14px] font-medium text-primary transition hover:border-line-strong"
         >
           <Plus size={14} aria-hidden="true" />
           New Chat
@@ -134,17 +134,17 @@ export default function HistoryPanel({
       </header>
 
       <nav aria-label="Past conversations" className="quiet-scroll min-h-0 flex-1 overflow-y-auto px-3 pb-4">
-        {items === null && !failed && <p className="px-1 pt-2 text-[12px] text-muted">Loading chats…</p>}
+        {items === null && !failed && <p className="px-1 pt-2 text-[13.5px] text-muted">Loading chats…</p>}
 
         {items?.length === 0 && (
-          <p className="px-1 pt-2 text-[12px] leading-[1.5] text-muted">
+          <p className="px-1 pt-2 text-[13.5px] leading-[1.5] text-muted">
             No chats yet. Your conversations will appear here.
           </p>
         )}
 
         {groups.map((group) => (
           <section key={group.label} className="mt-2 first:mt-0">
-            <h3 className="px-1 pt-2 pb-2 text-[12px] font-medium text-secondary">{group.label}</h3>
+            <h3 className="px-1 pt-2 pb-2 text-[13.5px] font-medium text-secondary">{group.label}</h3>
 
             <ul className="space-y-2">
               {group.items.map((item) => {
@@ -174,14 +174,14 @@ export default function HistoryPanel({
                             if (event.key === 'Escape') setEditing(null);
                           }}
                           onFocus={(event) => event.target.select()}
-                          className="min-w-0 flex-1 bg-transparent px-1 py-1 text-[12.5px] text-primary outline-none"
+                          className="min-w-0 flex-1 bg-transparent px-1 py-1 text-[14px] text-primary outline-none"
                         />
 
                         <button
                           type="button"
                           onClick={() => setEditing(null)}
                           disabled={saving}
-                          className="rounded-full px-2.5 py-1 text-[12px] text-secondary transition hover:text-primary"
+                          className="rounded-full px-2.5 py-1 text-[13.5px] text-secondary transition hover:text-primary"
                         >
                           Cancel
                         </button>
@@ -189,7 +189,7 @@ export default function HistoryPanel({
                         <button
                           type="submit"
                           disabled={saving || !editing.draft.trim()}
-                          className="rounded-full border border-[var(--pane-border)] px-2.5 py-1 text-[12px] font-medium text-primary transition hover:border-line-strong disabled:opacity-60"
+                          className="rounded-full border border-[var(--pane-border)] px-2.5 py-1 text-[13.5px] font-medium text-primary transition hover:border-line-strong disabled:opacity-60"
                         >
                           {saving ? 'Saving…' : 'Save'}
                         </button>
@@ -207,13 +207,13 @@ export default function HistoryPanel({
                         className="flex w-full items-center gap-2 rounded-2xl border px-3 py-2"
                         style={{ borderColor: 'var(--pane-border)', background: 'var(--panel-elevated)' }}
                       >
-                        <span className="min-w-0 flex-1 truncate text-[12.5px] text-primary">Delete this chat?</span>
+                        <span className="min-w-0 flex-1 truncate text-[14px] text-primary">Delete this chat?</span>
 
                         <button
                           type="button"
                           onClick={() => setConfirmingId(null)}
                           disabled={deleting}
-                          className="rounded-full px-2.5 py-1 text-[12px] text-secondary transition hover:text-primary"
+                          className="rounded-full px-2.5 py-1 text-[13.5px] text-secondary transition hover:text-primary"
                         >
                           Cancel
                         </button>
@@ -222,7 +222,7 @@ export default function HistoryPanel({
                           type="button"
                           onClick={() => remove(item.id)}
                           disabled={deleting}
-                          className="rounded-full border border-[var(--pane-border)] px-2.5 py-1 text-[12px] font-medium text-negative transition hover:border-line-strong disabled:opacity-60"
+                          className="rounded-full border border-[var(--pane-border)] px-2.5 py-1 text-[13.5px] font-medium text-negative transition hover:border-line-strong disabled:opacity-60"
                         >
                           {deleting ? 'Deleting…' : 'Delete'}
                         </button>
@@ -254,7 +254,7 @@ export default function HistoryPanel({
                       </span>
 
                       <span
-                        className={`min-w-0 flex-1 truncate pr-14 text-[12.5px] ${
+                        className={`min-w-0 flex-1 truncate pr-14 text-[14px] ${
                           active ? 'text-primary' : 'text-secondary'
                         }`}
                       >
@@ -298,10 +298,10 @@ export default function HistoryPanel({
           </section>
         ))}
 
-        {actionError && <p className="px-1 pt-3 text-[12px] text-negative">{actionError}</p>}
+        {actionError && <p className="px-1 pt-3 text-[13.5px] text-negative">{actionError}</p>}
 
         {failed && (
-          <p className="px-1 pt-3 text-[12px] text-negative">Could not load your chats. Is the backend running?</p>
+          <p className="px-1 pt-3 text-[13.5px] text-negative">Could not load your chats. Is the backend running?</p>
         )}
       </nav>
     </div>

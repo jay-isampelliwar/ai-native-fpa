@@ -22,7 +22,7 @@ export const OPENERS = [
 export default function SuggestedPrompts({ onPick }: { onPick: (prompt: string) => void }) {
   return (
     <section aria-label="Suggested questions">
-      <p className="mb-2.5 flex items-center gap-1.5 text-[12px] font-medium text-secondary">
+      <p className="mb-2.5 flex items-center gap-1.5 text-[13.5px] font-medium text-secondary">
         <Sparkles size={13} style={{ color: 'var(--accent)' }} aria-hidden="true" />
         Suggested for you
       </p>
@@ -33,7 +33,7 @@ export default function SuggestedPrompts({ onPick }: { onPick: (prompt: string) 
             <button
               type="button"
               onClick={() => onPick(prompt)}
-              className="flex h-full w-full items-center gap-2 rounded-2xl border border-[var(--pane-border)] bg-panel-subtle/70 px-3.5 py-2.5 text-left text-[12.5px] leading-[1.4] text-secondary transition hover:border-line-strong hover:text-primary"
+              className="flex h-full w-full items-center gap-2 rounded-2xl border border-[var(--pane-border)] bg-panel-subtle/70 px-3.5 py-2.5 text-left text-[14px] leading-[1.4] text-secondary transition hover:border-line-strong hover:text-primary"
             >
               <span className="min-w-0 flex-1">{prompt}</span>
               <ChevronRight size={14} className="flex-none text-muted" aria-hidden="true" />

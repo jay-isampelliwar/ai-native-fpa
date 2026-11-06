@@ -18,6 +18,7 @@ RUN_COMPLETED = "run.completed"
 RUN_FAILED = "run.failed"
 RUN_CANCELLED = "run.cancelled"
 APPROVAL_REQUIRED = "approval.required"
+UI_BLOCK = "ui.block"
 
 FINAL_EVENTS = {RUN_COMPLETED, RUN_FAILED, RUN_CANCELLED}
 

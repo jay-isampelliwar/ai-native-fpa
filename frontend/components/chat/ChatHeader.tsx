@@ -35,7 +35,7 @@ export default function ChatHeader({
       ) : (
         <span className="inline-flex items-center gap-2 rounded-full border border-[var(--pane-border)] bg-panel-subtle py-1 pr-3.5 pl-1">
           <Orb size={26} />
-          <span className="text-[12.5px] font-medium text-primary">Mosaic AI</span>
+          <span className="text-[14px] font-medium text-primary">Mosaic AI</span>
         </span>
       )}
 

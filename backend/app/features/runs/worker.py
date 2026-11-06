@@ -32,6 +32,7 @@ from app.features.runs.events import (
     RUN_FAILED,
     TOOL_FINISHED,
     TOOL_STARTED,
+    UI_BLOCK,
     RunEvent,
     )
 from app.features.runs.publisher import RunPublisher
@@ -384,6 +385,19 @@ def finished_event(message: ToolMessage) -> RunEvent:
     return RunEvent(TOOL_FINISHED, {"id": message.tool_call_id, "name": name, "label": label_for(name), "status": status})
 
 
+def block_event(message: ToolMessage) -> RunEvent | None:
+
+    """The event that hands the chat a tool's card or form, keyed by its tool call id, or None when it sent neither."""
+
+    result = tool_result(message)
+    block = result.get("block")
+
+    if result.get("status") != "success" or not isinstance(block, dict):
+        return None
+
+    return RunEvent(UI_BLOCK, {"id": message.tool_call_id, "block": block})
+
+
 def spaced(
     text: Any,
     gap: bool,
@@ -452,6 +466,11 @@ async def stream_events(
                     await save_tool_finished(conversation_id, message)
 
                     yield finished_event(message)
+
+                    block = block_event(message)
+
+                    if block is not None:
+                        yield block
 
             continue
 

@@ -31,6 +31,7 @@ TOOL_LABELS = {
     "link_asset_to_goal": "Linking money to a goal",
     "set_planning_rate": "Saving a planning rate",
     "set_tax_profile": "Saving your tax details",
+    "open_form": "Opening a form",
     }
 
 

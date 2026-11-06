@@ -7,6 +7,7 @@ from langchain_core.messages import ToolMessage
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agent.blocks import records_block
 from app.agent.context import PlannerContext
 from app.agent.tools.limits import tool_session
 from app.agent.tools.operations import run_write
@@ -155,7 +156,9 @@ async def list_records(
 
     message = page_message(kind, len(items), page.total, bool(filters))
 
-    return to_message(ok(message, data), runtime.tool_call_id)
+    block = records_block(kind, list(page.items), named, page.total)
+
+    return to_message(ok(message, data, block), runtime.tool_call_id)
 
 
 @tool

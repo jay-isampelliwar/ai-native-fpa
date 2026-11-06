@@ -64,7 +64,7 @@ export default function UserMenu() {
         aria-expanded={open}
         aria-label={`Account for ${user.name}. Open menu`}
         title={user.name}
-        className="grid h-8 w-8 flex-none place-items-center rounded-full text-[11.5px] font-bold transition hover:opacity-85"
+        className="grid h-8 w-8 flex-none place-items-center rounded-full text-[13px] font-bold transition hover:opacity-85"
         style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}
       >
         {initials}
@@ -79,15 +79,15 @@ export default function UserMenu() {
           <div className="flex items-center gap-2.5">
             <span
               aria-hidden="true"
-              className="grid h-9 w-9 flex-none place-items-center rounded-full text-[12px] font-bold"
+              className="grid h-9 w-9 flex-none place-items-center rounded-full text-[13.5px] font-bold"
               style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}
             >
               {initials}
             </span>
 
             <div className="min-w-0">
-              <p className="truncate text-[13px] font-semibold text-primary">{user.name}</p>
-              <p className="truncate text-[11.5px] text-muted">{user.email}</p>
+              <p className="truncate text-[14.5px] font-semibold text-primary">{user.name}</p>
+              <p className="truncate text-[13px] text-muted">{user.email}</p>
             </div>
           </div>
 
@@ -95,7 +95,7 @@ export default function UserMenu() {
             type="button"
             onClick={leave}
             disabled={leaving}
-            className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-line py-2 text-[13px] font-medium text-primary transition hover:bg-panel-subtle disabled:opacity-60"
+            className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-line py-2 text-[14.5px] font-medium text-primary transition hover:bg-panel-subtle disabled:opacity-60"
           >
             {leaving ? (
               <LoaderCircle size={14} className="animate-spin" aria-hidden="true" />

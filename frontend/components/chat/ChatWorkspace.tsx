@@ -1,15 +1,27 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { ApiError, conversations, runs } from '@/lib/api';
 import { firstNameOf } from '@/lib/format';
 import { useSession } from '@/lib/session';
-import { cancelRun, followRun, streamMessage, type StreamHandlers } from '@/lib/stream';
-import type { ApprovalDecision, ApprovalEdits, ApprovalState, ConversationDetail, ToolStep } from '@/lib/types';
+import { cancelRun, followRun, streamMessage, type Outgoing, type StreamHandlers } from '@/lib/stream';
+import type {
+  ApprovalDecision,
+  ApprovalEdits,
+  ApprovalState,
+  ConversationDetail,
+  FormBlock,
+  FormSubmission,
+  FormValue,
+  ToolStep,
+  UiBlockEntry,
+} from '@/lib/types';
 import { useUploads } from '@/lib/useUploads';
 import ChatComposer from '@/components/chat/ChatComposer';
 import ChatHeader from '@/components/chat/ChatHeader';
+import FormPanel from '@/components/forms/FormPanel';
 import MessageTimeline, { type Turn } from '@/components/chat/MessageTimeline';
 import SuggestedPrompts from '@/components/chat/SuggestedPrompts';
 import Orb from '@/components/ui/Orb';
@@ -35,6 +47,20 @@ function upsertStep(steps: ToolStep[], step: ToolStep): ToolStep[] {
     : [...steps, step];
 }
 
+/** Replace the block with the same id, or add it at the end if it is new. */
+function upsertBlock(blocks: UiBlockEntry[], entry: UiBlockEntry): UiBlockEntry[] {
+  return blocks.some((item) => item.id === entry.id)
+    ? blocks.map((item) => (item.id === entry.id ? entry : item))
+    : [...blocks, entry];
+}
+
+/** The form open beside the chat: which reply and block opened it, and what it starts with. */
+interface OpenForm {
+  answerId: string;
+  blockId: string;
+  block: FormBlock;
+}
+
 /** Mark every step still running as ended, for a reply that was stopped or failed. */
 function closeSteps(steps: ToolStep[] | undefined, status: 'stopped' | 'error'): ToolStep[] | undefined {
   return steps?.map((step) => (step.status === 'running' ? { ...step, status } : step));
@@ -53,6 +79,8 @@ function turnsFrom(detail: ConversationDetail): Turn[] {
     failed: message.status === 'failed',
     stopped: message.status === 'cancelled',
     tools: message.tools,
+    blocks: message.blocks ?? [],
+    form: message.form ?? null,
   }));
 }
 
@@ -75,18 +103,26 @@ function turnsFrom(detail: ConversationDetail): Turn[] {
  * A reply can pause on an approval card, such as before a delete. The stream ends there and the
  * composer frees up. Pressing Remove or Keep it tells the backend and listens to the same run again.
  * Sending a new message instead counts as a reject on the backend, so the card shows as skipped.
+ *
+ * A tool can open a form. It opens on the right half of the screen with the chat on the left, and
+ * `onFormChange` tells the shell to hide the history list so each side gets half. On a phone the form
+ * covers the screen. Sending it starts a turn like a typed message, with the form instead of text.
+ * Closing it tells no one; the reply that opened it keeps a button to open it again.
  */
 export default function ChatWorkspace({
   userId,
   openConversationId = null,
   onActivity,
   onShowHistory,
+  onFormChange,
 }: {
   userId: number | null;
   openConversationId?: number | null;
   onActivity?: (conversationId: number) => void;
   onShowHistory?: () => void;
+  onFormChange?: (open: boolean) => void;
 }) {
+  const [form, setForm] = useState<OpenForm | null>(null);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [draft, setDraft] = useState('');
   // Where the reply is: waiting for the run to start, or the planner at work. Null when idle.
@@ -117,6 +153,13 @@ export default function ChatWorkspace({
   useEffect(() => {
     conversationIdRef.current = conversationId;
   }, [conversationId]);
+
+  useEffect(() => {
+    onFormChange?.(form !== null);
+  }, [form, onFormChange]);
+
+  // The shell shows the history list again when this pane goes away with a form still open.
+  useEffect(() => () => onFormChange?.(false), [onFormChange]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -163,7 +206,12 @@ export default function ChatWorkspace({
         setStep('thinking');
         amend((turn) => ({ ...turn, tools: upsertStep(turn.tools ?? [], tool) }));
       },
-      onApproval: (request) => amend((turn) => ({ ...turn, approval: { request, state: 'pending' } })),
+      onBlock: (entry) => {
+        amend((turn) => ({ ...turn, blocks: upsertBlock(turn.blocks ?? [], entry) }));
+        if (entry.block.type === 'form') setForm({ answerId, blockId: entry.id, block: entry.block });
+      },
+      onApproval: (request) =>
+        amend((turn) => ({ ...turn, approval: { request, state: 'pending', at: turn.text.length } })),
       onDone: (text) => amend((turn) => ({ ...turn, text })),
       onCancelled: (text) =>
         amend((turn) => ({ ...turn, text: text || turn.text, stopped: true, tools: closeSteps(turn.tools, 'stopped') })),
@@ -269,9 +317,9 @@ export default function ChatWorkspace({
     await listen(answerId, (handlers, signal) => followRun(request.run_id, handlers, signal));
   }
 
-  async function send(message: string) {
-    const trimmed = message.trim();
-    if (!trimmed || busy || loading || uploads.reading || typeof userId !== 'number') return;
+  /** Start one turn from typed words or a filled form, with the user turn drawn first. */
+  async function start(outgoing: Outgoing, shown: { text: string; form?: FormSubmission }) {
+    if (busy || loading || uploads.reading || typeof userId !== 'number') return;
 
     const answerId = newId();
 
@@ -280,18 +328,49 @@ export default function ChatWorkspace({
     const importIds = uploads.importIds;
     const attached = uploads.attachments.map((item) => item.name);
 
-    setDraft('');
+    if (!shown.form) setDraft('');
     uploads.clear();
     setTurns((current) => [
       ...current.map((turn) =>
         turn.approval?.state === 'pending' ? { ...turn, approval: { ...turn.approval, state: 'skipped' as const } } : turn,
       ),
-      { id: newId(), role: 'user', text: trimmed, at: new Date(), attached },
+      { id: newId(), role: 'user', text: shown.text, at: new Date(), attached, form: shown.form ?? null },
       { id: answerId, role: 'planner', text: '', at: new Date(), importIds },
     ]);
 
-    await listen(answerId, (handlers, signal) => streamMessage(conversationId, trimmed, handlers, signal));
+    await listen(answerId, (handlers, signal) => streamMessage(conversationId, outgoing, handlers, signal));
   }
+
+  async function send(message: string) {
+    const trimmed = message.trim();
+    if (!trimmed) return;
+
+    await start({ message: trimmed }, { text: trimmed });
+  }
+
+  /** Send the open form's values as the next turn and close the form. */
+  async function sendForm(values: Record<string, FormValue>) {
+    if (!form || busy) return;
+
+    const submission: FormSubmission = {
+      kind: form.block.form,
+      values,
+      record_id: form.block.record_id,
+      block_id: form.blockId,
+    };
+
+    setForm(null);
+    await start({ form: submission }, { text: '', form: submission });
+  }
+
+  /** Open again the form a reply gave, from its button. */
+  function openForm(answerId: string, blockId: string) {
+    const entry = turns.find((turn) => turn.id === answerId)?.blocks?.find((item) => item.id === blockId);
+
+    if (entry?.block.type === 'form') setForm({ answerId, blockId, block: entry.block });
+  }
+
+  const closeForm = useCallback(() => setForm(null), []);
 
   /** Stop the reply being written. If the run id has not arrived yet, stop it as soon as it does. */
   function stop() {
@@ -309,7 +388,8 @@ export default function ChatWorkspace({
       .slice(0, at)
       .findLast((turn) => turn.role === 'user');
 
-    if (question) void send(question.text);
+    if (question?.form) void start({ form: question.form }, { text: '', form: question.form });
+    else if (question) void send(question.text);
   }
 
   const streamingId = busy ? turns.at(-1)?.id : undefined;
@@ -337,63 +417,90 @@ export default function ChatWorkspace({
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <ChatHeader started={!empty} onShowHistory={onShowHistory} />
+    <div className="flex h-full min-h-0">
+      <main aria-label="Conversation" className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <ChatHeader started={!empty} onShowHistory={onShowHistory} />
 
-      {/* min-h-0 is load-bearing: without it this flex child will not shrink below
-          its content, so it never scrolls and the column grows past the viewport. */}
-      <div ref={scroller} className="quiet-scroll min-h-0 flex-1 overflow-y-auto pb-4">
-        {empty ? (
-          <div className="flex min-h-full flex-col items-center justify-center px-4 py-8 sm:px-8">
-            <Orb size={76} />
+        {/* min-h-0 is load-bearing: without it this flex child will not shrink below
+            its content, so it never scrolls and the column grows past the viewport. */}
+        <div ref={scroller} className="quiet-scroll min-h-0 flex-1 overflow-y-auto pb-4">
+          {empty ? (
+            <div className="flex min-h-full flex-col items-center justify-center px-4 py-8 sm:px-8">
+              <Orb size={76} />
 
-            <h2 className="mt-6 max-w-[22ch] text-center text-[22px] leading-[1.3] font-semibold tracking-[-0.015em] text-primary">
-              {greeting(new Date())}{firstName ? `, ${firstName}` : ''}! How can I assist you?
-            </h2>
+              <h2 className="mt-6 max-w-[22ch] text-center text-[28px] leading-[1.3] font-semibold tracking-[-0.015em] text-primary">
+                {greeting(new Date())}{firstName ? `, ${firstName}` : ''}! How can I assist you?
+              </h2>
 
-            <div className="mt-7 w-full max-w-[560px]">
-              <ChatComposer {...composerProps} variant="hero" />
+              <div className="mt-8 w-full max-w-[768px]">
+                <ChatComposer {...composerProps} variant="hero" />
+              </div>
+
+              <div className="mt-6 w-full max-w-[768px]">
+                <SuggestedPrompts onPick={send} />
+              </div>
             </div>
-
-            <div className="mt-6 w-full max-w-[560px]">
-              <SuggestedPrompts onPick={send} />
-            </div>
-          </div>
-        ) : loading ? (
-          <p className="mx-auto max-w-5xl px-6 pt-4 text-[12.5px] text-muted">Loading conversation…</p>
-        ) : loadFailed ? (
-          <p className="mx-auto max-w-5xl px-6 pt-4 text-[12.5px] text-negative">
-            This conversation could not be opened. Start a new chat or try again.
-          </p>
-        ) : (
-          <MessageTimeline
-            turns={turns}
-            streamingId={streamingId}
-            userId={userId}
-            busy={busy}
-            onRegenerate={regenerate}
-            onDecide={(answerId, decision, edits) => void decide(answerId, decision, edits)}
-          />
-        )}
-
-        {step && (
-          <div className="mx-auto mt-3 w-full max-w-5xl px-4 sm:px-6">
-            <p
-              aria-live="polite"
-              className="inline-flex items-center gap-2.5 rounded-full border border-[var(--pane-border)] bg-panel-subtle py-1.5 pr-4 pl-2"
-            >
-              <ThinkingOrb state={pill.state} size={22} label="" />
-              <span className="thinking-shimmer text-[12.5px] font-medium">{pill.label}</span>
+          ) : loading ? (
+            <p className="mx-auto max-w-[816px] px-6 pt-4 text-[14px] text-muted">Loading conversation…</p>
+          ) : loadFailed ? (
+            <p className="mx-auto max-w-[816px] px-6 pt-4 text-[14px] text-negative">
+              This conversation could not be opened. Start a new chat or try again.
             </p>
+          ) : (
+            <MessageTimeline
+              turns={turns}
+              streamingId={streamingId}
+              userId={userId}
+              busy={busy}
+              openFormId={form?.blockId ?? null}
+              onRegenerate={regenerate}
+              onDecide={(answerId, decision, edits) => void decide(answerId, decision, edits)}
+              onOpenForm={openForm}
+            />
+          )}
+
+          {step && (
+            <div className="mx-auto mt-3 w-full max-w-[816px] px-4 sm:px-6">
+              <p
+                aria-live="polite"
+                className="inline-flex items-center gap-2.5 rounded-full border border-[var(--pane-border)] bg-panel-subtle py-1.5 pr-4 pl-2"
+              >
+                <ThinkingOrb state={pill.state} size={22} label="" />
+                <span className="thinking-shimmer text-[14px] font-medium">{pill.label}</span>
+              </p>
+            </div>
+          )}
+        </div>
+
+        {!empty && (
+          <div className="mx-auto w-full max-w-[816px] px-1 sm:px-2">
+            <ChatComposer {...composerProps} />
           </div>
         )}
-      </div>
+      </main>
 
-      {!empty && (
-        <div className="mx-auto w-full max-w-5xl px-1 sm:px-2">
-          <ChatComposer {...composerProps} />
-        </div>
-      )}
+      <AnimatePresence>
+        {form && (
+          <motion.aside
+            key={form.blockId}
+            aria-label="Form"
+            initial={{ opacity: 0, x: 24 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 24 }}
+            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+            className="fixed inset-0 z-50 min-h-0 overflow-hidden bg-panel-subtle lg:static lg:inset-auto lg:z-auto lg:flex-1 lg:border-l lg:border-[var(--pane-border)]"
+          >
+            <FormPanel
+              kind={form.block.form}
+              initial={form.block.values}
+              editing={form.block.record_id !== null}
+              busy={busy}
+              onSend={(values) => void sendForm(values)}
+              onClose={closeForm}
+            />
+          </motion.aside>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
