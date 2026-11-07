@@ -18,7 +18,6 @@ dependencies = [
     "pycryptodome",
     "tenacity",
     "orjson",
-    "langsmith",
     "fastapi[standard]",
     "uvicorn[standard]",
     "sqlalchemy[asyncio]>=2.0",
