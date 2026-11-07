@@ -44,6 +44,23 @@ def create_langfuse(settings: Settings) -> Langfuse | None:
         return None
 
 
+def start_langfuse(settings: Settings) -> Langfuse | None:
+
+    """Build this process's one Langfuse client at start-up and log whether tracing is on."""
+
+    client = create_langfuse(settings)
+
+    if client is None:
+
+        log.info("Langfuse tracing is off")
+
+        return None
+
+    log.info("Langfuse tracing is on, sending to %s", settings.LANGFUSE_BASE_URL)
+
+    return client
+
+
 def langfuse_handler(settings: Settings) -> CallbackHandler | None:
 
     """A LangChain callback handler that sends each model and tool call to Langfuse, or None when tracing is off or it fails to build."""
