@@ -1,4 +1,4 @@
-"""Shared fixtures: a temp user with one run, a throwaway Redis stream, no real intent model, and closing both pools after every test."""
+"""Shared fixtures: a temp user with one run, a throwaway Redis stream, no real intent model, no Langfuse traces, and closing both pools after every test."""
 
 from collections.abc import AsyncIterator
 from uuid import uuid4
@@ -6,6 +6,7 @@ from uuid import uuid4
 import pytest
 
 from app.agent import intents
+from app.core.config import get_settings
 from app.core.redis import close_redis, get_redis
 from app.db.session import engine
 from tests.support import SeededRun, create_user, delete_user_data, seed_run
@@ -23,6 +24,14 @@ def no_intent_model(monkeypatch: pytest.MonkeyPatch) -> None:
         return list(intents.FALLBACK_INTENTS), None
 
     monkeypatch.setattr(intents, "classify_with_model", fallback)
+
+
+@pytest.fixture(autouse=True)
+def no_langfuse(monkeypatch: pytest.MonkeyPatch) -> None:
+
+    """Blank the Langfuse public key on the shared settings, so no test sends a trace even when .env has real keys."""
+
+    monkeypatch.setattr(get_settings(), "LANGFUSE_PUBLIC_KEY", None)
 
 
 @pytest.fixture(autouse=True)
