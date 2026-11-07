@@ -1,9 +1,16 @@
-"""The Langfuse client and its LangChain callback handler, built from the app settings."""
+"""The Langfuse client, its LangChain callback handler and the trace attributes of a turn, built from the app settings."""
 
-from langfuse import Langfuse
+from contextlib import AbstractContextManager, nullcontext
+from typing import Any
+
+from langfuse import Langfuse, propagate_attributes
 from langfuse.langchain import CallbackHandler
 
 from app.core.config import Settings
+
+
+TRACE_NAME = "preeti-financial-planner"
+TRACE_TAGS = ["preeti", "financial-planner"]
 
 
 def langfuse_enabled(settings: Settings) -> bool:
@@ -35,6 +42,28 @@ def langfuse_handler(settings: Settings) -> CallbackHandler | None:
         return None
 
     return CallbackHandler(public_key=settings.LANGFUSE_PUBLIC_KEY)
+
+
+def tracing_context(
+    settings: Settings,
+    user_id: int,
+    conversation_id: int,
+    run_id: int,
+    worker_id: str,
+    ) -> AbstractContextManager[Any]:
+
+    """Give every span made inside it the turn's user, conversation as session, trace name, tags and run, or do nothing when tracing is off."""
+
+    if not langfuse_enabled(settings):
+        return nullcontext()
+
+    return propagate_attributes(
+        user_id=str(user_id),
+        session_id=str(conversation_id),
+        trace_name=TRACE_NAME,
+        tags=TRACE_TAGS,
+        metadata={"run_id": str(run_id), "worker_id": worker_id},
+        )
 
 
 def shutdown_langfuse(settings: Settings) -> None:
