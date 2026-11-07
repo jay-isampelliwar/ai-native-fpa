@@ -7,6 +7,14 @@ from app.agent.tools.investments import add_stock_or_fund, add_sip_plan
 from app.agent.tools.forms import open_form
 from app.agent.tools.indices import get_index_quote
 from app.agent.tools.liabilities import add_credit_card, add_loan
+from app.agent.tools.overview import (
+    get_asset_split,
+    get_cash_flow_history,
+    get_financial_health,
+    get_month_summary,
+    get_net_worth,
+    get_upcoming_events,
+    )
 from app.agent.tools.market import (
     compare_funds,
     get_fund_details,
@@ -52,6 +60,12 @@ ALL_TOOLS = [
     get_portfolio_exposure,
     get_index_quote,
     web_search,
+    get_net_worth,
+    get_asset_split,
+    get_month_summary,
+    get_cash_flow_history,
+    get_financial_health,
+    get_upcoming_events,
     add_loan,
     add_credit_card,
     add_insurance_policy,

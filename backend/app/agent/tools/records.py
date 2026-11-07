@@ -1,5 +1,6 @@
 """The memory tools: see what is missing, mark sections none or declined, and list, change or remove saved items."""
 
+from datetime import date
 from typing import Annotated, Any
 
 from langchain.tools import ToolRuntime, tool
@@ -7,7 +8,8 @@ from langchain_core.messages import ToolMessage
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agent.blocks import records_block
+from app.agent.blocks import changes_block, checklist_block, receipt_block, records_block
+from app.agent.cards import generic_describe
 from app.agent.context import PlannerContext
 from app.agent.tools.limits import tool_session
 from app.agent.tools.operations import run_write
@@ -40,18 +42,25 @@ async def get_missing_sections(runtime: ToolRuntime[PlannerContext]) -> ToolMess
     """List the sections (loans, insurance, goals and so on) the user has not told you about yet, and the empty profile details. Read-only. Use it to decide what to ask next."""
 
     async with tool_session(runtime.context) as session:
-        missing = await CoverageService(session).missing(runtime.context.user_id)
+
+        coverage = CoverageService(session)
+
+        missing = await coverage.missing(runtime.context.user_id)
+        statuses = await coverage.statuses(runtime.context.user_id)
 
     data = {
         "pending_sections": missing.pending_sections,
         "missing_profile_fields": missing.missing_profile_fields,
+        "sections": statuses,
         }
 
+    block = checklist_block(statuses)
+
     if not missing.pending_sections and not missing.missing_profile_fields:
-        result = ok("Nothing is missing. Every section is provided, none or declined.", data)
+        result = ok("Nothing is missing. Every section is provided, none or declined.", data, block)
 
     else:
-        result = ok("Some details are still missing.", data)
+        result = ok("Some details are still missing.", data, block)
 
     return to_message(result, runtime.tool_call_id)
 
@@ -181,13 +190,21 @@ async def update_record(
 
         user_id = runtime.context.user_id
 
+        record = await RecordService(session).get_or_fail(user_id, kind, record_id)
+
+        described = generic_describe(kind, record)
+
+        before = {name: show_value(getattr(record, name, None)) for name in changes}
+
         fields = await RecordService(session).update_record(user_id, kind, record_id, changes)
 
         await confirm_saved(session, KINDS[kind].model, {"id": record_id, "user_id": user_id}, fields)
 
         changed = {name: show_value(value) for name, value in fields.items()}
 
-        return checked(f"Updated {KINDS[kind].label} id {record_id}.", {"id": record_id, "changed": changed})
+        block = changes_block(described, before, changed, date.today())
+
+        return checked(f"Updated {KINDS[kind].label} id {record_id}.", {"id": record_id, "changed": changed}, block)
 
     return to_message(await run_write(runtime, change), runtime.tool_call_id)
 
@@ -211,10 +228,12 @@ async def delete_record(
 
         removed = record_fields(record)
 
+        block = receipt_block("removed", record)
+
         await RecordService(session).delete_record(user_id, kind, record_id)
 
         await confirm_removed(session, KINDS[kind].model, {"id": record_id, "user_id": user_id})
 
-        return checked(f"Removed {KINDS[kind].label}.", {"removed": removed})
+        return checked(f"Removed {KINDS[kind].label}.", {"removed": removed}, block)
 
     return to_message(await run_write(runtime, remove), runtime.tool_call_id)

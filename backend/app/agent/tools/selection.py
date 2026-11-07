@@ -20,6 +20,15 @@ from app.agent.tools import ALL_TOOLS
 
 ALWAYS_TOOLS = ("list_records", "get_missing_sections")
 
+OVERVIEW_TOOLS = (
+    "get_net_worth",
+    "get_asset_split",
+    "get_month_summary",
+    "get_cash_flow_history",
+    "get_financial_health",
+    "get_upcoming_events",
+    )
+
 ADD_TOOLS = (
     "add_family_member",
     "add_income_source",
@@ -44,13 +53,13 @@ ADD_TOOLS = (
     )
 
 TOOLS_BY_INTENT: dict[str, tuple[str, ...]] = {
-    VIEW_DATA: ("get_portfolio_exposure", "web_search"),
+    VIEW_DATA: ("get_portfolio_exposure", "web_search", *OVERVIEW_TOOLS),
     ADD_DATA: ADD_TOOLS,
     CHANGE_DATA: ("update_record", "update_profile", "set_tax_profile", "set_planning_rate", "link_asset_to_goal", "open_form"),
     DELETE_DATA: ("delete_record",),
     GOAL_CHECK: ("check_goal_progress", "link_asset_to_goal", "add_goal", "set_planning_rate", "open_form"),
     MISSING_DATA: ("mark_section_status",),
-    SIMULATION: ("check_goal_progress", "set_planning_rate"),
+    SIMULATION: ("check_goal_progress", "set_planning_rate", *OVERVIEW_TOOLS),
     MARKET_INFO: (
         "search_stocks_and_funds",
         "get_fund_details",

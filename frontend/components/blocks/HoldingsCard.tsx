@@ -1,51 +1,29 @@
 'use client';
 
-import { ArrowDown, ArrowUp } from 'lucide-react';
+import { ArrowDown, ArrowUp, Wallet } from 'lucide-react';
 import { useState } from 'react';
 
-import type { HoldingsBlock, SummaryStat } from '@/lib/types';
+import type { HoldingsBlock } from '@/lib/types';
+import { BigNumber, Delta, Dot, TileHead, colourAt } from '@/components/blocks/Tile';
 
-/**
- * Colours for the four biggest holdings, in this fixed order. The order was checked for colour-blind
- * separation in light and dark; green and red stay free for gain and loss. The rest share one grey.
- */
-const SLOTS = ['var(--chart-1)', 'var(--chart-4)', 'var(--chart-6)', 'var(--chart-5)'];
-const OTHER = 'var(--border-strong)';
-
-const colourAt = (index: number) => SLOTS[index] ?? OTHER;
-
-/** One top-row number; a change is green or red with its note beside it. */
-function Stat({ stat }: { stat: SummaryStat }) {
-  const tone = stat.direction === 'up' ? 'text-positive' : stat.direction === 'down' ? 'text-negative' : 'text-primary';
-
-  return (
-    <div className="min-w-0 border-line pl-4 first:pl-0 [&:not(:first-child)]:border-l">
-      <dt className="text-[11.5px] text-muted">{stat.label}</dt>
-      <dd className={`mt-1 whitespace-nowrap text-[18px] font-semibold tracking-[-0.02em] tabular-nums ${tone}`}>
-        {stat.value}
-        {stat.note && <span className="ml-1 text-[12px] font-medium tracking-normal">{stat.note}</span>}
-      </dd>
-    </div>
-  );
-}
-
-/** The one split bar: each of the four biggest holdings in its colour, the rest folded into one grey part. */
+/** The split bar: the four biggest holdings in their colours, the rest folded into one grey part. */
 function SplitBar({ block }: { block: HoldingsBlock }) {
   const [hover, setHover] = useState<string | null>(null);
+  const slots = 4;
 
-  const parts = block.items.slice(0, SLOTS.length).map((item, index) => ({
+  const parts = block.items.slice(0, slots).map((item, index) => ({
     key: item.name,
     label: `${item.name} · ${item.share.toFixed(2)}%`,
     share: item.share,
     colour: colourAt(index),
   }));
 
-  const rest = block.items.slice(SLOTS.length).reduce((sum, item) => sum + item.share, 0);
+  const rest = block.items.slice(slots).reduce((sum, item) => sum + item.share, 0);
 
-  if (rest > 0) parts.push({ key: 'other', label: `Others · ${rest.toFixed(2)}%`, share: rest, colour: OTHER });
+  if (rest > 0) parts.push({ key: 'other', label: `Others · ${rest.toFixed(2)}%`, share: rest, colour: colourAt(slots) });
 
   return (
-    <div className="mt-5">
+    <div className="mt-4">
       <div className="flex h-2 gap-[2px]" role="img" aria-label={parts.map((part) => part.label).join(', ')}>
         {parts.map((part) => (
           <span
@@ -66,46 +44,44 @@ function SplitBar({ block }: { block: HoldingsBlock }) {
   );
 }
 
-/** A `holdings` block: total value and gain, one split bar, then each holding with its colour, share and value. */
+/** A `holdings` block: total value and overall gain, one split bar, then each holding with its colour, share and value. */
 export default function HoldingsCard({ block }: { block: HoldingsBlock }) {
+  const value = block.summary.find((stat) => stat.label === 'Value');
+  const overall = block.summary.find((stat) => stat.direction);
   const hasToday = block.items.some((item) => item.today);
 
   return (
     <div>
-      <div className="flex items-center justify-between gap-3">
-        <span className="text-[12px] font-semibold uppercase tracking-[0.08em] text-muted">{block.title}</span>
-        {block.as_of && (
-          <span className="inline-flex items-center gap-1.5 text-[12px] text-muted">
-            <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-current opacity-60" />
-            {block.as_of}
-          </span>
-        )}
-      </div>
+      <TileHead title={block.title} subtitle={block.as_of ? `Prices as of ${block.as_of}` : null} icon={Wallet} />
 
-      <dl className="mt-3.5 grid grid-cols-2 gap-y-3 sm:grid-cols-3">
-        {block.summary.map((stat) => (
-          <Stat key={stat.label} stat={stat} />
-        ))}
-      </dl>
+      {value && <BigNumber>{value.value}</BigNumber>}
+
+      {overall && (
+        <Delta
+          change={{ text: overall.note ? `${overall.value} (${overall.note.replace(/^[+−-]/, '')})` : overall.value, direction: overall.direction ?? 'up' }}
+          note={overall.label.toLowerCase()}
+        />
+      )}
 
       <SplitBar block={block} />
 
-      <ul className="mt-1">
+      <ul className="-mt-1">
         {block.items.map((item, index) => {
           const Arrow = item.today?.direction === 'up' ? ArrowUp : ArrowDown;
 
           return (
             <li
               key={`${item.name}-${index}`}
-              className={`grid items-center gap-4 border-t border-line py-2.5 ${
-                hasToday ? 'grid-cols-[minmax(0,1fr)_auto_72px]' : 'grid-cols-[minmax(0,1fr)_auto]'
+              className={`grid items-center gap-3 border-t border-line py-2.5 ${
+                hasToday ? 'grid-cols-[auto_minmax(0,1fr)_auto_64px]' : 'grid-cols-[auto_minmax(0,1fr)_auto]'
               }`}
             >
-              <span className="flex min-w-0 items-center gap-2.5 text-[14px] font-medium text-primary">
-                <span aria-hidden className="h-2 w-2 flex-none rounded-[2px]" style={{ background: colourAt(index) }} />
-                <span className="truncate">{item.name}</span>
-                <span className="flex-none text-[12px] font-normal text-muted tabular-nums">{item.share.toFixed(2)}%</span>
-              </span>
+              <Dot colour={colourAt(index)} />
+
+              <div className="min-w-0">
+                <div className="truncate text-[14px] font-medium text-primary">{item.name}</div>
+                <div className="text-[12px] text-muted tabular-nums">{item.share.toFixed(2)}% of total</div>
+              </div>
 
               <span className="text-[14px] font-semibold tabular-nums text-primary">{item.value}</span>
 

@@ -8,11 +8,13 @@ from decimal import Decimal
 from enum import Enum
 from typing import Any
 
-from app.agent.cards import generic_describe, humanize, plain_number, rupees
+from app.agent.cards import Described, generic_describe, humanize, label_of, plain_number, rupees
+from app.db.models.base import UserOwnedMixin
 from app.features.analysis.service import GoalProgress
 from app.features.indices.schemas import IndexQuote
 from app.features.indices.service import IST
-from app.features.records.kinds import RecordKind
+from app.features.overview.service import Event, Health, MonthSummary, NetWorth
+from app.features.records.kinds import KINDS, RecordKind
 
 
 MAX_COLUMNS = 6
@@ -294,10 +296,10 @@ def records_block(
     total: int,
     ) -> Block | None:
 
-    """The user's saved items of one kind as a table, or None when there are none."""
+    """The user's saved items of one kind as a table, or an empty card with the form that adds one when there are none."""
 
     if not records:
-        return None
+        return empty_block(kind)
 
     if kind == RecordKind.holdings:
         return holdings_block(records, named, total)
@@ -449,41 +451,61 @@ def stock_block(data: dict[str, Any]) -> Block:
     return {"type": "stack", "title": data["name"], "chips": [chip for chip in chips if chip], "blocks": blocks}
 
 
+def short_scheme(name: str) -> str:
+
+    """A scheme name without its plan and option words, such as 'HDFC Flexi Cap Fund'."""
+
+    return name.split(" - ")[0].strip()
+
+
+def top_sector(item: dict[str, Any]) -> str:
+
+    """The biggest sector in a fund's portfolio, or a dash when its portfolio is not loaded."""
+
+    sectors = item.get("sector_split") or []
+
+    return word(sectors[0].get("sector")) if sectors else "—"
+
+
 @never_fails
 def compare_block(data: dict[str, Any]) -> Block:
 
-    """Two to four funds side by side, how much they overlap, and each one's biggest sectors."""
+    """Two to four funds side by side, one row per measure, with how much they overlap as the note."""
 
-    funds = [
-        {
-            "Fund": item["scheme"],
-            "Category": word(item.get("sub_category") or item.get("category")),
-            "NAV": price(item.get("nav")),
-            "Stocks held": str(item.get("equity_holdings", 0)),
-            }
-        for item in data.get("funds", [])
+    funds = data.get("funds", [])
+
+    def split(
+        item: dict[str, Any],
+        part: str,
+        ) -> str:
+
+        """One part of a fund's asset split as a percent, or a dash."""
+
+        value = (item.get("asset_split_pct") or {}).get(part)
+
+        return pct(value) if value is not None else "—"
+
+    rows = [
+        {"label": "Category", "values": [word(item.get("sub_category") or item.get("category")) for item in funds], "best": None},
+        {"label": "NAV", "values": [price(item.get("nav")) for item in funds], "best": None},
+        {"label": "Stocks held", "values": [str(item.get("equity_holdings", 0)) for item in funds], "best": None},
+        {"label": "Equity", "values": [split(item, "equity") for item in funds], "best": None},
+        {"label": "Debt", "values": [split(item, "debt") for item in funds], "best": None},
+        {"label": "Top sector", "values": [top_sector(item) for item in funds], "best": None},
         ]
 
-    overlap = [
-        {"Funds": " vs ".join(pair["funds"]), "Common stocks": str(pair["common_stocks"]), "Overlap": pct(pair["overlap_pct"])}
+    overlaps = [
+        f"{' vs '.join(pair['funds'])}: {pair['common_stocks']} stocks in common, {pct(pair['overlap_pct'])} overlap"
         for pair in data.get("overlap", [])
         ]
 
-    sectors = {
-        "type": "breakdown",
-        "groups": [
-            {"title": item["scheme"], "items": breakdown_items(item.get("sector_split", [])[:TOP_COMPARE_SECTORS], "sector", "weight_pct")}
-            for item in data.get("funds", [])
-            if item.get("sector_split")
-            ],
+    return {
+        "type": "compare",
+        "title": "Fund comparison",
+        "columns": [short_scheme(item["scheme"]) for item in funds],
+        "rows": rows,
+        "note": "; ".join(overlaps) or None,
         }
-
-    blocks: list[Block] = [table("Funds", funds), table("Overlap", overlap)]
-
-    if sectors["groups"]:
-        blocks.append(sectors)
-
-    return {"type": "stack", "title": "Fund comparison", "blocks": blocks}
 
 
 @never_fails
@@ -612,6 +634,324 @@ def quote_block(
         "as_of": ist_time(max(quote.as_of for quote in quotes)),
         "closed": not market_open,
         "items": [quote_item(quote, len(quotes) == 1) for quote in quotes],
+        }
+
+
+FORM_FOR_KIND: dict[RecordKind, str] = {
+    RecordKind.goals: "goal",
+    RecordKind.income: "income",
+    RecordKind.expenses: "expense",
+    RecordKind.holdings: "holding",
+    RecordKind.loans: "loan",
+    RecordKind.insurance: "insurance",
+    }
+
+SECTION_LABELS = {
+    "profile": "Your details",
+    "family": "Family",
+    "income": "Income",
+    "expenses": "Expenses",
+    "bank_accounts": "Bank accounts",
+    "fixed_deposits": "Fixed deposits",
+    "retirement_accounts": "EPF, PPF & NPS",
+    "physical_assets": "Property & assets",
+    "holdings": "Stocks & funds",
+    "loans": "Loans",
+    "credit_cards": "Credit cards",
+    "insurance": "Insurance",
+    "goals": "Goals",
+    "tax_profile": "Tax details",
+    }
+
+CHECK_STATUS = {"provided": "done", "none": "done", "declined": "declined", "pending": "missing"}
+
+
+def kind_words(kind: RecordKind) -> str:
+
+    """A record kind as plain words, such as 'bank accounts'."""
+
+    return kind.value.replace("_", " ")
+
+
+def kind_of(record: UserOwnedMixin) -> RecordKind | None:
+
+    """The record kind whose table this row belongs to, or None for a row with no kind."""
+
+    return next((kind for kind, info in KINDS.items() if info.model is type(record)), None)
+
+
+def signed(value: Decimal) -> str:
+
+    """A rupee amount with its sign, such as +₹52,400 or −₹1,764."""
+
+    return f"{'+' if value >= 0 else '−'}{rupees(abs(value))}"
+
+
+def direction(value: Decimal | float | int) -> str:
+
+    """up for zero or more, else down."""
+
+    return "up" if value >= 0 else "down"
+
+
+def pct_text(value: float) -> str:
+
+    """A percent for a change note, such as 2.9%."""
+
+    return f"{abs(value):.1f}%"
+
+
+def empty_block(kind: RecordKind) -> Block:
+
+    """The empty card for a kind with nothing saved, with its form when the frontend has one."""
+
+    words = kind_words(kind)
+
+    return {
+        "type": "empty",
+        "title": f"No {words} saved yet",
+        "text": f"Tell me about your {words} in the chat, or open the form.",
+        "form": FORM_FOR_KIND.get(kind),
+        }
+
+
+@never_fails
+def receipt_block(
+    action: str,
+    record: UserOwnedMixin,
+    name: str | None = None,
+    ) -> Block | None:
+
+    """A receipt for a row just saved or removed: its kind in words, its name and its key facts."""
+
+    kind = kind_of(record)
+
+    if kind is None:
+        return None
+
+    described = generic_describe(kind, record)
+
+    return {
+        "type": "receipt",
+        "action": action,
+        "kind": KINDS[kind].label.capitalize(),
+        "name": name or described.name,
+        "record_id": getattr(record, "id", None),
+        "facts": described.facts,
+        }
+
+
+def plain_receipt(
+    action: str,
+    kind: str,
+    name: str,
+    facts: dict[str, str],
+    record_id: int | None = None,
+    ) -> Block:
+
+    """A receipt built from plain values, for saves that are not one record row, such as the profile."""
+
+    return {
+        "type": "receipt",
+        "action": action,
+        "kind": kind,
+        "name": name,
+        "record_id": record_id,
+        "facts": [{"label": label_of(label), "value": value} for label, value in facts.items()],
+        }
+
+
+def changes_block(
+    described: Described,
+    before: dict[str, str],
+    after: dict[str, str],
+    changed_on: date,
+    ) -> Block:
+
+    """The fields an update changed, old beside new, for the item by name."""
+
+    fields = [{"label": label_of(name), "old": before.get(name, "—"), "new": value} for name, value in after.items()]
+
+    return {
+        "type": "changes",
+        "title": f"Updated · {described.name}",
+        "fields": fields,
+        "note": f"{len(fields)} {'field' if len(fields) == 1 else 'fields'} changed · {word(changed_on)}",
+        }
+
+
+def checklist_block(statuses: dict[str, str]) -> Block:
+
+    """Every section with whether it is done, still missing or declined, in the order the planner asks."""
+
+    items = [
+        {"label": SECTION_LABELS.get(section, humanize(section)), "status": CHECK_STATUS.get(status, "missing")}
+        for section, status in statuses.items()
+        ]
+
+    done = sum(1 for item in items if item["status"] == "done")
+
+    return {
+        "type": "checklist",
+        "title": "What I know about you",
+        "subtitle": f"{done} of {len(items)} done",
+        "items": items,
+        }
+
+
+@never_fails
+def net_worth_block(
+    worth: NetWorth,
+    as_of: date,
+    ) -> Block:
+
+    """Net worth as one big number with what is owned, owed, invested and in the bank under it."""
+
+    return {
+        "type": "hero",
+        "title": "Net worth",
+        "as_of": word(as_of),
+        "value": signed(worth.value) if worth.value < 0 else rupees(worth.value),
+        "change": None,
+        "change_note": None,
+        "facts": [
+            {"label": "Assets", "value": rupees(worth.assets)},
+            {"label": "Loans & dues", "value": rupees(worth.owed)},
+            {"label": "Invested", "value": rupees(worth.invested)},
+            {"label": "In the bank", "value": rupees(worth.cash)},
+            ],
+        "tone": direction(worth.value),
+        }
+
+
+@never_fails
+def asset_split_block(worth: NetWorth) -> Block | None:
+
+    """How what the user owns splits by type, as a ring, or None when nothing is saved."""
+
+    total = worth.assets
+
+    if total <= 0:
+        return None
+
+    return {
+        "type": "ring",
+        "title": "Where your money is",
+        "subtitle": f"{len(worth.split)} types of assets",
+        "total": rupees(total),
+        "items": [
+            {"label": label, "value": rupees(value), "pct": round(float(value / total * 100), 2)}
+            for label, value in worth.split
+            ],
+        }
+
+
+def change_between(
+    latest: Decimal,
+    previous: Decimal,
+    ) -> dict[str, Any] | None:
+
+    """The move from last month to this one as a signed amount and percent, or None when last month was zero."""
+
+    if previous == 0:
+        return None
+
+    delta = latest - previous
+
+    return {"text": f"{signed(delta)} ({pct_text(float(delta / previous * 100))})", "direction": direction(delta)}
+
+
+@never_fails
+def month_summary_block(
+    summary: MonthSummary,
+    as_of: date,
+    ) -> Block:
+
+    """Income, spending and what is left this month as three tiles, with a trend and change when transactions exist."""
+
+    history = summary.history
+
+    def tile(
+        label: str,
+        value: int,
+        series: list[Decimal],
+        ) -> dict[str, Any]:
+
+        """One tile, with its change and trend only when there is history."""
+
+        item: dict[str, Any] = {"label": label, "value": rupees(Decimal(value))}
+
+        if len(series) >= 2:
+            item["change"] = change_between(series[-1], series[-2])
+            item["trend"] = [float(point) for point in series]
+
+        return item
+
+    return {
+        "type": "kpis",
+        "title": "This month",
+        "as_of": f"{as_of:%B %Y}",
+        "items": [
+            tile("Income", summary.income, [flow.income for flow in history]),
+            tile("Spending", summary.spending, [flow.spending for flow in history]),
+            tile("Saved", summary.saved, [flow.saved for flow in history]),
+            ],
+        }
+
+
+@never_fails
+def cash_flow_block(summary: MonthSummary) -> Block | None:
+
+    """Income against spending for each of the last six months as grouped bars, or None with no transactions."""
+
+    if not summary.history:
+        return None
+
+    return {
+        "type": "bars",
+        "title": "Income vs spending",
+        "subtitle": f"Last {len(summary.history)} months, from your transactions",
+        "labels": [f"{flow.month:%b}" for flow in summary.history],
+        "series": [
+            {"name": "Income", "values": [float(flow.income) for flow in summary.history]},
+            {"name": "Spending", "values": [float(flow.spending) for flow in summary.history]},
+            ],
+        }
+
+
+@never_fails
+def health_block(
+    health: Health,
+    as_of: date,
+    ) -> Block:
+
+    """The health score on a gauge with the four checks behind it."""
+
+    return {
+        "type": "gauge",
+        "title": "Financial health",
+        "as_of": word(as_of),
+        "score": health.score,
+        "verdict": health.verdict,
+        "checks": [{"label": check.label, "value": check.value, "tone": check.tone} for check in health.checks],
+        }
+
+
+@never_fails
+def timeline_block(events: list[Event]) -> Block | None:
+
+    """What is coming up as a dated list, or None when nothing is due."""
+
+    if not events:
+        return None
+
+    return {
+        "type": "timeline",
+        "title": "Coming up",
+        "items": [
+            {"when": event.when, "label": event.label, "value": rupees(event.value) if event.value is not None else None, "state": event.state}
+            for event in events
+            ],
         }
 
 

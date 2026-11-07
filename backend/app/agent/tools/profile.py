@@ -8,6 +8,7 @@ from langchain_core.messages import ToolMessage
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agent.blocks import plain_receipt
 from app.agent.context import PlannerContext
 from app.agent.tools.common import given_arguments, save_record
 from app.agent.tools.operations import run_write
@@ -48,7 +49,9 @@ async def update_profile(
 
         await confirm_saved(session, User, {"id": runtime.context.user_id}, saved)
 
-        return checked("Saved profile.", {field: show_value(value) for field, value in saved.items()})
+        shown = {field: show_value(value) for field, value in saved.items()}
+
+        return checked("Saved profile.", shown, plain_receipt("saved", "Profile", "Your details", shown))
 
     return to_message(await run_write(runtime, save), runtime.tool_call_id)
 

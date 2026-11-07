@@ -8,6 +8,10 @@ The application is a conversational financial planner. A user chats with an AI, 
 
 Reproduce the overall visual character of the reference—clean typography, generous spacing, rounded analytical cards, bright chart accents, readable financial data and refined motion—but follow every requirement below when the reference differs from this specification.
 
+## Chat card catalogue
+
+Every card the chat can draw, with sample data and a light/dark toggle, is in [chat-components.html](chat-components.html). Open it in a browser. Add a new card there first, then build its backend block in `backend/app/agent/blocks.py` and its frontend part in `frontend/components/blocks/`. Rules the page follows: one card per job, profit is teal and loss is rose, chart colours in fixed order, lucide icons only, no emoji.
+
 ## Critical layout correction
 
 Do **not** build the thin icon-based navigation sidebar shown at the far left of the light-theme reference.

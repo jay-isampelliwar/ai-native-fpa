@@ -144,9 +144,15 @@ class RecordService(BaseRecordService[BaseUserRecordRepository]):
         if not changes:
             raise RecordError("Nothing to update.")
 
-        if kind == RecordKind.holdings and "isin" in changes:
+        if kind == RecordKind.holdings:
+
             record = await self.get_or_fail(user_id, kind, record_id)
-            changes = await InvestmentService(self.session).move_changes(user_id, record, changes)
+
+            if "isin" in changes:
+                changes = await InvestmentService(self.session).move_changes(user_id, record, changes)
+
+            else:
+                changes = await InvestmentService(self.session).amount_changes(record, changes)
 
         if kind == RecordKind.fixed_deposits and changes.get("bank_name"):
             refuse_fund_house(str(changes["bank_name"]))

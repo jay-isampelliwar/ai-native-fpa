@@ -1,6 +1,8 @@
 'use client';
 
-import { ChevronRight, Sparkles } from 'lucide-react';
+import { ChartNoAxesCombined, ChevronRight, PieChart, ShieldCheck, Sparkles, Target } from 'lucide-react';
+
+import { Badge, type Icon } from '@/components/blocks/Tile';
 
 /**
  * Openings, for a blank conversation that would otherwise ask for a cold start.
@@ -19,6 +21,9 @@ export const OPENERS = [
   'Show me tax saving opportunities for this year.',
 ];
 
+/** One small icon per opener, in the same order. */
+const ICONS: Icon[] = [Target, ChartNoAxesCombined, PieChart, ShieldCheck];
+
 export default function SuggestedPrompts({ onPick }: { onPick: (prompt: string) => void }) {
   return (
     <section aria-label="Suggested questions">
@@ -28,13 +33,14 @@ export default function SuggestedPrompts({ onPick }: { onPick: (prompt: string) 
       </p>
 
       <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-        {OPENERS.map((prompt) => (
+        {OPENERS.map((prompt, index) => (
           <li key={prompt}>
             <button
               type="button"
               onClick={() => onPick(prompt)}
-              className="flex h-full w-full items-center gap-2 rounded-2xl border border-[var(--pane-border)] bg-panel-subtle/70 px-3.5 py-2.5 text-left text-[14px] leading-[1.4] text-secondary transition hover:border-line-strong hover:text-primary"
+              className="tone-accent flex h-full w-full items-center gap-2.5 rounded-2xl border border-[var(--pane-border)] bg-panel-subtle/70 px-3 py-2.5 text-left text-[14px] leading-[1.4] text-secondary transition hover:border-line-strong hover:text-primary"
             >
+              <Badge icon={ICONS[index % ICONS.length]} small />
               <span className="min-w-0 flex-1">{prompt}</span>
               <ChevronRight size={14} className="flex-none text-muted" aria-hidden="true" />
             </button>

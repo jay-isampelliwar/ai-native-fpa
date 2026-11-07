@@ -119,17 +119,20 @@ export default function ApprovalCard({
   const plain = Boolean(preview.changes || preview.facts || preview.summary || preview.chips);
 
   return (
-    <div className="mt-2 overflow-hidden rounded-xl border border-line bg-panel">
+    <div className={`tile mt-2 ${BADGE[action].tone}`}>
+      <div className="border-l-[3px] pl-4" style={{ borderColor: 'var(--tone)' }}>
       {plain ? (
         <PlainBody action={action} preview={preview} />
       ) : (
         <>
-          <div className="flex items-center gap-2 border-b border-line px-3 py-2.5">
-            <Guard size={16} className="text-warning" />
-            <span className="text-[12.5px] font-medium text-primary">{preview.title}</span>
+          <div className="flex items-center gap-2 px-3 py-3">
+            <span className="badge badge-sm fi-host">
+              <Guard size={14} />
+            </span>
+            <span className="text-[13px] font-semibold text-primary">{preview.title}</span>
           </div>
 
-          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 px-3 py-2.5 text-[12px]">
+          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 px-3 pb-2.5 text-[12px]">
             {preview.fields.map((field) => (
               <div key={field.name} className="contents">
                 <dt className="text-muted">{fieldLabel(field.name)}</dt>
@@ -147,8 +150,8 @@ export default function ApprovalCard({
           type="button"
           disabled={sending}
           onClick={() => onDecide('approve')}
-          className="flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-[13px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-40"
-          style={{ background: copy.tone, color: action === 'remove' ? 'var(--background)' : 'var(--on-accent)' }}
+          className="flex items-center gap-1.5 rounded-[9px] px-3.5 py-2 text-[13px] font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-40"
+          style={{ background: copy.tone }}
         >
           {action === 'remove' ? <RemoveRecord size={16} /> : <Check size={14} aria-hidden="true" />}
           {copy.approve}
@@ -158,7 +161,7 @@ export default function ApprovalCard({
           type="button"
           disabled={sending}
           onClick={() => (canFix ? setFixing(true) : onDecide('reject'))}
-          className="flex items-center gap-1.5 rounded-lg border border-line px-3.5 py-2 text-[13px] text-secondary transition hover:text-primary disabled:opacity-40"
+          className="flex items-center gap-1.5 rounded-[9px] border border-line bg-panel px-3.5 py-2 text-[13px] font-medium text-secondary transition hover:text-primary disabled:opacity-40"
         >
           <X size={14} aria-hidden="true" />
           {copy.keep}
@@ -166,16 +169,25 @@ export default function ApprovalCard({
 
         <span className="ml-auto text-[11px] text-muted">{copy.note}</span>
       </div>
+      </div>
     </div>
   );
 }
 
-/** The look of each kind of card: its icon and the soft colour behind it. */
-const BADGE: Record<ApprovalAction, { icon: React.ReactNode; background: string; color: string }> = {
-  change: { icon: <EditRecord size={20} />, background: 'var(--accent-soft)', color: 'var(--accent)' },
-  remove: { icon: <RemoveRecord size={20} />, background: 'var(--negative-soft)', color: 'var(--negative)' },
-  confirm: { icon: <CheckSum size={20} />, background: 'var(--warning-soft)', color: 'var(--warning)' },
-  run: { icon: <Guard size={20} />, background: 'var(--warning-soft)', color: 'var(--warning)' },
+/** The look of each kind of card: its icon and the tone its band, badge and glow take. */
+const BADGE: Record<ApprovalAction, { icon: React.ReactNode; tone: string }> = {
+  change: { icon: <EditRecord size={18} />, tone: 'tone-accent' },
+  remove: { icon: <RemoveRecord size={18} />, tone: 'tone-down' },
+  confirm: { icon: <CheckSum size={18} />, tone: 'tone-warn' },
+  run: { icon: <Guard size={18} />, tone: 'tone-warn' },
+};
+
+/** The small line above the question, saying what kind of approval this is. */
+const LEAD: Record<ApprovalAction, string> = {
+  change: 'Approve this change?',
+  remove: 'Approve removing this?',
+  confirm: 'Is this right?',
+  run: 'Allow this?',
 };
 
 /** The plain-words body: question, labels, then the changes, the facts or the sum, and a short note. */
@@ -184,16 +196,12 @@ function PlainBody({ action, preview }: { action: ApprovalAction; preview: Appro
 
   return (
     <>
-      <div className="flex gap-3 px-4 pt-4 pb-3">
-        <div
-          className="fi-host grid h-10 w-10 flex-none place-items-center rounded-xl"
-          style={{ background: badge.background, color: badge.color }}
-        >
-          {badge.icon}
-        </div>
-
+      <div className="flex items-start justify-between gap-3 px-4 pt-4 pb-3">
         <div className="min-w-0">
-          <p className="text-[15.5px] leading-snug font-semibold text-primary">{preview.title}</p>
+          <p className="text-[12px] font-semibold uppercase tracking-[0.06em]" style={{ color: 'var(--tone)' }}>
+            {LEAD[action]}
+          </p>
+          <p className="mt-1 text-[15.5px] leading-snug font-semibold text-primary">{preview.title}</p>
           {preview.subtitle && <p className="mt-0.5 text-[13px] text-secondary">{preview.subtitle}</p>}
 
           {preview.chips && preview.chips.length > 0 && (
@@ -206,6 +214,8 @@ function PlainBody({ action, preview }: { action: ApprovalAction; preview: Appro
             </div>
           )}
         </div>
+
+        <span className="badge fi-host">{badge.icon}</span>
       </div>
 
       {preview.changes && preview.changes.length > 0 && (
@@ -214,17 +224,12 @@ function PlainBody({ action, preview }: { action: ApprovalAction; preview: Appro
 
           <div className="space-y-2">
             {preview.changes.map((change) => (
-              <div
-                key={change.label}
-                className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line bg-panel-subtle px-3 py-2.5"
-              >
+              <div key={change.label} className="fact-tile flex flex-wrap items-center justify-between gap-2">
                 <span className="text-[13px] text-primary">{change.label}</span>
                 <span className="flex items-center gap-2 tabular-nums">
                   <span className="text-[13px] text-muted line-through">{change.old}</span>
                   <ArrowRight size={13} className="text-muted" aria-hidden="true" />
-                  <span className="text-[15px] font-bold" style={{ color: 'var(--accent)' }}>
-                    {change.new}
-                  </span>
+                  <span className="text-[15px] font-bold text-primary">{change.new}</span>
                 </span>
               </div>
             ))}
@@ -233,11 +238,11 @@ function PlainBody({ action, preview }: { action: ApprovalAction; preview: Appro
       )}
 
       {preview.facts && preview.facts.length > 0 && (
-        <div className="grid grid-cols-2 gap-2 px-4 pb-3">
+        <div className="grid grid-cols-2 gap-2.5 px-4 pb-3">
           {preview.facts.map((fact) => (
-            <div key={fact.label} className="rounded-xl border border-line bg-panel-subtle px-3 py-2">
+            <div key={fact.label} className="fact-tile">
               <p className="text-[11.5px] text-muted">{fact.label}</p>
-              <p className="text-[14px] font-semibold text-primary tabular-nums">{fact.value}</p>
+              <p className="mt-0.5 text-[15px] font-semibold text-primary tabular-nums">{fact.value}</p>
             </div>
           ))}
         </div>
@@ -245,9 +250,9 @@ function PlainBody({ action, preview }: { action: ApprovalAction; preview: Appro
 
       {preview.summary && (
         <div className="px-4 pb-3">
-          <div className="rounded-xl border border-line bg-panel-subtle px-3 py-3 text-[13.5px] text-primary">
+          <div className="fact-tile text-[13.5px] text-primary">
             {preview.summary.lead}
-            <p className="text-[22px] font-bold tabular-nums" style={{ color: 'var(--accent)' }}>
+            <p className="text-[24px] font-semibold tracking-[-0.02em] tabular-nums text-primary">
               {preview.summary.big}
             </p>
             <p className="mt-1 text-[12px] text-muted">{preview.summary.how}</p>

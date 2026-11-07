@@ -37,10 +37,10 @@
   --orange: #f0661c;
   --yellow: #e8a90c;
 
-  --positive: #15925a;
-  --positive-soft: #e5f5ec;
-  --negative: #d93a42;
-  --negative-soft: #fcebec;
+  --positive: #14a98f;
+  --positive-soft: #e0f5f0;
+  --negative: #e4506b;
+  --negative-soft: #fde7eb;
   --warning: #c98410;
   --warning-soft: #fdf3e0;
 
@@ -102,10 +102,10 @@
   --orange: #ff7a3d;
   --yellow: #f2c13a;
 
-  --positive: #3fcf7e;
-  --positive-soft: #11291c;
-  --negative: #ff5a62;
-  --negative-soft: #3a1b1f;
+  --positive: #2fd1b2;
+  --positive-soft: #0f2b25;
+  --negative: #ff6b84;
+  --negative-soft: #331820;
   --warning: #f5b23e;
   --warning-soft: #33280f;
 
@@ -235,8 +235,8 @@ button, a { -webkit-tap-highlight-color: transparent; }
    global ring — two rings, one within the other, is what that produced. */
 .composer-shell {
   border: 1px solid var(--border);
-  background: var(--composer);
-  box-shadow: var(--composer-shadow);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--panel-elevated) 70%, var(--composer)) 0%, var(--composer) 60%);
+  box-shadow: var(--composer-shadow), inset 0 1px 0 color-mix(in srgb, #fff 8%, transparent);
   transition: border-color .15s ease, box-shadow .15s ease;
 }
 .composer-shell:hover { border-color: var(--border-strong); }
@@ -283,6 +283,58 @@ button, a { -webkit-tap-highlight-color: transparent; }
    only half the people using it. */
 .card-interactive:focus-within {
   border-color: var(--border-strong);
+}
+
+/* ── Tile ───────────────────────────────────────────────────────────────────
+   The chat card look: a soft top highlight, a glow from the top-left corner in
+   the card's tone, and an icon badge. A card sets its tone with .tone-up,
+   .tone-down, .tone-warn or .tone-accent; parts inside read --tone. */
+
+.tile {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--panel-elevated) 70%, var(--panel)) 0%, var(--panel) 60%);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 8%, transparent);
+}
+
+.tile::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(110% 80% at 0% 0%, var(--glow, var(--glow-1)) 0%, transparent 55%);
+}
+
+.tile > * { position: relative; }
+
+.tone-accent { --tone: var(--accent); --tone-soft: var(--accent-soft); --glow: color-mix(in srgb, var(--accent) 12%, transparent); }
+.tone-up { --tone: var(--positive); --tone-soft: var(--positive-soft); --glow: color-mix(in srgb, var(--positive) 14%, transparent); }
+.tone-down { --tone: var(--negative); --tone-soft: var(--negative-soft); --glow: color-mix(in srgb, var(--negative) 14%, transparent); }
+.tone-warn { --tone: var(--warning); --tone-soft: var(--warning-soft); --glow: color-mix(in srgb, var(--warning) 14%, transparent); }
+.tone-muted { --tone: var(--text-muted); --tone-soft: var(--panel-subtle); --glow: transparent; }
+
+.badge {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  color: var(--tone, var(--accent));
+  background: color-mix(in srgb, var(--tone, var(--accent)) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--tone, var(--accent)) 25%, transparent);
+}
+
+.badge-sm { width: 26px; height: 26px; border-radius: 8px; }
+
+.fact-tile {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: color-mix(in srgb, var(--panel-subtle) 70%, transparent);
+  min-width: 0;
 }
 
 /* ── Card parts ─────────────────────────────────────────────────────────────
@@ -459,11 +511,47 @@ body[data-resizing='true'] {
 .chip-button:not(:disabled):hover { border-color: var(--border-strong); color: var(--text-primary); background: var(--panel-subtle); }
 .chip-button:not(:disabled):active { transform: scale(.98); }
 
-/* The reader's own words: a flat tinted block with a hairline, not a gradient. */
+/* The reader's own words: a soft accent-tinted block with one pointed corner. */
 .user-bubble {
-  border: 1px solid var(--pane-border);
-  background: var(--gradient-user);
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--border));
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 18%, var(--gradient-user)), var(--gradient-user));
   color: var(--text-primary);
+  border-radius: 16px 16px 4px 16px;
+}
+
+/* A square icon button with a hairline frame, for the composer's toolbar. */
+.icon-boxed {
+  display: grid;
+  place-items: center;
+  flex: none;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  transition: background .15s ease, color .15s ease, border-color .15s ease, transform .1s ease;
+}
+.icon-boxed:not(:disabled):hover { background: var(--hover-surface); color: var(--text-primary); border-color: var(--border-strong); }
+.icon-boxed:not(:disabled):active { transform: scale(.94); }
+.icon-boxed[aria-pressed='true'] { color: var(--text-primary); }
+
+/* The grouped pill bar under a reply, and a step pill in the work summary. */
+.action-bar {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+}
+.step-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px 3px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text-secondary);
+  font-size: 12.5px;
 }
 
 /* A word of a reply still being written fades in as it arrives. The slight blur hides the

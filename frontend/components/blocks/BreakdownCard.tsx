@@ -1,37 +1,35 @@
+import { PieChart } from 'lucide-react';
+
 import type { BreakdownBlock } from '@/lib/types';
-import { BlockTitle } from '@/components/blocks/TableCard';
+import { Dot, ShareBar, TileHead, colourAt } from '@/components/blocks/Tile';
 
 /**
- * A `breakdown` block: groups of labelled bars, such as an investment mix by asset class and by sector.
- *
- * Each bar is a share of one whole, so all bars in the card use the one neutral meter colour; a hue
- * per row would suggest the rows are different kinds of thing. Groups sit side by side on a wide
- * screen, split by space, not by boxes.
+ * A `breakdown` block: groups of rows, each a colour dot, a label, a share bar and the share on
+ * the right. Every row in a group is a share of one whole, so the bars share one scale.
  */
 export default function BreakdownCard({ block }: { block: BreakdownBlock }) {
   return (
     <div className="min-w-0">
-      {(block.title || block.subtitle) && <BlockTitle title={block.title} subtitle={block.subtitle} />}
+      {(block.title || block.subtitle) && <TileHead title={block.title ?? ''} subtitle={block.subtitle} icon={PieChart} />}
 
-      <div className="mt-3 grid gap-x-8 gap-y-5 sm:grid-cols-2">
+      <div className={`grid gap-x-8 gap-y-5 sm:grid-cols-2 ${block.title || block.subtitle ? 'mt-2' : ''}`}>
         {block.groups.map((group) => (
           <section key={group.title} aria-label={group.title} className="min-w-0">
-            <h5 className="card-label mb-2.5 font-medium">{group.title}</h5>
+            <h5 className="mb-1 text-[11.5px] font-semibold uppercase tracking-[0.06em] text-muted">{group.title}</h5>
 
-            <ul className="space-y-3">
-              {group.items.map((item) => {
+            <ul>
+              {group.items.map((item, index) => {
                 const pct = Math.max(0, Math.min(100, item.pct));
+                const colour = colourAt(index);
 
                 return (
-                  <li key={item.label}>
-                    <div className="flex items-baseline justify-between gap-3 text-[14px]">
-                      <span className="truncate text-primary">{item.label}</span>
-                      <span className="flex-none tabular-nums text-secondary">{item.value}</span>
+                  <li key={item.label} className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 border-t border-line py-2.5 first:border-t-0">
+                    <Dot colour={colour} />
+                    <div className="min-w-0">
+                      <div className="truncate text-[14px] font-medium text-primary">{item.label}</div>
+                      <ShareBar pct={pct} colour={colour} />
                     </div>
-
-                    <div className="meter mt-1.5" aria-hidden="true">
-                      <span style={{ width: `${pct}%` }} />
-                    </div>
+                    <span className="text-[14px] font-semibold tabular-nums text-primary">{item.value}</span>
                   </li>
                 );
               })}

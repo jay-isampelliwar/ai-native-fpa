@@ -41,10 +41,12 @@ export default function HoldingCorrection({
   }
 
   return (
-    <div className="mt-2 overflow-hidden rounded-xl border border-line bg-panel">
-      <div className="flex items-center gap-2 border-b border-line px-3 py-2.5">
-        <PencilLine size={15} className="flex-none text-accent" aria-hidden="true" />
-        <span className="text-[12.5px] font-medium text-primary">What are the correct values for {name}?</span>
+    <div className="tile tone-accent mt-2">
+      <div className="flex items-center gap-2.5 px-3 pt-3 pb-2">
+        <span className="badge badge-sm">
+          <PencilLine size={13} aria-hidden="true" />
+        </span>
+        <span className="text-[13px] font-semibold text-primary">What are the correct values for {name}?</span>
       </div>
 
       <form
@@ -66,8 +68,7 @@ export default function HoldingCorrection({
           type="button"
           disabled={!ready}
           onClick={save}
-          className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12.5px] font-medium text-white transition disabled:cursor-not-allowed disabled:opacity-40"
-          style={{ background: 'var(--accent)' }}
+          className="send-gradient flex items-center gap-1.5 rounded-[9px] px-3 py-1.5 text-[12.5px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-40"
         >
           <Check size={14} aria-hidden="true" />
           Save these values
@@ -77,7 +78,7 @@ export default function HoldingCorrection({
           type="button"
           disabled={sending}
           onClick={onDiscard}
-          className="flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-[12.5px] text-secondary transition hover:text-primary disabled:opacity-40"
+          className="flex items-center gap-1.5 rounded-[9px] border border-line bg-panel px-3 py-1.5 text-[12.5px] text-secondary transition hover:text-primary disabled:opacity-40"
         >
           <X size={14} aria-hidden="true" />
           Don&apos;t save
@@ -111,7 +112,7 @@ function NumberField({
         disabled={disabled}
         onChange={(event) => onChange(event.target.value)}
         aria-invalid={Boolean(error)}
-        className="rounded-lg border border-line bg-panel-subtle px-2.5 py-1.5 text-[13px] text-primary tabular-nums outline-none focus:border-[var(--accent)] disabled:opacity-60"
+        className="fact-tile px-2.5 py-1.5 text-[13px] text-primary tabular-nums outline-none focus:border-[var(--accent)] disabled:opacity-60"
       />
       {error && <span className="text-[11px] text-negative">{error}</span>}
     </label>

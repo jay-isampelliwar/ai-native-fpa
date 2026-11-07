@@ -102,6 +102,39 @@ def value_of(
     return (units * instrument.price).quantize(PAISE, rounding=ROUND_HALF_UP)
 
 
+def units_after(
+    instrument: Instrument,
+    units: Decimal,
+    invested: Decimal | None,
+    changes: dict[str, Any],
+    ) -> Decimal | None:
+
+    """The units a holding has after a money change: from the new current value, or the old units plus what the extra money buys at the latest price; None when units need not change."""
+
+    if changes.get("current_value") is not None:
+        return units_for(instrument, Decimal(str(changes["current_value"])))
+
+    if changes.get("invested_amount") is None or invested is None:
+        return None
+
+    extra = Decimal(str(changes["invested_amount"])) - Decimal(invested)
+
+    if extra == 0:
+        return None
+
+    step = FUND_UNIT_STEP if instrument.asset_type == HoldingAssetType.mutual_fund else WHOLE_SHARE
+
+    if instrument.price is None or instrument.price <= 0:
+        raise RecordError(f"No latest {instrument.price_label} is saved for {instrument.name}, so the units for this change cannot be worked out. Ask the user for units.")
+
+    after = (units + extra / instrument.price).quantize(step, rounding=ROUND_DOWN)
+
+    if after <= 0:
+        raise RecordError(f"That would leave no units of {instrument.name}. To remove it, call delete_record instead.")
+
+    return after
+
+
 def buy_price(
     units: Decimal,
     amount: Decimal | None,
@@ -205,6 +238,57 @@ class InvestmentService(BaseRecordService[InvestmentRepository]):
         fund_id = instrument.record_id if instrument.asset_type == HoldingAssetType.mutual_fund else None
 
         return await self.repo.holding_for_instrument(user_id, stock_id, fund_id)
+
+    async def instrument_of(self, holding: Holding) -> Instrument:
+
+        """The stock or fund plan a saved holding points at."""
+
+        if holding.mutual_fund_id is not None:
+
+            fund = await self.repo.fund_by_id(holding.mutual_fund_id)
+
+            if fund is not None:
+                return from_fund(fund)
+
+        if holding.stock_id is not None:
+
+            stock = await self.repo.stock_by_id(holding.stock_id)
+
+            if stock is not None:
+                return from_stock(stock)
+
+        raise RecordNotFound("This holding's stock or fund is no longer in the market data.")
+
+    async def amount_changes(
+        self,
+        holding: Holding,
+        changes: dict[str, Any],
+        ) -> dict[str, Any]:
+
+        """When the money in a holding changes but its units do not, work the units out at the latest price, so value and amount never disagree."""
+
+        if "units" in changes or "isin" in changes:
+            return changes
+
+        if changes.get("invested_amount") is None and changes.get("current_value") is None:
+            return changes
+
+        instrument = await self.instrument_of(holding)
+
+        units = units_after(instrument, Decimal(holding.units), holding.invested_amount, changes)
+
+        if units is None:
+            return changes
+
+        amount = changes.get("invested_amount", holding.invested_amount)
+
+        return {
+            **changes,
+            "units": units,
+            "current_value": value_of(instrument, units),
+            "avg_buy_price": buy_price(units, Decimal(str(amount))) if amount is not None else None,
+            "as_of_date": date.today(),
+            }
 
     async def move_changes(
         self,

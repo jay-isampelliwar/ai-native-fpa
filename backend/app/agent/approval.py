@@ -147,6 +147,9 @@ async def change_preview(call: ToolCall, user_id: int) -> Preview | None:
     if kind == RecordKind.holdings and "isin" in changes:
         return await move_preview(call, user_id, record, described, current)
 
+    if kind == RecordKind.holdings:
+        changes = await resolved_amounts(record, changes)
+
     changed = real_changes(kind, record, changes)
 
     if not changed:
@@ -155,6 +158,9 @@ async def change_preview(call: ToolCall, user_id: int) -> Preview | None:
     model = type(record)
     unchanged_units = kind == RecordKind.holdings and "units" not in changed
     note = f"Nothing else changes. Your units stay {plain_number(record.units)}." if unchanged_units else "Nothing else changes."
+
+    if kind == RecordKind.holdings and "units" in changed and "units" not in changes:
+        note = f"Units worked out at the latest NAV or price: {plain_number(changed['units'])}."
 
     return {
         "action": "change",
@@ -174,6 +180,22 @@ async def change_preview(call: ToolCall, user_id: int) -> Preview | None:
 
 
 INSTRUMENT_COLUMNS = ("asset_type", "stock_id", "mutual_fund_id")
+
+
+async def resolved_amounts(
+    record: Holding,
+    changes: dict[str, Any],
+    ) -> dict[str, Any]:
+
+    """The holding changes with units worked out from a money change, or the changes as given when that cannot be done."""
+
+    try:
+
+        async with SessionLocal() as session:
+            return await InvestmentService(session).amount_changes(record, dict(changes))
+
+    except RecordError:
+        return changes
 
 
 async def plan_name(

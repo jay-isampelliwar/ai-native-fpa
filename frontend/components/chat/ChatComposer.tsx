@@ -2,9 +2,10 @@
 
 import { Lightbulb, Loader2, Mic, Plus, Sparkles, Square, Telescope, X } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import FileChips from '@/components/chat/FileChips';
+import VoiceBars from '@/components/chat/VoiceBars';
 import { SendPlane, Statement } from '@/components/icons/FinIcons';
 import type { Attachment } from '@/lib/useUploads';
 import { useVoiceInput } from '@/lib/useVoiceInput';
@@ -102,11 +103,36 @@ export default function ChatComposer({
 
   const recording = mic.state !== 'idle';
 
+  // Send pressed while the mic was open: finish the recording first, then send what it heard.
+  const sendWhenDone = useRef(false);
+  const [sending, setSending] = useState(false);
+
   function toggleMic() {
     if (mic.state === 'idle') typedBefore.current = value;
 
     mic.toggle();
   }
+
+  /** Send now, or stop the mic first and send once its final words are in the box. */
+  function sendOrFinish() {
+    if (!recording) {
+      onSend();
+      return;
+    }
+
+    sendWhenDone.current = true;
+    setSending(true);
+    mic.stop();
+  }
+
+  useEffect(() => {
+    if (!sendWhenDone.current || mic.state !== 'idle') return;
+
+    sendWhenDone.current = false;
+    setSending(false);
+
+    if (value.trim()) onSend();
+  }, [mic.state, value, onSend]);
 
   // Re-measure on every change, resetting first so the box can shrink again.
   useEffect(() => {
@@ -134,7 +160,7 @@ export default function ChatComposer({
 
       <div
         ref={shell}
-        className="composer-shell rounded-2xl px-3 pt-3 pb-2.5"
+        className="composer-shell rounded-[18px] px-3 pt-3 pb-2.5"
       >
         <input
           ref={picker}
@@ -169,7 +195,7 @@ export default function ChatComposer({
             onKeyDown={(event) => {
               if (event.key === 'Enter' && !event.shiftKey) {
                 event.preventDefault();
-                if (!recording) onSend();
+                sendOrFinish();
               }
             }}
             rows={hero ? 3 : 1}
@@ -190,7 +216,7 @@ export default function ChatComposer({
 
         <div className="mt-2 flex items-center gap-1">
           {!hero && (
-            <button type="button" aria-label="More actions" title="More actions" className="icon-ghost h-8 w-8">
+            <button type="button" aria-label="More actions" title="More actions" className="icon-boxed h-8 w-8">
               <Plus size={16} aria-hidden="true" />
             </button>
           )}
@@ -200,7 +226,7 @@ export default function ChatComposer({
             onClick={() => picker.current?.click()}
             aria-label="Attach a statement"
             title="Attach a bank or holdings statement"
-            className="icon-ghost h-8 w-8"
+            className="icon-boxed h-8 w-8"
           >
             <Statement size={17} />
           </button>
@@ -220,15 +246,10 @@ export default function ChatComposer({
               aria-label={mic.state === 'listening' ? 'Stop recording' : 'Speak your request'}
               aria-pressed={mic.state === 'listening'}
               title={mic.state === 'listening' ? 'Stop recording' : 'Speak your request'}
-              className="icon-ghost h-8 w-8 disabled:opacity-60"
-              style={
-                mic.state === 'listening'
-                  ? { background: 'var(--negative)', color: 'white', boxShadow: `0 0 0 ${2 + mic.level * 6}px var(--negative-soft)` }
-                  : undefined
-              }
+              className={`icon-boxed h-8 disabled:opacity-60 ${mic.state === 'listening' ? 'w-12 border-transparent bg-accent-soft text-accent' : 'w-8'}`}
             >
               {mic.state === 'listening' ? (
-                <Square size={12} fill="currentColor" aria-hidden="true" />
+                <VoiceBars analyser={mic.analyser} />
               ) : recording ? (
                 <Loader2 size={15} className="animate-spin" aria-hidden="true" />
               ) : (
@@ -249,7 +270,7 @@ export default function ChatComposer({
                   exit={{ opacity: 0, scale: 0.6 }}
                   whileTap={{ scale: 0.9 }}
                   transition={{ duration: 0.14 }}
-                  className="send-gradient grid h-8 w-8 place-items-center rounded-lg"
+                  className="send-gradient grid h-9 w-9 place-items-center rounded-[11px]"
                 >
                   <Square size={11} fill="currentColor" aria-hidden="true" />
                 </motion.button>
@@ -257,15 +278,15 @@ export default function ChatComposer({
                 <motion.button
                   key="send"
                   type="button"
-                  onClick={onSend}
-                  disabled={reading || recording || !value.trim()}
-                  aria-label="Send message"
+                  onClick={sendOrFinish}
+                  disabled={reading || mic.state === 'finishing' || (!recording && !value.trim())}
+                  aria-label={recording ? 'Finish listening and send' : 'Send message'}
                   initial={{ opacity: 0, scale: 0.6 }}
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 0.6 }}
                   whileTap={{ scale: 0.9 }}
                   transition={{ duration: 0.14 }}
-                  className="send-gradient grid h-8 w-8 place-items-center rounded-lg disabled:cursor-not-allowed disabled:opacity-35"
+                  className="send-gradient grid h-9 w-9 place-items-center rounded-[11px] disabled:cursor-not-allowed disabled:opacity-35"
                 >
                   <SendPlane size={16} />
                 </motion.button>
@@ -279,13 +300,13 @@ export default function ChatComposer({
 
       {mic.state === 'listening' && (
         <p className="mt-2 text-center text-[12.5px] text-muted" aria-live="polite">
-          Listening {clock(mic.seconds)} / {clock(mic.limitSeconds)} · tap the mic to stop · stops after 10 seconds of quiet
+          Listening {clock(mic.seconds)} / {clock(mic.limitSeconds)} · press send when done · stops after 10 seconds of quiet
         </p>
       )}
 
       {mic.state === 'finishing' && (
         <p className="mt-2 text-center text-[12.5px] text-muted" aria-live="polite">
-          Checking your words…
+          {sending ? 'Checking your words, then sending…' : 'Checking your words…'}
         </p>
       )}
 

@@ -1,55 +1,51 @@
+import { Rows3 } from 'lucide-react';
+
 import type { TableBlock } from '@/lib/types';
+import { Badge, TileHead, TileRow } from '@/components/blocks/Tile';
 
 /**
- * A `table` block: plain column names, numbers on the right, scrolling sideways on a narrow screen.
- *
- * The table sits straight on the card with no frame of its own. Rows are split by hairlines and the
- * header is a muted line, so the card is the only box. It bleeds to the card's edges, so a wide
- * table scrolls the full width instead of inside an inset frame.
+ * A `table` block drawn as list rows, so a generic table from the backend still looks like the
+ * other cards. The first column is the row's name, the other left-aligned columns join into the
+ * grey sub-line, the last right-aligned column is the value and the one before it the small line
+ * under the value.
  */
 export default function TableCard({ block }: { block: TableBlock }) {
+  const [first, ...others] = block.columns;
+  const rights = others.filter((column) => column.align === 'right');
+  const lefts = others.filter((column) => column.align !== 'right');
+  const value = rights.at(-1);
+  const valueSub = rights.length > 1 ? rights.at(-2) : undefined;
+  const extraRights = rights.slice(0, Math.max(0, rights.length - 2));
+  const subColumns = [...lefts, ...extraRights];
+
+  const cell = (row: Record<string, string>, key?: string) => (key ? row[key] ?? '—' : undefined);
+
   return (
     <div className="min-w-0">
-      {(block.title || block.subtitle) && <BlockTitle title={block.title} subtitle={block.subtitle} />}
+      {(block.title || block.subtitle) && <TileHead title={block.title ?? ''} subtitle={block.subtitle} icon={Rows3} />}
 
-      <div className="quiet-scroll -mx-4 mt-2 -mb-2 overflow-x-auto sm:-mx-5">
-        <table className="w-full border-collapse text-[14px] tabular-nums">
-          <thead>
-            <tr className="border-b border-line">
-              {block.columns.map((column) => (
-                <th
-                  key={column.key}
-                  scope="col"
-                  className={`px-4 pt-1 pb-2 text-[12.5px] font-medium whitespace-nowrap text-muted sm:px-5 ${
-                    column.align === 'right' ? 'text-right' : 'text-left'
-                  }`}
-                >
-                  {column.label}
-                </th>
-              ))}
-            </tr>
-          </thead>
+      <div className={block.title || block.subtitle ? 'mt-2' : ''}>
+        {block.rows.map((row, index) => {
+          const sub = subColumns
+            .map((column) => {
+              const text = row[column.key];
 
-          <tbody>
-            {block.rows.map((row, index) => (
-              <tr
-                key={index}
-                className="border-b border-line transition-colors last:border-b-0 hover:bg-[var(--hover-surface)]"
-              >
-                {block.columns.map((column, at) => (
-                  <td
-                    key={column.key}
-                    className={`px-4 py-2.5 whitespace-nowrap sm:px-5 ${at === 0 ? 'font-medium text-primary' : 'text-primary'} ${
-                      column.align === 'right' ? 'text-right' : 'text-left'
-                    }`}
-                  >
-                    {row[column.key] ?? '—'}
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+              return text ? (column.align === 'right' ? `${column.label} ${text}` : text) : null;
+            })
+            .filter(Boolean)
+            .join(' · ');
+
+          return (
+            <TileRow
+              key={index}
+              lead={<Badge icon={Rows3} small tone="muted" />}
+              name={first ? cell(row, first.key) : '—'}
+              sub={sub || undefined}
+              value={cell(row, value?.key)}
+              valueSub={valueSub ? `${valueSub.label} ${cell(row, valueSub.key)}` : undefined}
+            />
+          );
+        })}
       </div>
     </div>
   );

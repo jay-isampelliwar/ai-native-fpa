@@ -57,6 +57,12 @@ def test_read_tools_are_read() -> None:
         "get_portfolio_exposure",
         "get_index_quote",
         "web_search",
+        "get_net_worth",
+        "get_asset_split",
+        "get_month_summary",
+        "get_cash_flow_history",
+        "get_financial_health",
+        "get_upcoming_events",
         "open_form",
         }
 

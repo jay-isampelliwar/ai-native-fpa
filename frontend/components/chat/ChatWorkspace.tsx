@@ -22,6 +22,7 @@ import type {
 import { useUploads } from '@/lib/useUploads';
 import ChatComposer from '@/components/chat/ChatComposer';
 import ChatHeader from '@/components/chat/ChatHeader';
+import { OPEN_FORM_EVENT, type OpenFormDetail } from '@/components/blocks/EmptyCard';
 import FormPanel from '@/components/forms/FormPanel';
 import MessageTimeline, { type Turn } from '@/components/chat/MessageTimeline';
 import SuggestedPrompts from '@/components/chat/SuggestedPrompts';
@@ -472,6 +473,20 @@ export default function ChatWorkspace({
   }
 
   const closeForm = useCallback(() => setForm(null), []);
+
+  // An empty-state card's "Add a …" button opens a blank form of that kind beside the chat. The
+  // form did not come from a reply's block, so it gets a made-up block id that nothing else uses.
+  useEffect(() => {
+    function onOpenForm(event: Event) {
+      const { form: kind } = (event as CustomEvent<OpenFormDetail>).detail;
+
+      setForm({ answerId: 'empty', blockId: `empty:${kind}:${newId()}`, block: { type: 'form', form: kind, values: {}, record_id: null } });
+    }
+
+    window.addEventListener(OPEN_FORM_EVENT, onOpenForm);
+
+    return () => window.removeEventListener(OPEN_FORM_EVENT, onOpenForm);
+  }, []);
 
   /** Stop the reply being written. If the run id has not arrived yet, stop it as soon as it does. */
   function stop() {

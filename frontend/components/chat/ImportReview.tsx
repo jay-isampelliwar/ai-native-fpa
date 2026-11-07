@@ -1,6 +1,6 @@
 'use client';
 
-import { AlertTriangle, Check, ChevronDown, Copy, X } from 'lucide-react';
+import { AlertTriangle, Check, ChevronDown, Copy, FileSpreadsheet, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 import { documents, imports } from '@/lib/api';
@@ -161,7 +161,7 @@ export default function ImportReview({
   }
 
   return (
-    <div className="mt-2 overflow-hidden rounded-xl border border-line bg-panel">
+    <div className="tile tone-accent mt-2">
       <Header record={record} newRows={pending.length} />
 
       <RowGroups rows={pending} />
@@ -206,8 +206,7 @@ export default function ImportReview({
               onCommitted?.();
             })
           }
-          className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12.5px] font-medium transition disabled:cursor-not-allowed disabled:opacity-40"
-          style={{ background: 'var(--accent)', color: 'var(--on-accent)' }}
+          className="send-gradient flex items-center gap-1.5 rounded-[9px] px-3 py-1.5 text-[12.5px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-40"
         >
           <Check size={14} strokeWidth={2.6} aria-hidden="true" />
           Approve {pending.length} row{pending.length === 1 ? '' : 's'}
@@ -222,7 +221,7 @@ export default function ImportReview({
               setRefused(true);
             })
           }
-          className="flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-[12.5px] text-secondary transition hover:text-primary disabled:opacity-40"
+          className="flex items-center gap-1.5 rounded-[9px] border border-line bg-panel px-3 py-1.5 text-[12.5px] text-secondary transition hover:text-primary disabled:opacity-40"
         >
           <X size={14} aria-hidden="true" />
           Reject
@@ -236,13 +235,16 @@ export default function ImportReview({
 
 function Header({ record, newRows }: { record: DocumentImport; newRows: number }) {
   return (
-    <div className="border-b border-line px-3 py-2.5">
-      <div className="flex items-baseline gap-2">
-        <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-primary">
-          {record.filename}
-        </span>
-        <span className="flex-none text-[11.5px] text-muted">
-          {newRows} new row{newRows === 1 ? '' : 's'}
+    <div className="border-b border-line px-3 py-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <span className="block truncate text-[13px] font-semibold text-primary">{record.filename}</span>
+          <span className="block text-[12px] text-muted">
+            {newRows} new row{newRows === 1 ? '' : 's'}
+          </span>
+        </div>
+        <span className="badge">
+          <FileSpreadsheet size={16} aria-hidden="true" />
         </span>
       </div>
 
@@ -297,7 +299,7 @@ function Row({ row }: { row: StagedRow }) {
   return (
     <li
       title={source || undefined}
-      className="flex items-baseline gap-2 rounded-lg px-1.5 py-1 text-[12px]"
+      className="flex items-baseline gap-2 rounded-lg px-1.5 py-1.5 text-[12.5px]"
       style={doubtful ? { background: 'var(--warning-soft)' } : undefined}
     >
       <span className="w-20 flex-none tabular-nums text-muted">

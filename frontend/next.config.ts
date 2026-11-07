@@ -19,6 +19,10 @@ import type { NextConfig } from "next";
 const backendOrigin = process.env.BACKEND_ORIGIN ?? "http://127.0.0.1:8000";
 
 const nextConfig: NextConfig = {
+  // The dev server is opened through an ngrok tunnel to test on a phone. Next blocks dev assets
+  // from any host but localhost unless the host is listed; ngrok names change, so match the domain.
+  allowedDevOrigins: ["*.ngrok-free.dev", "*.ngrok-free.app", "*.ngrok.io", "192.168.1.11"],
+
   async rewrites() {
     return [
       {

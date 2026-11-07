@@ -25,6 +25,18 @@ class InvestmentRepository(BaseUserRecordRepository):
 
         return await self.session.scalar(select(MutualFund).where(MutualFund.isin == isin))
 
+    async def stock_by_id(self, stock_id: int) -> Stock | None:
+
+        """Return the listed stock or ETF with this id, or None."""
+
+        return await self.session.get(Stock, stock_id)
+
+    async def fund_by_id(self, fund_id: int) -> MutualFund | None:
+
+        """Return the mutual fund plan with this id, or None."""
+
+        return await self.session.get(MutualFund, fund_id)
+
     async def holding_for_instrument(
         self,
         user_id: int,

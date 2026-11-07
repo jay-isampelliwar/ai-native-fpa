@@ -151,6 +151,17 @@ export type UiBlock =
   | SourcesBlock
   | QuoteBlock
   | HoldingsBlock
+  | HeroBlock
+  | KpisBlock
+  | BarsBlock
+  | RingBlock
+  | GaugeBlock
+  | ReceiptBlock
+  | ChangesBlock
+  | ChecklistBlock
+  | CompareBlock
+  | TimelineBlock
+  | EmptyBlock
   | FormBlock;
 
 export interface UiBlockEntry {
@@ -256,6 +267,127 @@ export interface QuoteBlock {
     direction: 'up' | 'down';
     stats?: { label: string; value: string }[];
   }[];
+}
+
+/** Which way a number moved, for colour: up is profit (teal), down is loss (rose). */
+export type Direction = 'up' | 'down';
+
+/** A small change beside a number, such as "+₹52,400 (2.9%)". */
+export interface Change {
+  text: string;
+  direction: Direction;
+}
+
+/** A `hero` block: one big number that answers the question, such as net worth, with a few facts under it. */
+export interface HeroBlock {
+  type: 'hero';
+  title: string;
+  as_of?: string | null;
+  value: string;
+  change?: Change | null;
+  /** A short word after the change, such as "this month". */
+  change_note?: string | null;
+  facts?: { label: string; value: string }[];
+  tone?: 'up' | 'down' | 'accent' | 'warn' | null;
+}
+
+/** A `kpis` block: two to four small tiles, each a number with its change and a short trend line. */
+export interface KpisBlock {
+  type: 'kpis';
+  title?: string | null;
+  as_of?: string | null;
+  items: {
+    label: string;
+    value: string;
+    change?: Change | null;
+    /** Recent values, oldest first, for the trend line. Empty or missing draws no line. */
+    trend?: number[];
+  }[];
+}
+
+/** A `bars` block: grouped bars by month, one or two series, in rupees. */
+export interface BarsBlock {
+  type: 'bars';
+  title: string;
+  subtitle?: string | null;
+  labels: string[];
+  series: { name: string; values: number[] }[];
+}
+
+/** A `ring` block: how a total is split, as a ring with a legend. */
+export interface RingBlock {
+  type: 'ring';
+  title: string;
+  subtitle?: string | null;
+  total: string;
+  items: { label: string; value: string; pct: number }[];
+}
+
+/** A `gauge` block: a score out of 100 on a half ring, with the checks behind it. */
+export interface GaugeBlock {
+  type: 'gauge';
+  title: string;
+  as_of?: string | null;
+  score: number;
+  /** One word for the score, such as "Fair". */
+  verdict: string;
+  checks: { label: string; value: string; tone: 'up' | 'down' | 'warn' }[];
+}
+
+/** A `receipt` block: what was just saved or removed, with its key facts. */
+export interface ReceiptBlock {
+  type: 'receipt';
+  action: 'saved' | 'removed';
+  /** The kind of item in words, such as "Loan". */
+  kind: string;
+  name: string;
+  record_id?: number | null;
+  facts: { label: string; value: string }[];
+}
+
+/** A `changes` block: the fields an update changed, old beside new. */
+export interface ChangesBlock {
+  type: 'changes';
+  title: string;
+  fields: { label: string; old: string; new: string }[];
+  note?: string | null;
+}
+
+/** A `checklist` block: which sections the planner knows about, and which are still missing or declined. */
+export interface ChecklistBlock {
+  type: 'checklist';
+  title: string;
+  subtitle?: string | null;
+  items: { label: string; status: 'done' | 'missing' | 'declined' }[];
+}
+
+/** A `compare` block: two to four things side by side, one row per measure. */
+export interface CompareBlock {
+  type: 'compare';
+  title?: string | null;
+  columns: string[];
+  rows: {
+    label: string;
+    values: string[];
+    /** Index of the best value in this row, to mark it, or null when none is better. */
+    best?: number | null;
+  }[];
+  note?: string | null;
+}
+
+/** A `timeline` block: dated money events, soonest first. */
+export interface TimelineBlock {
+  type: 'timeline';
+  title: string;
+  items: { when: string; label: string; value?: string | null; state: 'past' | 'soon' | 'far' }[];
+}
+
+/** An `empty` block: nothing saved of this kind yet, with the form that adds one when there is one. */
+export interface EmptyBlock {
+  type: 'empty';
+  title: string;
+  text?: string | null;
+  form?: FormKind | null;
 }
 
 export type FormKind ='goal' | 'income' | 'expense' | 'holding' | 'loan' | 'insurance';

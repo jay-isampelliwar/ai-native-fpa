@@ -62,11 +62,12 @@ def card_hint(tool_call_id: str) -> str:
 def checked(
     message: str,
     data: dict[str, Any] | None = None,
+    block: dict[str, Any] | None = None,
     ) -> ToolResult:
 
-    """The write was done and the row read back from the database matches what was asked."""
+    """The write was done and the row read back from the database matches what was asked, with a receipt card when there is one."""
 
-    return ToolResult(status="success", message=message, data=data, verified=True)
+    return ToolResult(status="success", message=message, data=data, verified=True, block=block)
 
 
 def mismatch(fields: dict[str, dict[str, str]]) -> ToolResult:

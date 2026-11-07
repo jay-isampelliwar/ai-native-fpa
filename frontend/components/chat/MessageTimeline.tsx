@@ -1,7 +1,7 @@
 'use client';
 
 import { AnimatePresence, motion } from 'framer-motion';
-import { Check, ChevronRight, Copy, Download, Paperclip, PenLine, RefreshCw, ThumbsDown, ThumbsUp } from 'lucide-react';
+import { AlertTriangle, Check, ChevronRight, Copy, Download, Paperclip, PenLine, RefreshCw, ThumbsDown, ThumbsUp } from 'lucide-react';
 import { useState } from 'react';
 
 import { splitCards, withoutCards } from '@/lib/cards';
@@ -13,7 +13,9 @@ import type {
   ApprovalRequest,
   ApprovalState,
   FormSubmission,
+  SourcesBlock,
   ToolStep,
+  UiBlock,
   UiBlockEntry,
 } from '@/lib/types';
 import BlockView from '@/components/blocks/BlockView';
@@ -156,16 +158,12 @@ function UserTurn({ turn }: { turn: Turn }) {
     >
       <div className="flex max-w-[80%] flex-col items-end">
         {turn.form ? (
-          <p
-            className="fi-host user-bubble inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-[14.5px] font-medium"
-          >
+          <p className="fi-host user-bubble inline-flex items-center gap-2 px-3.5 py-2 text-[14.5px] font-medium">
             <DetailsShared size={17} className="text-positive" />
             Details shared · {FORMS[turn.form.kind]?.title ?? 'Form'}
           </p>
         ) : (
-          <p
-            className="user-bubble rounded-xl px-4 py-2.5 text-[15.5px] leading-[1.6] whitespace-pre-wrap"
-          >
+          <p className="user-bubble px-4 py-2.5 text-[15.5px] leading-[1.6] whitespace-pre-wrap">
             {turn.text}
           </p>
         )}
@@ -237,13 +235,7 @@ function PlannerTurn({
         )}
 
         {turn.failed ? (
-          <motion.div
-            {...ENTER}
-            className="rounded-xl border px-4 py-3"
-            style={{ borderColor: 'var(--negative)', background: 'var(--negative-soft)' }}
-          >
-            <Reply text={after} streaming={streaming} />
-          </motion.div>
+          <ErrorCard text={after} busy={busy} onRetry={onRegenerate} />
         ) : (
           <ReplyWithCards text={after} blocks={turn.blocks} streaming={streaming} />
         )}
@@ -283,6 +275,37 @@ function PlannerTurn({
   );
 }
 
+/** A failed reply: the alert badge, what went wrong, and a button to ask the same question again. */
+function ErrorCard({ text, busy, onRetry }: { text: string; busy: boolean; onRetry: () => void }) {
+  return (
+    <motion.div {...ENTER} className="tile tone-down my-3 p-4 sm:p-5">
+      <div className="flex items-start gap-3">
+        <span className="badge">
+          <AlertTriangle aria-hidden className="h-4 w-4" strokeWidth={2} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-[13px] font-semibold text-negative">Something went wrong</p>
+          <div className="mt-1 text-[14px] text-secondary">
+            <Reply text={text || 'The request could not be completed. Nothing was changed.'} streaming={false} />
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-3 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={onRetry}
+          disabled={busy}
+          className="send-gradient inline-flex h-9 items-center gap-1.5 rounded-lg px-3.5 text-[13px] font-semibold disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          <RefreshCw size={14} aria-hidden="true" />
+          Try again
+        </button>
+      </div>
+    </motion.div>
+  );
+}
+
 /**
  * The reply's markdown with its cards drawn in place. Only the last text part gets the streaming
  * caret, and a card line whose card has not arrived yet draws nothing.
@@ -291,6 +314,10 @@ function ReplyWithCards({ text, blocks, streaming }: { text: string; blocks?: Ui
   const segments = splitCards(text);
   const byId = new Map((blocks ?? []).map((entry) => [entry.id, entry.block]));
   const lastText = segments.findLastIndex((segment) => segment.kind === 'text');
+
+  // Every web search in a reply sends its own sources card. They are joined into one row at the
+  // end, so the pages never appear in two places, and the same page is listed once.
+  const sources = mergedSources(segments.flatMap((segment) => (segment.kind === 'card' ? byId.get(segment.id) ?? [] : [])));
 
   if (segments.length === 0) return streaming ? <Reply text="" streaming /> : null;
 
@@ -303,10 +330,28 @@ function ReplyWithCards({ text, blocks, streaming }: { text: string; blocks?: Ui
 
         const block = byId.get(segment.id);
 
-        return block ? <BlockView key={index} block={block} /> : null;
+        return block && block.type !== 'sources' ? <BlockView key={index} block={block} /> : null;
       })}
+      {sources && !streaming && <BlockView block={sources} />}
     </>
   );
+}
+
+/** One sources block from all the sources blocks in a reply, each page once, or null when there are none. */
+function mergedSources(found: UiBlock[]): SourcesBlock | null {
+  const items = new Map<string, SourcesBlock['items'][number]>();
+
+  for (const block of found) {
+    if (block.type !== 'sources') continue;
+
+    for (const item of block.items) {
+      if (!items.has(item.url)) items.set(item.url, item);
+    }
+  }
+
+  if (items.size === 0) return null;
+
+  return { type: 'sources', title: 'Sources', items: [...items.values()] };
 }
 
 /** The button under a reply that opened a form: open it again, or a quiet note once it was sent. */
@@ -337,7 +382,8 @@ function FormButton({
       type="button"
       onClick={onOpen}
       disabled={disabled || open}
-      className="chip-button mt-3 h-8 gap-2 px-3 text-[13.5px] font-medium text-primary disabled:cursor-default disabled:opacity-60"
+      className="chip-button mt-3 h-9 gap-2 rounded-[10px] px-3.5 text-[13.5px] font-medium text-accent disabled:cursor-default disabled:opacity-60"
+      style={{ borderColor: 'color-mix(in srgb, var(--accent) 40%, var(--border))' }}
     >
       <FormSheet size={16} className="text-accent" />
       {open ? `${title} form is open` : `Open ${title.toLowerCase()} form`}
@@ -372,7 +418,7 @@ function ReplyActions({
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 0.3, delay: 0.1, ease: EASE }}
-      className="mt-3 -ml-1.5 flex flex-wrap items-center gap-0.5"
+      className="action-bar mt-3"
     >
       <ActionButton label={copied ? 'Copied' : 'Copy'} onClick={copy}>
         <AnimatePresence mode="wait" initial={false}>

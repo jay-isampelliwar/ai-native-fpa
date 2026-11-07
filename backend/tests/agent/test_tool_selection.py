@@ -19,7 +19,7 @@ from app.agent.intents import (
     )
 from app.agent.nodes import run_agent
 from app.agent.tools import ALL_TOOLS
-from app.agent.tools.selection import ALWAYS_TOOLS, TOOLS_BY_INTENT, tools_for
+from app.agent.tools.selection import ALWAYS_TOOLS, OVERVIEW_TOOLS, TOOLS_BY_INTENT, tools_for
 
 
 ALL_NAMES = [tool.name for tool in ALL_TOOLS]
@@ -34,7 +34,7 @@ def names(intents: list[str]) -> list[str]:
 
 def test_every_tool_is_reachable_and_every_name_is_real() -> None:
 
-    """Each of the 22 tools is in some intent group, and every name in the map is a real tool."""
+    """Every tool is in some intent group, and every name in the map is a real tool."""
 
     mapped = set(ALWAYS_TOOLS).union(*TOOLS_BY_INTENT.values())
 
@@ -53,7 +53,18 @@ def test_one_intent_gets_its_tools_and_the_always_set() -> None:
     """A delete gets only delete_record plus the two tools the prompt always needs, in ALL_TOOLS order."""
 
     assert names([DELETE_DATA]) == ["get_missing_sections", "list_records", "delete_record"]
-    assert names([VIEW_DATA]) == ["get_missing_sections", "list_records", "get_portfolio_exposure", "web_search"]
+    assert names([VIEW_DATA]) == [
+        "get_missing_sections",
+        "list_records",
+        "get_portfolio_exposure",
+        "web_search",
+        "get_net_worth",
+        "get_asset_split",
+        "get_month_summary",
+        "get_cash_flow_history",
+        "get_financial_health",
+        "get_upcoming_events",
+        ]
 
 
 def test_several_intents_get_the_union_once() -> None:
@@ -62,7 +73,16 @@ def test_several_intents_get_the_union_once() -> None:
 
     picked = names([GOAL_CHECK, SIMULATION])
 
-    assert set(picked) == {"get_missing_sections", "list_records", "check_goal_progress", "link_asset_to_goal", "add_goal", "set_planning_rate", "open_form"}
+    assert set(picked) == {
+        "get_missing_sections",
+        "list_records",
+        "check_goal_progress",
+        "link_asset_to_goal",
+        "add_goal",
+        "set_planning_rate",
+        "open_form",
+        *OVERVIEW_TOOLS,
+        }
     assert len(picked) == len(set(picked))
 
 

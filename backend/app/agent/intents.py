@@ -44,7 +44,7 @@ FALLBACK_INTENTS = [GENERAL_QUESTION]
 RULES = (
     (DELETE_DATA, re.compile(r"\b(delete|remove)\b")),
     (CHANGE_DATA, re.compile(r"\b(update|change|edit)\b")),
-    (VIEW_DATA, re.compile(r"\b(show|list)\b( me)? my\b")),
+    (VIEW_DATA, re.compile(r"\b(show|list)\b( me)? my\b|\bnet worth\b|\bwhere is my money\b|\bcoming up\b|\bhow (is|was) my month\b|\bfinancial health\b")),
     (GOAL_CHECK, re.compile(r"\b(goal progress|on track)\b")),
     (MISSING_DATA, re.compile(r"\bwhat( else)? do you need\b|\bwhat('s| is) missing\b")),
     (SIMULATION, re.compile(r"\bwhat (happens )?if\b|\bcalculate\b")),
@@ -64,7 +64,8 @@ CLASSIFIER_PROMPT = (
     "Pick every intent the latest message asks for, in the order it asks. Use the earlier messages only to understand "
     "short replies like 'yes' or 'that one'.\n"
     "- VIEW_DATA: see or ask about details they already saved (loans, goals, income, expenses, accounts, policies), "
-    "including how their own funds or stocks did today or overall.\n"
+    "including how their own funds or stocks did today or overall, their net worth, where their money is, "
+    "this month's cash flow, their financial health score, and what is coming up (SIPs, EMIs, renewals).\n"
     "- ADD_DATA: share or save a new detail (a new loan, salary, goal, family member, policy).\n"
     "- CHANGE_DATA: change a detail already saved.\n"
     "- DELETE_DATA: remove a detail already saved.\n"

@@ -8,6 +8,7 @@ from langchain.tools import ToolRuntime, tool
 from langchain_core.messages import ToolMessage
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agent.blocks import receipt_block
 from app.agent.context import PlannerContext
 from app.agent.tools.cash_flow import RUPEES
 from app.agent.tools.common import given_arguments
@@ -75,7 +76,11 @@ async def add_stock_or_fund(
 
         await confirm_saved(session, Holding, {"id": record.id}, expected)
 
-        return checked(f"Saved {instrument.name}.", {"name": instrument.name, "isin": instrument.isin, **record_fields(record)})
+        return checked(
+            f"Saved {instrument.name}.",
+            {"name": instrument.name, "isin": instrument.isin, **record_fields(record)},
+            receipt_block("saved", record, instrument.name),
+            )
 
     return to_message(await run_write(runtime, save), runtime.tool_call_id)
 
@@ -113,6 +118,6 @@ async def add_sip_plan(
 
         data = {"name": instrument.name, "isin": instrument.isin, **record_fields(record)}
 
-        return checked(f"Saved SIP into {instrument.name}.", data)
+        return checked(f"Saved SIP into {instrument.name}.", data, receipt_block("saved", record, f"SIP · {instrument.name}"))
 
     return to_message(await run_write(runtime, save), runtime.tool_call_id)

@@ -89,6 +89,18 @@ class CoverageService:
             missing_profile_fields=await self.missing_profile_fields(user_id),
             )
 
+    async def statuses(self, user_id: int) -> dict[str, str]:
+
+        """Every section's status by name, in the order the planner asks, after syncing saved data."""
+
+        coverage = await self.repo.get_or_create(user_id)
+
+        await self.sync_provided(user_id, coverage)
+
+        await self.session.commit()
+
+        return {section: getattr(coverage, section).value for section in SECTIONS}
+
     async def update(self, user_id: int, changes: dict[str, CoverageChoice]) -> dict[str, CoverageStatus]:
 
         """Set none, declined or pending on the given sections, refusing none or declined where data is saved."""

@@ -108,6 +108,7 @@ export function useVoiceInput(onText: (text: string, final: boolean) => void) {
   const [error, setError] = useState<string | null>(null);
 
   const session = useRef<Session | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
   const report = useRef(onText);
 
   useEffect(() => {
@@ -126,6 +127,7 @@ export function useVoiceInput(onText: (text: string, final: boolean) => void) {
     if (current.pieceTimer) clearTimeout(current.pieceTimer);
     current.stream.getTracks().forEach((track) => track.stop());
     void current.audio.close().catch(() => undefined);
+    analyserRef.current = null;
   }, []);
 
   /** Send one short piece and show every piece heard so far, in order. */
@@ -219,9 +221,13 @@ export function useVoiceInput(onText: (text: string, final: boolean) => void) {
     const format = recordFormat();
     const audio = new AudioContext();
     const analyser = audio.createAnalyser();
+    analyser.fftSize = 256;
+    analyser.smoothingTimeConstant = 0.6;
+
     const samples = new Float32Array(analyser.fftSize);
 
     audio.createMediaStreamSource(stream).connect(analyser);
+    analyserRef.current = analyser;
 
     const whole = new MediaRecorder(stream, format ? { mimeType: format } : undefined);
     const now = Date.now();
@@ -298,6 +304,8 @@ export function useVoiceInput(onText: (text: string, final: boolean) => void) {
     state,
     seconds,
     level,
+    /** The live audio analyser while listening, for a visualiser; null otherwise. */
+    analyser: analyserRef,
     error,
     supported,
     toggle,

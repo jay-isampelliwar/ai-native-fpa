@@ -8,6 +8,7 @@ from langchain_core.messages import ToolMessage
 from pydantic import BaseModel, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agent.blocks import receipt_block
 from app.agent.context import PlannerContext
 from app.agent.tools.operations import run_write
 from app.agent.tools.results import ToolResult, checked, from_validation_error, invalid, to_message
@@ -71,7 +72,11 @@ async def save_result[SchemaT: BaseModel](
 
         await confirm_saved(session, type(record), {"id": record.id}, data.model_dump(exclude_none=True))
 
-        return checked(f"Saved {label}.", {"id": record.id, **data.model_dump(mode="json", exclude_none=True)})
+        return checked(
+            f"Saved {label}.",
+            {"id": record.id, **data.model_dump(mode="json", exclude_none=True)},
+            receipt_block("saved", record),
+            )
 
     return await run_write(runtime, save)
 
