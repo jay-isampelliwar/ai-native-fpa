@@ -1,5 +1,6 @@
 """Tests for the Langfuse setup with the client and handler faked, so no key or network is needed."""
 
+from contextlib import nullcontext
 from typing import Any
 
 import pytest
@@ -7,7 +8,17 @@ from pydantic import SecretStr
 
 from app.core.config import Settings, get_settings
 from app.observability import langfuse as observability
-from app.observability.langfuse import create_langfuse, langfuse_enabled, langfuse_handler, shutdown_langfuse
+from app.features.runs.worker import TURN_SPAN_NAME, thread_config, traced_config
+from app.observability.langfuse import (
+    TRACE_NAME,
+    TRACE_TAGS,
+    create_langfuse,
+    langfuse_enabled,
+    langfuse_handler,
+    shutdown_langfuse,
+    start_langfuse,
+    tracing_context,
+    )
 
 
 PUBLIC_KEY = "pk-lf-test"
@@ -46,6 +57,13 @@ class FakeHandler:
         """Remember the public key instead of linking to a real client."""
 
         self.public_key = public_key
+
+
+def fail(*args: Any, **kwargs: Any) -> Any:
+
+    """Stand in for any Langfuse call that breaks, the way it would when Langfuse is down."""
+
+    raise RuntimeError("langfuse is down")
 
 
 def settings_with(
@@ -153,3 +171,136 @@ def test_shutdown_does_nothing_without_keys() -> None:
     shutdown_langfuse(settings_with(public_key=None))
 
     assert FakeLangfuse.built == []
+
+
+def test_tracing_is_off_in_every_test() -> None:
+
+    """The shared settings have no public key in tests, so no client, handler or trace attributes are made."""
+
+    settings = get_settings()
+
+    assert langfuse_enabled(settings) is False
+    assert create_langfuse(settings) is None
+    assert langfuse_handler(settings) is None
+    assert isinstance(tracing_context(settings, 7, 42, 101, "host:1"), nullcontext)
+    assert FakeLangfuse.built == []
+
+
+def test_a_client_that_fails_to_start_is_logged_and_skipped(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    ) -> None:
+
+    """A client that throws on start gives no client and no handler, and the error is logged."""
+
+    monkeypatch.setattr(observability, "Langfuse", fail)
+
+    assert create_langfuse(settings_with()) is None
+    assert langfuse_handler(settings_with()) is None
+    assert "Langfuse client failed to start" in caplog.text
+
+
+def test_a_handler_that_fails_to_build_means_no_handler(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    ) -> None:
+
+    """A handler that throws on build leaves the turn untraced, and the error is logged."""
+
+    monkeypatch.setattr(observability, "CallbackHandler", fail)
+
+    assert langfuse_handler(settings_with()) is None
+    assert "callback handler failed to build" in caplog.text
+
+
+def test_trace_attributes_carry_the_turn(monkeypatch: pytest.MonkeyPatch) -> None:
+
+    """The turn's user, conversation as session, trace name, tags, run and worker reach Langfuse as strings."""
+
+    given: list[dict[str, Any]] = []
+
+    monkeypatch.setattr(observability, "propagate_attributes", lambda **kwargs: given.append(kwargs) or nullcontext())
+
+    with tracing_context(settings_with(), 7, 42, 101, "host:1"):
+        pass
+
+    assert given == [
+        {
+            "user_id": "7",
+            "session_id": "42",
+            "trace_name": TRACE_NAME,
+            "tags": TRACE_TAGS,
+            "metadata": {"run_id": "101", "worker_id": "host:1"},
+            },
+        ]
+
+
+def test_trace_attributes_that_fail_give_an_empty_context(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    ) -> None:
+
+    """Trace attributes that throw give a context that does nothing, and the error is logged."""
+
+    monkeypatch.setattr(observability, "propagate_attributes", fail)
+
+    assert isinstance(tracing_context(settings_with(), 7, 42, 101, "host:1"), nullcontext)
+    assert "trace attributes failed to build" in caplog.text
+
+
+def test_a_failed_shutdown_is_logged_not_raised(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    ) -> None:
+
+    """A shutdown that throws is logged, so the worker still closes Redis and the DB pool."""
+
+    client = FakeLangfuse()
+    client.shutdown = fail
+
+    monkeypatch.setattr(observability, "create_langfuse", lambda settings: client)
+
+    shutdown_langfuse(settings_with())
+
+    assert "Langfuse shutdown failed" in caplog.text
+
+
+def test_start_up_logs_that_tracing_is_on(caplog: pytest.LogCaptureFixture) -> None:
+
+    """With keys, start-up builds the process's client and logs where traces go."""
+
+    caplog.set_level("INFO", logger=observability.__name__)
+
+    assert isinstance(start_langfuse(settings_with()), FakeLangfuse)
+    assert f"Langfuse tracing is on, sending to {BASE_URL}" in caplog.text
+
+
+def test_start_up_logs_that_tracing_is_off(caplog: pytest.LogCaptureFixture) -> None:
+
+    """Without keys, start-up builds nothing and logs that tracing is off."""
+
+    caplog.set_level("INFO", logger=observability.__name__)
+
+    assert start_langfuse(settings_with(public_key=None)) is None
+    assert "Langfuse tracing is off" in caplog.text
+
+
+def test_the_turn_config_is_plain_when_tracing_is_off() -> None:
+
+    """With tracing off, the graph gets the thread's own config and no callbacks."""
+
+    assert traced_config(42) == thread_config(42)
+
+
+def test_the_turn_config_carries_the_handler_when_tracing_is_on(monkeypatch: pytest.MonkeyPatch) -> None:
+
+    """With tracing on, the graph gets the handler and the turn's root span name on top of the thread's config."""
+
+    monkeypatch.setattr(get_settings(), "LANGFUSE_PUBLIC_KEY", PUBLIC_KEY)
+    monkeypatch.setattr(get_settings(), "LANGFUSE_SECRET_KEY", SecretStr(SECRET_KEY))
+
+    config = traced_config(42)
+
+    assert config["configurable"] == {"thread_id": "42"}
+    assert config["run_name"] == TURN_SPAN_NAME
+    assert [type(handler) for handler in config["callbacks"]] == [FakeHandler]
