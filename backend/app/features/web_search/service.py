@@ -13,6 +13,7 @@ from app.core.config import get_settings
 from app.features.web_search import cache
 from app.features.web_search.preview import add_images
 from app.features.web_search.schemas import Freshness, SearchOptions, WebSearchUnavailable
+from app.observability.observations import observe_step, update_step
 
 
 SAFE_SCHEMES = ("http", "https")
@@ -20,6 +21,8 @@ SAFE_SCHEMES = ("http", "https")
 SKIPPED_SITES = ("tavily.com",)
 
 MIN_TAVILY_SECONDS = 2.0
+
+TAVILY_STEP = "tavily.search"
 
 log = logging.getLogger(__name__)
 
@@ -110,32 +113,41 @@ async def fetch(
     timeout: float,
     ) -> list[dict[str, Any]]:
 
-    """Ask Tavily for pages only, no written answer, and return the cleaned results."""
+    """Ask Tavily for pages only, no written answer, inside a step that records the result count, and return the cleaned results."""
 
     client = tavily_client()
 
     if client is None:
         raise WebSearchUnavailable("TAVILY_API_KEY is not set")
 
-    try:
+    async with observe_step(get_settings(), TAVILY_STEP, "span", {"provider": "tavily", "topic": options.topic}) as step:
 
-        raw = await client.search(
-            query,
-            topic=options.topic,
-            time_range=options.time_range,
-            country=options.country,
-            search_depth=options.search_depth,
-            max_results=options.max_results,
-            include_answer=False,
-            include_raw_content=False,
-            include_images=False,
-            timeout=timeout,
-            )
+        try:
 
-    except Exception as exc:
-        raise WebSearchUnavailable(str(exc)) from exc
+            raw = await client.search(
+                query,
+                topic=options.topic,
+                time_range=options.time_range,
+                country=options.country,
+                search_depth=options.search_depth,
+                max_results=options.max_results,
+                include_answer=False,
+                include_raw_content=False,
+                include_images=False,
+                timeout=timeout,
+                )
 
-    return clean_results(raw)
+        except Exception as exc:
+
+            update_step(step, metadata={"cause": type(exc).__name__})
+
+            raise WebSearchUnavailable(str(exc)) from exc
+
+        results = clean_results(raw)
+
+        update_step(step, metadata={"result_count": len(results)})
+
+    return results
 
 
 async def search(

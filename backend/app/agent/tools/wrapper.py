@@ -28,6 +28,11 @@ log = logging.getLogger(__name__)
 PASS_THROUGH = (RunCancelled, GraphBubbleUp)
 
 GUARD_SUFFIX = "-guard"
+ATTEMPT_SUFFIX = ".attempt"
+
+QUIET_STATUSES = ("success", "rejected")
+RETRYABLE_STATUS = "retryable_error"
+CRASH_CODE = "tool_failed"
 
 
 def invocation_error(exc: ToolInvocationError) -> str:
@@ -111,13 +116,18 @@ def keeps_failing(
 
 def result_fields(message: ToolMessage) -> dict[str, Any]:
 
-    """The JSON result a tool message carries, or an empty dict when its text is not a JSON object."""
+    """The JSON result a tool message carries, read from its text or its first text part, or an empty dict when there is none."""
 
-    if not isinstance(message.content, str):
+    content = message.content
+
+    if isinstance(content, list) and content and isinstance(content[0], dict):
+        content = content[0].get("text", "")
+
+    if not isinstance(content, str):
         return {}
 
     try:
-        result = json.loads(message.content)
+        result = json.loads(content)
 
     except ValueError:
         return {}
@@ -125,26 +135,44 @@ def result_fields(message: ToolMessage) -> dict[str, Any]:
     return result if isinstance(result, dict) else {}
 
 
+def outcome_level(
+    status: str,
+    error_code: str | None,
+    ) -> str:
+
+    """The Langfuse level for a call's final answer: plain for a success or a user's no, error for a crash or tries used up, else a warning."""
+
+    if status in QUIET_STATUSES:
+        return "DEFAULT"
+
+    if status == RETRYABLE_STATUS or error_code == CRASH_CODE:
+        return "ERROR"
+
+    return "WARNING"
+
+
 def guard_outcome(message: ToolMessage | Command) -> dict[str, Any]:
 
-    """What the guard step records about a call's answer: its status, error code and whether it may be retried, as a warning when it failed."""
+    """What the guard step records about a call's answer: its status, error code, whether it may be retried, and its level."""
 
     if not isinstance(message, ToolMessage):
         return {"metadata": {"status": "command"}}
 
-    if message.status != "error":
-        return {"metadata": {"status": message.status}}
-
     result = result_fields(message)
 
-    return {
-        "metadata": {
-            "status": message.status,
-            "error_code": result.get("error_code"),
-            "retryable": bool(result.get("retryable", False)),
-            },
-        "level": "WARNING",
+    status = str(result.get("status") or ("success" if message.status != "error" else "error"))
+    error_code = result.get("error_code")
+    level = outcome_level(status, error_code)
+
+    outcome: dict[str, Any] = {
+        "metadata": {"status": status, "error_code": error_code, "retryable": bool(result.get("retryable", False))},
+        "level": level,
         }
+
+    if level != "DEFAULT":
+        outcome["status_message"] = f"{status}: {error_code}"
+
+    return outcome
 
 
 async def finish_tool_call(
@@ -190,30 +218,42 @@ async def guard_tool_call(
 
         update_step(step, metadata={"attempts": attempt + 1})
 
-        try:
+        failure: BaseException | None = None
 
-            async with asyncio.timeout(tool_timeout(context)):
-                message = await execute(request)
+        async with observe_step(get_settings(), f"{call['name']}{ATTEMPT_SUFFIX}", "span", {"attempt": attempt + 1}) as try_step:
 
-        except RETRYABLE_ERRORS as exc:
+            try:
+
+                async with asyncio.timeout(tool_timeout(context)):
+                    message = await execute(request)
+
+            except RETRYABLE_ERRORS as exc:
+
+                update_step(try_step, level="WARNING", status_message=type(exc).__name__)
+
+                failure = exc
+
+            except PASS_THROUGH:
+                raise
+
+            except Exception:
+
+                log.exception("tool %s crashed", call["name"])
+
+                update_step(try_step, level="ERROR", status_message=CRASH_CODE)
+
+                return to_message(tool_failed(call["name"]), call["id"], call["name"])
+
+        if failure is not None:
 
             wait = retry_wait(attempt)
 
             if attempt + 1 >= attempts or not worth_retrying(context, wait):
-                return to_message(classify(exc), call["id"], call["name"])
+                return to_message(classify(failure), call["id"], call["name"])
 
             await asyncio.sleep(wait)
 
             continue
-
-        except PASS_THROUGH:
-            raise
-
-        except Exception:
-
-            log.exception("tool %s crashed", call["name"])
-
-            return to_message(tool_failed(call["name"]), call["id"], call["name"])
 
         if isinstance(message, ToolMessage):
             message.name = call["name"]
