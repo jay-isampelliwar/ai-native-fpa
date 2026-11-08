@@ -8,6 +8,7 @@ from langfuse import Langfuse, propagate_attributes
 from langfuse.langchain import CallbackHandler
 
 from app.core.config import Settings
+from app.observability.masking import mask_spans
 
 
 log = logging.getLogger(__name__)
@@ -35,6 +36,7 @@ def create_langfuse(settings: Settings) -> Langfuse | None:
             public_key=settings.LANGFUSE_PUBLIC_KEY,
             secret_key=settings.LANGFUSE_SECRET_KEY.get_secret_value(),
             base_url=settings.LANGFUSE_BASE_URL,
+            mask_otel_spans=mask_spans,
             )
 
     except Exception:
@@ -63,19 +65,23 @@ def start_langfuse(settings: Settings) -> Langfuse | None:
 
 def langfuse_handler(settings: Settings) -> CallbackHandler | None:
 
-    """A LangChain callback handler that sends each model and tool call to Langfuse, or None when tracing is off or it fails to build."""
+    """A LangChain callback handler run inline, so steps made inside a node nest under it, or None when tracing is off or it fails to build."""
 
     if create_langfuse(settings) is None:
         return None
 
     try:
-        return CallbackHandler(public_key=settings.LANGFUSE_PUBLIC_KEY)
+        handler = CallbackHandler(public_key=settings.LANGFUSE_PUBLIC_KEY)
 
     except Exception:
 
         log.exception("Langfuse callback handler failed to build, so this turn is not traced")
 
         return None
+
+    handler.run_inline = True
+
+    return handler
 
 
 def tracing_context(

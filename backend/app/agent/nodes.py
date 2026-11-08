@@ -33,6 +33,7 @@ from app.db.session import SessionLocal
 from app.features.memory.context import describe_memories, describe_memory
 from app.features.memory.repository import MemoryRepository
 from app.core.config import get_settings
+from app.observability.observations import observe_step, update_step
 from app.services.llm import llm_service
 
 
@@ -41,6 +42,8 @@ SYSTEM_PROMPT = f"{SYSTEM_BASE_INSTRUCTIONS}\n{TOOL_USAGE_INSTRUCTIONS}"
 log = logging.getLogger(__name__)
 
 MEMORY_LIMIT = 50
+
+READ_MEMORIES_STEP = "read-memories"
 
 LIMIT_REASONS = {
     MODEL_CALL_LIMIT: "it has taken as many steps as one reply may",
@@ -103,8 +106,12 @@ async def load_memories(state: PlannerState, runtime: Runtime[PlannerContext]) -
 
     """Read the user's newest active memories into the state."""
 
-    async with SessionLocal() as session:
-        memories = await MemoryRepository(session).active_memories(runtime.context.user_id, limit=MEMORY_LIMIT)
+    async with observe_step(get_settings(), READ_MEMORIES_STEP, "retriever", {"limit": MEMORY_LIMIT}) as step:
+
+        async with SessionLocal() as session:
+            memories = await MemoryRepository(session).active_memories(runtime.context.user_id, limit=MEMORY_LIMIT)
+
+        update_step(step, metadata={"memory_count": len(memories)})
 
     return {"memories": [describe_memory(memory) for memory in memories]}
 

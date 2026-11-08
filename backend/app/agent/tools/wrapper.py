@@ -16,6 +16,7 @@ from app.agent.tools.limits import RETRYABLE_ERRORS, can_retry, classify, retry_
 from app.agent.tools.policies import policy_for
 from app.agent.tools.results import REPEAT_LIMIT, bad_arguments, not_allowed, repeated_failure, to_message, tool_failed
 from app.core.config import get_settings
+from app.observability.observations import Step, observe_step, update_step
 
 
 type ToolExecute = Callable[[ToolCallRequest], Awaitable[ToolMessage | Command]]
@@ -25,6 +26,8 @@ type FailureSign = tuple[str, ...]
 log = logging.getLogger(__name__)
 
 PASS_THROUGH = (RunCancelled, GraphBubbleUp)
+
+GUARD_SUFFIX = "-guard"
 
 
 def invocation_error(exc: ToolInvocationError) -> str:
@@ -106,17 +109,74 @@ def keeps_failing(
     return None not in signs and len(set(signs)) == 1
 
 
+def result_fields(message: ToolMessage) -> dict[str, Any]:
+
+    """The JSON result a tool message carries, or an empty dict when its text is not a JSON object."""
+
+    if not isinstance(message.content, str):
+        return {}
+
+    try:
+        result = json.loads(message.content)
+
+    except ValueError:
+        return {}
+
+    return result if isinstance(result, dict) else {}
+
+
+def guard_outcome(message: ToolMessage | Command) -> dict[str, Any]:
+
+    """What the guard step records about a call's answer: its status, error code and whether it may be retried, as a warning when it failed."""
+
+    if not isinstance(message, ToolMessage):
+        return {"metadata": {"status": "command"}}
+
+    if message.status != "error":
+        return {"metadata": {"status": message.status}}
+
+    result = result_fields(message)
+
+    return {
+        "metadata": {
+            "status": message.status,
+            "error_code": result.get("error_code"),
+            "retryable": bool(result.get("retryable", False)),
+            },
+        "level": "WARNING",
+        }
+
+
 async def finish_tool_call(
     request: ToolCallRequest,
     execute: ToolExecute,
     ) -> ToolMessage | Command:
 
-    """Stop if the run was asked to, then run one tool call within its time limit, try again on a timeout or outage when safe, turn any other crash into a failed result, and answer."""
+    """Stop if the run was asked to, then guard the call inside a guardrail step that records its attempts, status and error code."""
+
+    name = request.tool_call["name"]
+
+    await stop_if_cancelled(request.runtime.context.run_id)
+
+    async with observe_step(get_settings(), f"{name}{GUARD_SUFFIX}", "guardrail", {"tool": name}) as step:
+
+        message = await guard_tool_call(request, execute, step)
+
+        update_step(step, **guard_outcome(message))
+
+    return message
+
+
+async def guard_tool_call(
+    request: ToolCallRequest,
+    execute: ToolExecute,
+    step: Step | None,
+    ) -> ToolMessage | Command:
+
+    """Run one tool call within its time limit, try again on a timeout or outage when safe, turn any other crash into a failed result, and answer."""
 
     call = request.tool_call
     context = request.runtime.context
-
-    await stop_if_cancelled(context.run_id)
 
     if policy_for(call["name"]) is None:
         return to_message(not_allowed(call["name"]), call["id"], call["name"])
@@ -127,6 +187,8 @@ async def finish_tool_call(
     attempts = get_settings().TOOL_RETRY_ATTEMPTS if can_retry(call["name"], context) else 1
 
     for attempt in range(attempts):
+
+        update_step(step, metadata={"attempts": attempt + 1})
 
         try:
 

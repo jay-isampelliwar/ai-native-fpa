@@ -19,6 +19,7 @@ from app.observability.langfuse import (
     start_langfuse,
     tracing_context,
     )
+from app.observability.masking import mask_spans
 
 
 PUBLIC_KEY = "pk-lf-test"
@@ -124,12 +125,17 @@ def test_no_client_is_built_without_keys() -> None:
 
 def test_the_client_gets_the_keys_and_base_url_with_the_secret_unwrapped() -> None:
 
-    """The client is built with both keys and the base URL, the secret as plain text."""
+    """The client is built with both keys, the base URL and the masking hook, the secret as plain text."""
 
     client = create_langfuse(settings_with())
 
     assert isinstance(client, FakeLangfuse)
-    assert client.kwargs == {"public_key": PUBLIC_KEY, "secret_key": SECRET_KEY, "base_url": BASE_URL}
+    assert client.kwargs == {
+        "public_key": PUBLIC_KEY,
+        "secret_key": SECRET_KEY,
+        "base_url": BASE_URL,
+        "mask_otel_spans": mask_spans,
+        }
 
 
 def test_no_handler_without_keys() -> None:
@@ -149,6 +155,15 @@ def test_the_handler_is_linked_to_the_client_by_public_key() -> None:
     assert isinstance(handler, FakeHandler)
     assert handler.public_key == PUBLIC_KEY
     assert len(FakeLangfuse.built) == 1
+
+
+def test_the_handler_runs_inline_so_node_steps_nest_under_it() -> None:
+
+    """The handler runs on the caller's own context, so a step started inside a node sees the node's span."""
+
+    handler = langfuse_handler(settings_with())
+
+    assert handler.run_inline is True
 
 
 def test_shutdown_stops_the_client(monkeypatch: pytest.MonkeyPatch) -> None:
