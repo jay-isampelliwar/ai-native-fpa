@@ -16,8 +16,6 @@ from app.features.outbox.repository import OutboxRepository
 
 log = logging.getLogger(__name__)
 
-IDLE_SLEEP_SECONDS = 1.0
-
 
 def stream_fields(event: OutboxEvent) -> dict[str, str]:
 
@@ -67,7 +65,8 @@ async def run_forever() -> None:
 
     """Publish batches until stopped, resting when nothing is due, and close Redis and the DB pool on exit."""
 
-    batch_size = get_settings().MEMORY_WORKER_BATCH_SIZE
+    settings = get_settings()
+    batch_size = settings.MEMORY_WORKER_BATCH_SIZE
 
     log.info("outbox publisher started")
 
@@ -85,7 +84,7 @@ async def run_forever() -> None:
                 taken = 0
 
             if taken < batch_size:
-                await asyncio.sleep(IDLE_SLEEP_SECONDS)
+                await asyncio.sleep(settings.OUTBOX_IDLE_SLEEP_SECONDS)
 
     finally:
 

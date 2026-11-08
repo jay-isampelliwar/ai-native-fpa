@@ -1,104 +1,79 @@
-x-app-env: &app-env
-  DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
-  REDIS_URL: redis://redis:6379/0
+# Production stack for the GCP e2-micro VM.
+# Postgres is on Neon and Redis is on Upstash, so neither runs here.
+# Run from backend/ on the VM:
+#   docker compose --env-file .env.prod up -d --build
+# Local development lives in infra/docker-compose.yml.
 
-x-app-depends: &app-depends
-  postgres:
-    condition: service_healthy
-  redis:
-    condition: service_healthy
+x-app: &app
+  image: ai-native-fpa-backend
+  env_file: .env.prod
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+x-after-api: &after-api
+  api:
+    condition: service_started
 
 services:
-  postgres:
-    image: postgres:17
-    container_name: ai-native-fpa-postgres
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
-    ports:
-      - "5433:5432"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-
-  redis:
-    image: redis:7.4-alpine
-    container_name: ai-native-fpa-backend-redis
-    command: redis-server --appendonly yes
-    ports:
-      - "6380:6379"
-    volumes:
-      - redis_data:/data
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-
   api:
+    <<: *app
     build: .
-    image: ai-native-fpa-backend
     container_name: ai-native-fpa-api
-    env_file: .env
-    environment: *app-env
-    ports:
-      - "8000:8000"
-    depends_on: *app-depends
-    restart: unless-stopped
+    expose:
+      - "8000"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
-      interval: 15s
+      interval: 30s
       timeout: 5s
       retries: 5
-      start_period: 20s
+      start_period: 30s
 
   outbox:
-    image: ai-native-fpa-backend
+    <<: *app
     container_name: ai-native-fpa-outbox
     command: ["python", "-m", "app.features.outbox.publisher"]
-    env_file: .env
-    environment: *app-env
-    depends_on:
-      <<: *app-depends
-      api:
-        condition: service_started
-    restart: unless-stopped
+    depends_on: *after-api
 
   agent-worker:
-    image: ai-native-fpa-backend
+    <<: *app
+    container_name: ai-native-fpa-agent-worker
     command: ["python", "-m", "app.features.runs.consumer"]
-    env_file: .env
-    environment: *app-env
-    depends_on:
-      <<: *app-depends
-      api:
-        condition: service_started
-    restart: unless-stopped
+    depends_on: *after-api
     stop_grace_period: 30s
 
   memory-worker:
-    image: ai-native-fpa-backend
+    <<: *app
+    container_name: ai-native-fpa-memory-worker
     command: ["python", "-m", "app.features.memory.worker"]
-    env_file: .env
-    environment: *app-env
-    depends_on:
-      <<: *app-depends
-      api:
-        condition: service_started
-    restart: unless-stopped
+    depends_on: *after-api
     stop_grace_period: 30s
 
+  caddy:
+    image: caddy:2.8-alpine
+    container_name: ai-native-fpa-caddy
+    environment:
+      API_DOMAIN: ${API_DOMAIN:?set API_DOMAIN in .env.prod}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
 volumes:
-  pgdata:
-    name: ai-native-fpa-pgdata
-    external: true
-  redis_data:
-    name: infra_redis_data
-    external: true
+  caddy_data:
+  caddy_config:

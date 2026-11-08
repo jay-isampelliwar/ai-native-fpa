@@ -95,7 +95,7 @@ because goals and policies find a family member by name. The `set_*` tools and `
 | Auth | Argon2 (`pwdlib`) passwords, HS256 JWT (`pyjwt`) in an httpOnly cookie |
 | Streaming | Server-sent events: replayed from `run_events` in Postgres, then live from Redis pub/sub |
 | Tests | `pytest` + `pytest-asyncio`, against real Postgres and Redis. 197 collected (18 are intent tests). 5 outbox tests skip when the dev DB has pending rows. Tests never call the intent model: an autouse fixture in `tests/conftest.py` returns the fallback |
-| Container | `backend/Dockerfile` (`python:3.13-slim` + `uv`, runs `fastapi run`), `backend/docker-compose.yml` |
+| Container | `backend/Dockerfile` (`python:3.13-slim` + `uv`, runs `fastapi run`), `infra/docker-compose.yml` (local), `backend/docker-compose.yml` (production) |
 | Installed, not used yet | `langsmith`, `tenacity`, `pycryptodome`, `openpyxl`, `pdfplumber`, `tavily-python` |
 
 **Frontend** — Next.js 16.3.4, React 19.2.8, TypeScript, Tailwind 4, Recharts, Framer Motion, KaTeX, pnpm.
@@ -150,14 +150,15 @@ ai-native-fpa/
 │   │   └── services/llm.py      the one place a chat model is built
 │   ├── alembic/versions/        0001 … 0019
 │   ├── tests/                   agent/, approvals/, tools/, calc/, core/, runs/, outbox/, memory/, integration/
-│   ├── Dockerfile, docker-compose.yml, .dockerignore
+│   ├── Dockerfile, docker-compose.yml (production), .dockerignore
+│   ├── deploy/                  Caddyfile, setup-vm.sh, README.md (GCP VM steps)
 │   └── docs/ROADMAP.md          stale, describes the wiped backend
 ├── frontend/
 │   ├── app/                     page.tsx (planner), signin/, signup/
 │   ├── components/chat/         ChatWorkspace, MessageTimeline, ApprovalCard, Composer, HistoryPanel, …
 │   ├── components/dashboard/    cards, all fed by mock data today
 │   └── lib/                     api.ts, stream.ts, types.ts, session.ts, useUploads.ts, mock/
-├── infra/docker-compose.yml     local Redis (redis:7.4-alpine, AOF on, port 6380)
+├── infra/docker-compose.yml     local stack: Postgres 5433, Redis 6380, API and the three workers
 ├── docs/                        PROJECT_CONTEXT.md, MEMORY_IMPLEMENTATION_HANDOFF.md, design.md, flow/, folder.md
 ├── TOOL_RESULTS.md              design note: typed tool results, before and after
 ├── IDEMPOTENCY.md               design note: the write guard, and why not tool_calls
@@ -169,14 +170,18 @@ ai-native-fpa/
 
 ### 1.6 Runtime and deployment
 
-- Local development. No CI config or cloud deploy files exist.
-- `backend/docker-compose.yml` can run the backend in containers:
-  - `api` (port 8000, health check on `/health`), `agent-worker` (runs), `memory-worker` (memories), `outbox` (the publisher) and `redis` (`redis:7.4-alpine`, AOF on). All but `redis` use the same image.
-  - `agent-worker` and `memory-worker` can scale (`--scale memory-worker=3`); each copy reads Redis under its own `hostname:pid` name.
-  - Inside compose, `REDIS_URL` is `redis://redis:6379/0`. That Redis has no host port.
-  - There is **no Postgres service**. `DATABASE_URL` comes from `.env`.
-    A `localhost` URL there points at the container itself, not the host.
-  - The image leaves out `tests`, `docs`, `var` and `.env` (`.dockerignore`).
+- No CI config. Two compose files, one per place the backend runs.
+- **Local:** `infra/docker-compose.yml`, run from the repo root with
+  `docker compose --env-file backend/.env -f infra/docker-compose.yml up --watch`.
+  - `postgres` (port 5433), `redis` (port 6380, AOF on), `api` (port 8000), `outbox`, `agent-worker`, `memory-worker`.
+  - All four app services use one image, built from `backend/`. `--watch` syncs `backend/app` and restarts.
+  - Inside compose, `DATABASE_URL` and `REDIS_URL` point at the `postgres` and `redis` services.
+- **Production:** `backend/docker-compose.yml` on one GCP e2-micro VM (free tier). Steps in `backend/deploy/README.md`.
+  - `api`, `outbox`, `agent-worker`, `memory-worker` and `caddy`. No Postgres or Redis service.
+  - Postgres is on Neon and Redis is on Upstash; both URLs come from `backend/.env.prod`.
+  - Caddy serves HTTPS for `API_DOMAIN` (an `sslip.io` name) and proxies to `api:8000` (`backend/deploy/Caddyfile`).
+- `agent-worker` and `memory-worker` can scale (`--scale memory-worker=3`); each copy reads Redis under its own `hostname:pid` name.
+- The image leaves out `tests`, `docs`, `var`, `.env` and `.env.prod` (`.dockerignore`).
 - **Processes:**
 
 | Process | Command | Holds |
@@ -186,7 +191,7 @@ ai-native-fpa/
 | Memory worker | `uv run --python 3.13 python -m app.features.memory.worker` | memory events from the Redis memory stream |
 | Outbox publisher | `uv run --python 3.13 python -m app.features.outbox.publisher` | moves outbox rows to Redis |
 | Postgres | Docker container `ai-native-fpa`, port 5433, database `fpa` | all durable data |
-| Redis | Docker container `ai-native-fpa-redis` (`infra/docker-compose.yml`), port 6380 | run job stream, memory event stream, run event and cancel channels |
+| Redis | Docker container `ai-native-fpa-backend-redis` (`infra/docker-compose.yml`), port 6380 | run job stream, memory event stream, run event and cancel channels |
 
 - The API can run as several processes: run state, events and cancels go through Postgres and Redis, not process memory.
 - Frontend proxies `/api/*` and `/health` to `BACKEND_ORIGIN` (default `http://127.0.0.1:8000`).
@@ -873,7 +878,6 @@ Enum values added since `0014`:
 | `docs/MEMORY_IMPLEMENTATION_HANDOFF.md` | The original plan. It uses UUID ids, Upstash and `app/workers/` / `app/events/` folders. The code uses BIGINT, local Redis and `features/outbox`, `features/memory` |
 | `backend/app/agent/tools.py` | An empty file next to the `tools/` package. Python imports the package; the file does nothing |
 | `backend/.env.example` | Keys `Settings` does not read; `REDIS_URL`, the memory, limit and `INTENT_*` settings are missing |
-| `infra/docker-compose.yml` vs `backend/docker-compose.yml` | Two compose files, each with its own Redis. `infra/` exposes port 6380 for local dev; `backend/` has no host port |
 | `sql/*.sql` | Early drafts with UUID keys. Alembic is the real schema |
 
 ---

@@ -33,13 +33,9 @@ from app.features.runs.worker import FAILED_TEXT, claim_run
 
 log = logging.getLogger(__name__)
 
-BLOCK_MS = 5000
-
 ERROR_SLEEP_SECONDS = 1.0
 
 CANCEL_POLL_SECONDS = 1.0
-
-SWEEP_INTERVAL_SECONDS = 30
 
 RESEND_BATCH_SIZE = 50
 
@@ -153,7 +149,7 @@ async def next_entry(
     entries = await claim_stale(stream, group, consumer, claim_idle_ms, 1)
 
     if not entries:
-        entries = await read_group(stream, group, consumer, 1, BLOCK_MS)
+        entries = await read_group(stream, group, consumer, 1, get_settings().REDIS_BLOCK_MS)
 
     return entries[0] if entries else None
 
@@ -336,7 +332,7 @@ async def sweep_forever() -> None:
         except Exception:
             log.exception("agent worker sweep failed")
 
-        await asyncio.sleep(SWEEP_INTERVAL_SECONDS)
+        await asyncio.sleep(get_settings().RUN_SWEEP_INTERVAL_SECONDS)
 
 
 async def start(stream: str, group: str) -> None:
