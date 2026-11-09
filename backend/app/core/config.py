@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     COOKIE_SECURE: bool = False
 
     REDIS_URL: str
+    REDIS_BLOCK_MS: int = 5000
+    OUTBOX_IDLE_SLEEP_SECONDS: float = 1
+    RUN_SWEEP_INTERVAL_SECONDS: float = 30
     REDIS_MEMORY_STREAM: str = "ai-native-fpa:memory"
     REDIS_MEMORY_CONSUMER_GROUP: str = "memory-workers"
     REDIS_CONSUMER_PRUNE_AFTER_SECONDS: int = 3600

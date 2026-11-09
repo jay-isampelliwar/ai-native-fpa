@@ -1,7 +1,7 @@
 """Tests that the shared Redis client reaches the real Redis named in REDIS_URL, and that old idle consumers are pruned."""
 
+from app.core.config import get_settings
 from app.core.redis import close_redis, ensure_group, get_redis, process_name, prune_consumers
-from app.features.memory.worker import BLOCK_MS
 
 
 async def test_get_redis_pings_real_redis() -> None:
@@ -22,7 +22,7 @@ async def test_read_timeout_outlasts_worker_block() -> None:
     connection = await get_redis().connection_pool.get_connection()
 
     try:
-        assert connection.socket_timeout * 1000 > BLOCK_MS
+        assert connection.socket_timeout * 1000 > get_settings().REDIS_BLOCK_MS
 
     finally:
         await get_redis().connection_pool.release(connection)

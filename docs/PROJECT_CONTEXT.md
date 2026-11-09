@@ -17,7 +17,8 @@ Between `04f8eb8` (30 October 2026) and `0117815`, 30 commits added:
 - **Langfuse tracing** of every agent turn, with personal data masked (section 2.7);
 - `CHAT_MODEL` is now `gpt-5.6-luna` with `reasoning_effort="none"`; `langsmith` was removed;
 - tool count went from 22 to **38**, and a new intent `MARKET_INFO`;
-- `backend/docker-compose.yml` now runs Postgres too.
+- From `main`: local Docker moved to `infra/docker-compose.yml`; `backend/docker-compose.yml` is now production
+  (GCP VM + Caddy, with Neon Postgres and Upstash Redis), and Redis wait times became settings.
 
 Since `71b5d8b` (29 October 2026) the backend is **multi-process**:
 - runs go through a **Redis job queue** (`ai-native-fpa:runs`) to a separate **agent worker**, which claims each run in Postgres and keeps a heartbeat;
@@ -126,7 +127,7 @@ An update that changes nothing is refused: "Nothing to change: these values are 
 | Auth | Argon2 (`pwdlib`) passwords, HS256 JWT (`pyjwt`) in an httpOnly cookie |
 | Streaming | Server-sent events: replayed from `run_events` in Postgres, then live from Redis pub/sub |
 | Tests | `pytest` + `pytest-asyncio`, against real Postgres and Redis. 352 collected. 5 outbox tests skip when the dev DB has pending rows. Autouse fixtures in `tests/conftest.py`: the intent model returns the fallback, and Langfuse keys are cleared (`no_langfuse`) so no test sends a trace |
-| Container | `backend/Dockerfile` (`python:3.13-slim` + `uv`, runs `fastapi run`), `backend/docker-compose.yml` |
+| Container | `backend/Dockerfile` (`python:3.13-slim` + `uv`, runs `fastapi run`), `infra/docker-compose.yml` (local), `backend/docker-compose.yml` (production) |
 | Installed, not used yet | `tenacity`, `pycryptodome`, `pdfplumber` |
 
 **Backend packages** (`backend/pyproject.toml`, build with `hatchling`)
@@ -285,7 +286,8 @@ ai-native-fpa/
 │   ├── scripts/                 market_data/ (download, build and push market data), repair_holding_units.py
 │   ├── tests/                   agent/, approvals/, tools/, calc/, core/, runs/, outbox/, memory/, voice/,
 │   │                            observability/, integration/
-│   ├── Dockerfile, docker-compose.yml, .dockerignore
+│   ├── Dockerfile, docker-compose.yml (production), .dockerignore
+│   ├── deploy/                  Caddyfile, setup-vm.sh, README.md (GCP VM steps)
 │   └── docs/ROADMAP.md          stale, describes the wiped backend
 ├── frontend/
 │   ├── app/                     page.tsx (planner), signin/, signup/
@@ -297,7 +299,7 @@ ai-native-fpa/
 │   ├── components/dashboard/    cards fed by mock data; hidden for now
 │   ├── lib/                     api.ts, stream.ts, types.ts, session.ts, cards.ts, forms.ts, useVoiceInput.ts, useUploads.ts, mock/
 │   └── DESIGN.md                dark design-system spec (colours, type, layout)
-├── infra/docker-compose.yml     local Redis (gitignored; backend compose now has its own Redis on 6380)
+├── infra/docker-compose.yml     local stack: Postgres 5433, Redis 6380, API and the three workers (gitignored)
 ├── docs/                        PROJECT_CONTEXT.md, MEMORY_IMPLEMENTATION_HANDOFF.md, design.md, chat-components.html,
 │                                flow/, folder.md
 └── sql/                         early table drafts + market data CSVs (gitignored)
@@ -305,17 +307,20 @@ ai-native-fpa/
 
 ### 1.6 Runtime and deployment
 
-- Local development. No CI config or cloud deploy files exist.
-- `backend/docker-compose.yml` runs the whole backend in containers:
-  - `postgres` (`postgres:17`, host port 5433, external volume `ai-native-fpa-pgdata`).
-  - `redis` (`redis:7.4-alpine`, AOF on, host port 6380, external volume `infra_redis_data`).
-  - `api` (port 8000, health check on `/health`), `agent-worker` (runs), `memory-worker` (memories), `outbox` (the publisher).
-    These four use the same image `ai-native-fpa-backend`. Workers have a 30 s stop grace.
-  - All app services share `.env` plus `DATABASE_URL` → `postgres:5432` and `REDIS_URL` → `redis://redis:6379/0`,
-    and wait for healthy Postgres and Redis.
-  - `agent-worker` and `memory-worker` can scale (`--scale memory-worker=3`); each copy reads Redis under its own `hostname:pid` name.
-  - The image leaves out `tests`, `docs`, `var` and `.env` (`.dockerignore`).
-- A free demo deploy is planned (GCP e2-micro + Neon + Upstash). No deploy files exist yet.
+- No CI config. Two compose files, one per place the backend runs.
+- **Local:** `infra/docker-compose.yml`, run from the repo root with
+  `docker compose --env-file backend/.env -f infra/docker-compose.yml up --watch`.
+  - `postgres` (port 5433), `redis` (port 6380, AOF on), `api` (port 8000), `outbox`, `agent-worker`, `memory-worker`.
+  - All four app services use one image, built from `backend/`. `--watch` syncs `backend/app` and restarts.
+  - Inside compose, `DATABASE_URL` and `REDIS_URL` point at the `postgres` and `redis` services.
+  - `infra/` is in `.gitignore`, so this file lives only on the developer's machine.
+- **Production:** `backend/docker-compose.yml` on one GCP e2-micro VM (free tier). Steps in `backend/deploy/README.md`.
+  - `api`, `outbox`, `agent-worker`, `memory-worker` and `caddy`. No Postgres or Redis service.
+  - Postgres is on Neon and Redis is on Upstash; both URLs come from `backend/.env.prod`.
+  - Caddy serves HTTPS for `API_DOMAIN` (an `sslip.io` name) and proxies to `api:8000` (`backend/deploy/Caddyfile`).
+- `agent-worker` and `memory-worker` can scale (`--scale memory-worker=3`); each copy reads Redis under its own `hostname:pid` name.
+- The image leaves out `tests`, `docs`, `var`, `.env` and `.env.prod` (`.dockerignore`).
+- For Langfuse and web search in production, add `LANGFUSE_*` and `TAVILY_API_KEY` to `backend/.env.prod`.
 - **Processes:**
 
 | Process | Command | Holds |
@@ -324,8 +329,8 @@ ai-native-fpa/
 | Agent worker | `uv run --python 3.13 python -m app.features.runs.consumer` | run jobs from the Redis run stream, cancel listener, stale/resend/approval/event-cleanup sweeps, Langfuse client |
 | Memory worker | `uv run --python 3.13 python -m app.features.memory.worker` | memory events from the Redis memory stream (starts a Langfuse client, sends nothing yet) |
 | Outbox publisher | `uv run --python 3.13 python -m app.features.outbox.publisher` | moves outbox rows to Redis |
-| Postgres | compose service `postgres` (container `ai-native-fpa-postgres`), port 5433 | all durable data |
-| Redis | compose service `redis` (container `ai-native-fpa-backend-redis`), port 6380 | run job stream, memory event stream, run event and cancel channels, web search and index quote cache |
+| Postgres | local: container `ai-native-fpa-postgres` (`infra/docker-compose.yml`), port 5433; production: Neon | all durable data |
+| Redis | local: container `ai-native-fpa-backend-redis` (`infra/docker-compose.yml`), port 6380; production: Upstash | run job stream, memory event stream, run event and cancel channels, web search and index quote cache |
 
 - The API can run as several processes: run state, events and cancels go through Postgres and Redis, not process memory.
 - Frontend proxies `/api/*` and `/health` to `BACKEND_ORIGIN` (default `http://127.0.0.1:8000`).
@@ -342,6 +347,9 @@ ai-native-fpa/
 | `TOKEN_TTL_MINUTES` | 7 days |
 | `COOKIE_SECURE` | `false` |
 | `REDIS_URL` | required (local: `redis://localhost:6380/0`) |
+| `REDIS_BLOCK_MS` | `5000` — how long a worker's `XREADGROUP` waits; the socket timeout is this + 25 s |
+| `OUTBOX_IDLE_SLEEP_SECONDS` | `1` — outbox publisher rest when nothing is due |
+| `RUN_SWEEP_INTERVAL_SECONDS` | `30` — agent worker sweep interval |
 | `REDIS_MEMORY_STREAM` | `ai-native-fpa:memory` |
 | `REDIS_MEMORY_CONSUMER_GROUP` | `memory-workers` |
 | `REDIS_CONSUMER_PRUNE_AFTER_SECONDS` | `3600` |
@@ -1119,7 +1127,8 @@ Ordered by impact. Items marked **Resolved** or **Partly resolved** are kept for
 
 **4.10 Scaling and deployment**
 
-- Every service is a compose service; there is still no cloud deploy config.
+- Every service is a compose service. Production is one small GCP VM (`backend/deploy/`), with Neon and Upstash.
+  There is no CI and no autoscaling.
 - Crashed runs are failed, not resumed. The `TODO(idempotency)` in the agent worker sweep notes that resuming is now
   safe for write tools.
 
@@ -1260,10 +1269,10 @@ Enum values added since `0014`:
 |---|---|
 | `backend/docs/ROADMAP.md` | Describes the old, wiped backend (`/api/v1/planner/messages`, 24 tables, 132 tests) |
 | `docs/folder.md` | A planned layout (`modules/`, `workers/`, `redis_client.py`) that was never built |
-| `docs/MEMORY_IMPLEMENTATION_HANDOFF.md` | The original plan. It uses UUID ids, Upstash and `app/workers/` / `app/events/` folders. The code uses BIGINT, local Redis and `features/outbox`, `features/memory` |
+| `docs/MEMORY_IMPLEMENTATION_HANDOFF.md` | The original plan. It uses UUID ids, Upstash and `app/workers/` / `app/events/` folders. The code uses BIGINT, Redis (local, or Upstash in production) and `features/outbox`, `features/memory` |
 | `backend/app/agent/tools.py` | An empty file next to the `tools/` package. Python imports the package; the file does nothing |
 | `backend/.env.example` | Keys `Settings` does not read (`ROUTER_MODEL`, `LANGSMITH_*`, …); `REDIS_URL`, `LANGFUSE_*`, the memory, limit, web search and `INTENT_*` settings are missing |
-| `infra/docker-compose.yml` vs `backend/docker-compose.yml` | Both start a Redis on host port 6380. `backend/` now has Postgres and Redis too, so `infra/` is not needed; running both clashes on the port |
+| `infra/docker-compose.yml` | The local stack, but `infra/` is gitignored, so a fresh clone has no local compose file |
 | `backend/app/agent/prompt.py` line 12 | Still says Preeti helps "finance teams and business owners"; the product is personal finance |
 | `sql/*.sql` | Early drafts with UUID keys. Alembic is the real schema |
 
@@ -1282,7 +1291,7 @@ Enum values added since `0014`:
 - `XACK` only after the Postgres commit. Every handler must be safe to run twice (`outbox_event_id` check).
 - Investment preferences must always carry `stance`. A dislike must never read as a liking.
 - The memory system message heading `## What you remember about the user` is referenced by a prompt rule. Change both together.
-- The Redis client's `socket_timeout` (30 s) must stay longer than the workers' `XREADGROUP` block (5 s).
+- The Redis client's `socket_timeout` (`REDIS_BLOCK_MS` / 1000 + 25 s) must stay longer than the workers' `XREADGROUP` block (`REDIS_BLOCK_MS`).
 - Every Redis stream consumer must read under its own name (`process_name()`), never a fixed one, or copies take each other's entries.
 - The API must not start background tasks. New background loops get their own process and compose service.
 - A run event is saved before it is published. Its number comes from `RunPublisher` only, and a pause saves its

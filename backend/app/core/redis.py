@@ -12,7 +12,7 @@ from app.core.config import get_settings
 
 StreamEntry = tuple[str, dict[str, str]]
 
-SOCKET_TIMEOUT_SECONDS = 30
+SOCKET_TIMEOUT_MARGIN_SECONDS = 25
 
 
 def process_name() -> str:
@@ -27,10 +27,12 @@ def get_redis() -> Redis:
 
     """Build the Redis client once from REDIS_URL and reuse it, with a read timeout longer than any XREADGROUP block."""
 
+    settings = get_settings()
+
     return Redis.from_url(
-        get_settings().REDIS_URL,
+        settings.REDIS_URL,
         decode_responses=True,
-        socket_timeout=SOCKET_TIMEOUT_SECONDS,
+        socket_timeout=settings.REDIS_BLOCK_MS / 1000 + SOCKET_TIMEOUT_MARGIN_SECONDS,
         )
 
 

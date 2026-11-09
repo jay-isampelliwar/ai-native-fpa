@@ -1,0 +1,9 @@
+# HTTPS in front of the API. Caddy gets a free Let's Encrypt certificate for API_DOMAIN.
+# No encode here: the frontend already compresses, and compressing here could hold back the chat stream.
+# flush_interval -1 sends each chunk of the stream at once, so words appear as they form.
+
+{$API_DOMAIN} {
+	reverse_proxy api:8000 {
+		flush_interval -1
+	}
+}

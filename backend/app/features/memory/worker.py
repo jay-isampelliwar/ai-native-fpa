@@ -31,8 +31,6 @@ from app.observability.langfuse import shutdown_langfuse, start_langfuse
 
 log = logging.getLogger(__name__)
 
-BLOCK_MS = 5000
-
 ERROR_SLEEP_SECONDS = 1.0
 
 Handler = Callable[[int, dict[str, Any]], Awaitable[None]]
@@ -143,7 +141,8 @@ async def run_once(
     group: str,
     consumer: str,
     claim_idle_ms: int | None = None,
-    block_ms: int | None = BLOCK_MS,
+    *,
+    block_ms: int | None,
     ) -> int:
 
     """Retry stale pending entries, then read and process new ones, and return how many entries it handled."""
@@ -244,7 +243,7 @@ async def consume_forever() -> None:
     while True:
 
         try:
-            await run_once(stream, group, consumer)
+            await run_once(stream, group, consumer, block_ms=settings.REDIS_BLOCK_MS)
 
         except Exception:
 
