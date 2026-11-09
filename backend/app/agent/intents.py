@@ -59,6 +59,8 @@ SIMPLE_MAX_WORDS = 12
 
 CONTEXT_MESSAGES = 4
 
+INTENT_GENERATION = "intent-classifier"
+
 CLASSIFIER_PROMPT = (
     "You sort a user's latest chat message into intents for a personal finance planner for Indian households. "
     "Pick every intent the latest message asks for, in the order it asks. Use the earlier messages only to understand "
@@ -154,6 +156,7 @@ async def classify_with_model(messages: Sequence[AnyMessage]) -> tuple[list[str]
 
     model = (
         llm_service.get_model(settings.INTENT_MODEL)
+        .model_copy(update={"name": INTENT_GENERATION})
         .with_structured_output(IntentResult, method="function_calling", include_raw=True)
         .with_config(tags=[TAG_NOSTREAM])
         )

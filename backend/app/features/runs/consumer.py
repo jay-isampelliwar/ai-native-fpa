@@ -29,6 +29,7 @@ from app.features.runs.publisher import record_event
 from app.features.runs.registry import WORKER_ID, run_registry
 from app.features.runs.repository import RunEventRepository, RunRepository
 from app.features.runs.worker import FAILED_TEXT, claim_run
+from app.observability.langfuse import shutdown_langfuse, start_langfuse
 
 
 log = logging.getLogger(__name__)
@@ -367,6 +368,8 @@ async def run_forever() -> None:
     stream = settings.REDIS_RUN_STREAM
     group = settings.REDIS_RUN_CONSUMER_GROUP
 
+    start_langfuse(settings)
+
     try:
 
         async with open_checkpointer() as checkpointer:
@@ -393,6 +396,8 @@ async def run_forever() -> None:
                 await asyncio.gather(*helpers, return_exceptions=True)
 
     finally:
+
+        shutdown_langfuse(get_settings())
 
         await close_redis()
         await engine.dispose()

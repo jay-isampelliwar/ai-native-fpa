@@ -30,12 +30,14 @@ from app.agent.tools.labels import label_for
 from app.agent.tools.policies import needs_approval
 from app.agent.tools.records import record_fields, show_value
 from app.agent.tools.results import over_limit, rejected, to_message
+from app.core.config import get_settings
 from app.db.models import Holding, MutualFund, Stock
 from app.db.session import SessionLocal
 from app.features.investments.service import InvestmentService
 from app.features.records.exceptions import RecordError
 from app.features.records.kinds import KINDS, RecordKind
 from app.features.records.record_service import RecordService, editable_fields
+from app.observability.observations import observe_step, update_step
 
 
 APPROVE = "approve"
@@ -53,6 +55,8 @@ CANCELLED_TEXT = "Not done. The user stopped this reply, so nothing was changed.
 NOT_SET = "not set"
 
 CONFIRM_EDITS = ("units", "amount")
+
+APPROVAL_STEP = "approval-check"
 
 type Preview = dict[str, Any]
 
@@ -503,7 +507,35 @@ async def ask_each(
     return allowed, refused, answers
 
 
+def next_node(command: Command) -> str:
+
+    """Where the approval check sends the turn next: the tools, the agent or the end."""
+
+    goto = command.goto
+
+    if isinstance(goto, Send):
+        return goto.node
+
+    return str(goto)
+
+
 async def approval_gate(state: PlannerState, runtime: Runtime[PlannerContext]) -> Command:
+
+    """Run the approval check inside a guardrail step that counts the calls and risky ones and says where the turn goes next."""
+
+    calls = state["messages"][-1].tool_calls
+    risky = sum(needs_approval(call["name"], call["args"]) for call in calls)
+
+    async with observe_step(get_settings(), APPROVAL_STEP, "guardrail", {"tool_calls": len(calls), "risky": risky}) as step:
+
+        command = await check_approval(state, runtime)
+
+        update_step(step, metadata={"outcome": next_node(command)})
+
+    return command
+
+
+async def check_approval(state: PlannerState, runtime: Runtime[PlannerContext]) -> Command:
 
     """Refuse a batch past the tool limit, send safe calls to the tools, hold risky ones for the user, and skip all on a cancel."""
 

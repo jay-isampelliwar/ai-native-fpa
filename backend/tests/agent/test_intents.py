@@ -54,6 +54,14 @@ class FakeIntentModel:
 
         return self
 
+    def model_copy(self, update: dict[str, Any]) -> "FakeIntentModel":
+
+        """Remember the name the model copy was given."""
+
+        self.name = update.get("name")
+
+        return self
+
     def with_config(self, tags: list[str]) -> "FakeIntentModel":
 
         """Remember the tags the chain was given."""

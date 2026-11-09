@@ -26,6 +26,7 @@ from app.db.session import SessionLocal, engine
 from app.features.memory.extractor import extract_candidates
 from app.features.memory.repository import MemoryRepository
 from app.features.memory.schemas import MemorySource
+from app.observability.langfuse import shutdown_langfuse, start_langfuse
 
 
 log = logging.getLogger(__name__)
@@ -253,12 +254,16 @@ async def consume_forever() -> None:
 
 async def run_forever() -> None:
 
-    """Run the worker as its own process until stopped, and close Redis and the DB pool on exit."""
+    """Start this process's Langfuse client, run the worker until stopped, and close Redis and the DB pool on exit."""
+
+    start_langfuse(get_settings())
 
     try:
         await consume_forever()
 
     finally:
+
+        shutdown_langfuse(get_settings())
 
         await close_redis()
         await engine.dispose()

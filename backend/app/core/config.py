@@ -95,6 +95,10 @@ class Settings(BaseSettings):
     TRANSCRIBE_TIMEOUT_SECONDS: float = 20
     MAX_AUDIO_BYTES: int = 4 * 1024 * 1024
 
+    LANGFUSE_PUBLIC_KEY: str | None = None
+    LANGFUSE_SECRET_KEY: SecretStr | None = None
+    LANGFUSE_BASE_URL: str = "https://cloud.langfuse.com"
+
 
 @lru_cache
 def get_settings() -> Settings:

@@ -11,6 +11,10 @@ from langchain_openai import ChatOpenAI
 from app.core.config import get_settings
 
 
+AGENT_GENERATION = "chat-model"
+WRAP_UP_GENERATION = "wrap-up"
+
+
 class LLMService:
 
     """Builds each chat model once and hands the same instance to every caller."""
@@ -44,12 +48,12 @@ class LLMService:
         max_tokens: int | None = None,
         ) -> Runnable[LanguageModelInput, AIMessage]:
 
-        """Return the chat model with these tools attached, so the model can ask to call them, writing at most max_tokens."""
+        """Return the chat model with these tools attached, so the model can ask to call them, writing at most max_tokens, traced as the chat model."""
 
         if max_tokens is None:
-            return self.get_model(model).bind_tools(tools)
+            return self.get_model(model).bind_tools(tools).with_config(run_name=AGENT_GENERATION)
 
-        return self.get_model(model).bind_tools(tools, max_tokens=max_tokens)
+        return self.get_model(model).bind_tools(tools, max_tokens=max_tokens).with_config(run_name=AGENT_GENERATION)
 
     def without_acting(
         self,
@@ -58,9 +62,9 @@ class LLMService:
         model: str | None = None,
         ) -> Runnable[LanguageModelInput, AIMessage]:
 
-        """Return the chat model that knows these tools but may not call any, writing at most max_tokens."""
+        """Return the chat model that knows these tools but may not call any, writing at most max_tokens, traced as the wrap-up."""
 
-        return self.get_model(model).bind_tools(tools, tool_choice="none", max_tokens=max_tokens)
+        return self.get_model(model).bind_tools(tools, tool_choice="none", max_tokens=max_tokens).with_config(run_name=WRAP_UP_GENERATION)
 
 
 llm_service = LLMService()

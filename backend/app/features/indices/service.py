@@ -12,6 +12,7 @@ import httpx
 from app.core.config import get_settings
 from app.features.indices.schemas import DISPLAY_NAMES, YAHOO_SYMBOLS, IndexName, IndexQuote, QuoteUnavailable
 from app.features.web_search.cache import read_result, save_result
+from app.observability.observations import observe_step, update_step
 
 
 IST = ZoneInfo("Asia/Kolkata")
@@ -23,6 +24,8 @@ WEEKEND = (5, 6)
 MIN_TTL_SECONDS = 60
 
 USER_AGENT = "Mozilla/5.0 (compatible; ai-native-fpa/1.0)"
+
+YAHOO_STEP = "yahoo.chart"
 
 log = logging.getLogger(__name__)
 
@@ -131,21 +134,28 @@ async def fetch_quote(
     timeout: float,
     ) -> IndexQuote:
 
-    """Read one index's last five daily bars from Yahoo and turn them into a quote."""
+    """Read one index's last five daily bars from Yahoo inside a step that records the HTTP status, and turn them into a quote."""
 
     url = f"{get_settings().YAHOO_CHART_URL}/{YAHOO_SYMBOLS[index]}"
 
-    try:
+    async with observe_step(get_settings(), YAHOO_STEP, "span", {"provider": "yahoo", "index": index.value}) as step:
 
-        async with httpx.AsyncClient(timeout=timeout, headers={"User-Agent": USER_AGENT}) as client:
-            response = await client.get(url, params={"range": "5d", "interval": "1d"})
+        try:
 
-        response.raise_for_status()
+            async with httpx.AsyncClient(timeout=timeout, headers={"User-Agent": USER_AGENT}) as client:
+                response = await client.get(url, params={"range": "5d", "interval": "1d"})
 
-        body = response.json()
+            update_step(step, metadata={"http_status": response.status_code})
 
-    except (httpx.HTTPError, ValueError) as exc:
-        raise QuoteUnavailable(f"{index.value}: {exc}") from exc
+            response.raise_for_status()
+
+            body = response.json()
+
+        except (httpx.HTTPError, ValueError) as exc:
+
+            update_step(step, metadata={"cause": type(exc).__name__})
+
+            raise QuoteUnavailable(f"{index.value}: {exc}") from exc
 
     return parse_chart(index, body)
 

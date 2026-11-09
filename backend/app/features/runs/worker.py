@@ -38,6 +38,7 @@ from app.features.runs.events import (
 from app.features.runs.publisher import RunPublisher
 from app.features.runs.registry import WORKER_ID
 from app.features.runs.repository import RunEventRepository, RunRepository
+from app.observability.langfuse import langfuse_handler, tracing_context
 
 
 log = logging.getLogger(__name__)
@@ -55,6 +56,8 @@ TOOL_EVENT_STATUS = {
     ToolCallStatus.failed: "error",
     ToolCallStatus.rejected: "rejected",
     }
+
+TURN_SPAN_NAME = "agent-turn"
 
 
 async def claim_run(run_id: int, starting: bool) -> bool:
@@ -132,6 +135,19 @@ def thread_config(conversation_id: int) -> dict[str, Any]:
         "configurable": {"thread_id": str(conversation_id)},
         "recursion_limit": get_settings().GRAPH_RECURSION_LIMIT,
         }
+
+
+def traced_config(conversation_id: int) -> dict[str, Any]:
+
+    """The thread's graph config with the Langfuse handler attached and the turn's root span named, or the plain config when tracing is off."""
+
+    config = thread_config(conversation_id)
+    handler = langfuse_handler(get_settings())
+
+    if handler is None:
+        return config
+
+    return {**config, "callbacks": [handler], "run_name": TURN_SPAN_NAME}
 
 
 async def turn_usage(conversation_id: int) -> tuple[dict[str, Any], str | None]:
@@ -425,7 +441,7 @@ async def stream_events(
     async with SessionLocal() as session:
         profile = await ProfileService(session).get_profile(user_id)
 
-    config = thread_config(conversation_id)
+    config = traced_config(conversation_id)
     context = PlannerContext(
         user_id=user_id,
         profile=profile,
@@ -508,33 +524,35 @@ async def drive_run(
 
         async with turn:
 
-            async for event in stream_events(run_id, conversation_id, user_id, assistant_message_id, graph_input, deadline):
+            with tracing_context(get_settings(), user_id, conversation_id, run_id, WORKER_ID):
 
-                if event.name == APPROVAL_REQUIRED:
+                async for event in stream_events(run_id, conversation_id, user_id, assistant_message_id, graph_input, deadline):
 
-                    await publisher.flush()
+                    if event.name == APPROVAL_REQUIRED:
 
-                    seq = publisher.seq + 1
+                        await publisher.flush()
 
-                    approval = await save_pause(run_id, conversation_id, user_id, assistant_message_id, reply, event.data, seq)
+                        seq = publisher.seq + 1
 
-                    if approval is None:
-                        raise asyncio.CancelledError
+                        approval = await save_pause(run_id, conversation_id, user_id, assistant_message_id, reply, event.data, seq)
 
-                    await publisher.send_saved(approval_event(approval), seq)
+                        if approval is None:
+                            raise asyncio.CancelledError
 
-                    return
+                        await publisher.send_saved(approval_event(approval), seq)
 
-                if event.name == ASSISTANT_DELTA:
-                    reply += event.data["text"]
+                        return
 
-                await publisher.emit(event)
+                    if event.name == ASSISTANT_DELTA:
+                        reply += event.data["text"]
 
-                if time.monotonic() - last_saved_at >= SAVE_INTERVAL_SECONDS:
+                    await publisher.emit(event)
 
-                    await save_partial(assistant_message_id, reply)
+                    if time.monotonic() - last_saved_at >= SAVE_INTERVAL_SECONDS:
 
-                    last_saved_at = time.monotonic()
+                        await save_partial(assistant_message_id, reply)
+
+                        last_saved_at = time.monotonic()
 
     except RunCancelled:
 
