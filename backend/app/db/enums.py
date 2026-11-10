@@ -496,3 +496,35 @@ class HoldingAssetType(StrEnum):
 
     stock = "stock"
     mutual_fund = "mutual_fund"
+
+
+class DocumentStatus(StrEnum):
+
+    """Where one uploaded file is between uploaded and its rows written or rejected."""
+
+    uploaded = "uploaded"
+    parsed = "parsed"
+    imported = "imported"
+    rejected = "rejected"
+    failed = "failed"
+
+
+class ImportRowAction(StrEnum):
+
+    """What approving one parsed row would do to the user's records."""
+
+    create = "create"
+    update = "update"
+    no_change = "no_change"
+
+
+class ImportRowStatus(StrEnum):
+
+    """Where one parsed row is between shown in the preview and written, rejected or undone."""
+
+    proposed = "proposed"
+    approved = "approved"
+    rejected = "rejected"
+    written = "written"
+    failed = "failed"
+    undone = "undone"
