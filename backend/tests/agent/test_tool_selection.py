@@ -50,9 +50,9 @@ def test_every_intent_has_a_group() -> None:
 
 def test_one_intent_gets_its_tools_and_the_always_set() -> None:
 
-    """A delete gets only delete_record plus the two tools the prompt always needs, in ALL_TOOLS order."""
+    """A delete gets delete_record and the import undo tools plus the two tools the prompt always needs, in ALL_TOOLS order."""
 
-    assert names([DELETE_DATA]) == ["get_missing_sections", "list_records", "delete_record"]
+    assert names([DELETE_DATA]) == ["get_missing_sections", "list_records", "delete_record", "get_import_preview", "undo_import"]
     assert names([VIEW_DATA]) == [
         "get_missing_sections",
         "list_records",
@@ -64,6 +64,7 @@ def test_one_intent_gets_its_tools_and_the_always_set() -> None:
         "get_cash_flow_history",
         "get_financial_health",
         "get_upcoming_events",
+        "get_import_preview",
         ]
 
 
@@ -129,4 +130,4 @@ async def test_agent_is_given_only_the_picked_tools(monkeypatch: pytest.MonkeyPa
     await run_agent({"messages": [HumanMessage("Delete my HDFC loan")], "current_intents": [DELETE_DATA]}, runtime)
     await run_agent({"messages": [HumanMessage("hi")]}, runtime)
 
-    assert bound == [["get_missing_sections", "list_records", "delete_record"], ALL_NAMES]
+    assert bound == [["get_missing_sections", "list_records", "delete_record", "get_import_preview", "undo_import"], ALL_NAMES]

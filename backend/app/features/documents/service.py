@@ -3,14 +3,16 @@
 import asyncio
 import hashlib
 import logging
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.db.enums import DocumentStatus
+from app.db.enums import DocumentStatus, ImportRowAction, ImportRowStatus
 from app.db.models import Document, ImportRow
-from app.features.documents.checks import run_checks
+from app.features.documents.checks import counts, ready, run_checks
+from app.features.documents.fields import TABLE_FIELDS, read_value
 from app.features.documents.families import TooManyFamilies, classify
 from app.features.documents.layouts import (
     SheetLayout,
@@ -24,8 +26,11 @@ from app.features.documents.layouts import (
 from app.features.documents.parsing import ParsedRow, ParseResult, SheetNote
 from app.features.documents.reader import MIME_TYPES, Sheet, UnreadableFile, file_kind, read_file
 from app.features.documents.repository import DocumentRepository
-from app.features.documents.schemas import AnswerIn, SheetChoice
+from app.features.documents.matching import instrument_by_answer
+from app.features.documents.normalize import NotReadable
+from app.features.documents.schemas import AnswerIn, RowEdit, SheetChoice
 from app.features.documents.storage import load_file, save_file
+from app.features.documents.writer import WRITE_ERRORS, Writer, write_reason
 
 
 log = logging.getLogger(__name__)
@@ -72,6 +77,28 @@ class AnswerInvalid(ValueError):
 
         super().__init__("; ".join(errors))
         self.errors = errors
+
+
+class EditInvalid(ValueError):
+
+    """Row changes that cannot be read, with every reason listed."""
+
+    def __init__(self, errors: list[str]) -> None:
+
+        """Keep every reason the changes were refused."""
+
+        super().__init__("; ".join(errors))
+        self.errors = errors
+
+
+class NothingToApprove(ValueError):
+
+    """An approval with no ready rows, or on a document not waiting for one."""
+
+
+class NothingToUndo(ValueError):
+
+    """An undo on a document that wrote nothing."""
 
 
 class MappingFailed(RuntimeError):
@@ -376,6 +403,154 @@ class DocumentService:
         await self.session.commit()
 
         return document
+
+    async def edit(
+        self,
+        user_id: int,
+        document_id: int,
+        row_id: int,
+        edit: RowEdit
+        ) -> Document:
+
+        """Save the user's changes to one row, each value cleaned and checked, then check the whole document again."""
+
+        document = await self.get(user_id, document_id)
+        row = next((item for item in await self.repository.rows(document.id) if item.id == row_id), None)
+
+        if row is None:
+            raise DocumentNotFound("Row not found")
+
+        if row.status not in (ImportRowStatus.proposed, ImportRowStatus.failed):
+            raise EditInvalid([f"Row {row.row_number} is {row.status.value} and cannot be changed"])
+
+        fields = TABLE_FIELDS[row.target_table]
+        cleaned: dict[str, Any] = {}
+        errors = []
+
+        for name, value in edit.changes.items():
+
+            if name not in fields:
+                errors.append(f"{name}: not a field of {row.target_table}")
+                continue
+
+            try:
+                cleaned[name] = None if value in (None, "") else read_value(fields[name], value)
+
+            except NotReadable as exc:
+                errors.append(f"{name}: '{value}' {exc}")
+
+        if edit.instrument is not None:
+
+            if row.target_table != "holdings":
+                errors.append("instrument: only holding rows have a stock or fund")
+
+            elif await instrument_by_answer(self.session, edit.instrument) is None:
+                errors.append(f"instrument: '{edit.instrument}' is not a stock or fund in the list")
+
+            else:
+                cleaned["instrument"] = edit.instrument
+
+        if errors:
+            raise EditInvalid(errors)
+
+        row.edited_data = {**(row.edited_data or {}), **cleaned}
+        row.status = ImportRowStatus.proposed
+        await run_checks(self.session, document)
+        await self.session.commit()
+
+        return document
+
+    async def approve(
+        self,
+        user_id: int,
+        document_id: int
+        ) -> dict[str, int]:
+
+        """Write every ready row, each on its own so one failure keeps the rest, and say how many were written."""
+
+        document = await self.get(user_id, document_id)
+
+        if document.status != DocumentStatus.parsed:
+            raise NothingToApprove("This document has nothing waiting to be approved")
+
+        await run_checks(self.session, document)
+        rows = await self.repository.rows(document.id)
+        by_number = {row.row_number: row for row in rows}
+        waiting = [row for row in rows if ready(row)]
+
+        if not waiting:
+            raise NothingToApprove("No rows are ready yet. Answer the open questions and fix the errors first.")
+
+        writer = Writer(self.session, user_id)
+        outcome = {"written": 0, "no_change": 0, "failed": 0}
+
+        for row in waiting:
+
+            if row.action == ImportRowAction.no_change:
+                row.status = ImportRowStatus.written
+                row.written_at = datetime.now(UTC)
+                outcome["no_change"] += 1
+                continue
+
+            data = {**row.parsed_data, **(row.edited_data or {}), **{key: row.resolved[key] for key in ("current_value",) if key in row.resolved}}
+
+            try:
+
+                async with self.session.begin_nested():
+                    written = await writer.write(row, data, by_number)
+
+            except WRITE_ERRORS as exc:
+                row.status = ImportRowStatus.failed
+                row.errors = [write_reason(exc)]
+                outcome["failed"] += 1
+                continue
+
+            row.target_record_id = written.record_id
+            row.previous_data = written.previous
+            row.resolved = {**row.resolved, "written": written.written}
+            row.status = ImportRowStatus.written
+            row.written_at = datetime.now(UTC)
+            outcome["written"] += 1
+
+        open_rows = [row for row in rows if row.status in (ImportRowStatus.proposed, ImportRowStatus.failed)]
+        document.status = DocumentStatus.parsed if open_rows else DocumentStatus.imported
+        document.summary = {**document.summary, "last_approval": outcome, "checks": counts(rows)}
+        await self.session.commit()
+
+        return outcome
+
+    async def undo(
+        self,
+        user_id: int,
+        document_id: int
+        ) -> int:
+
+        """Undo everything this document wrote in one go, or nothing when any record was changed after the import."""
+
+        document = await self.get(user_id, document_id)
+        rows = await self.repository.rows(document.id)
+        written = [row for row in rows if row.status == ImportRowStatus.written and row.action != ImportRowAction.no_change]
+
+        if not written:
+            raise NothingToUndo("This document has nothing written to undo")
+
+        try:
+            await Writer(self.session, user_id).undo(written)
+
+        except Exception:
+            await self.session.rollback()
+            raise
+
+        for row in rows:
+
+            if row.status == ImportRowStatus.written:
+                row.status = ImportRowStatus.undone
+
+        document.status = DocumentStatus.rejected
+        document.summary = {**document.summary, "undone": len(written)}
+        await self.session.commit()
+
+        return len(written)
 
     async def get(
         self,

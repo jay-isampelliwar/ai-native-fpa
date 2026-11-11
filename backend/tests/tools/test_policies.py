@@ -29,13 +29,13 @@ def test_every_tool_has_a_policy() -> None:
     assert names == set(TOOL_POLICIES)
 
 
-def test_only_update_and_delete_always_need_approval() -> None:
+def test_only_update_delete_and_imports_always_need_approval() -> None:
 
-    """Approval is always asked for changing and removing saved items, and for no other tool by name alone."""
+    """Approval is always asked for changing and removing saved items and for importing or undoing a file, and for no other tool by name alone."""
 
     approved = {name for name in TOOL_POLICIES if needs_approval(name)}
 
-    assert approved == {"update_record", "delete_record"}
+    assert approved == {"update_record", "delete_record", "approve_import", "undo_import"}
     assert TOOL_POLICIES["delete_record"].risk == Risk.destructive
     assert TOOL_POLICIES["update_record"].risk == Risk.sensitive
 
@@ -64,6 +64,7 @@ def test_read_tools_are_read() -> None:
         "get_financial_health",
         "get_upcoming_events",
         "open_form",
+        "get_import_preview",
         }
 
 

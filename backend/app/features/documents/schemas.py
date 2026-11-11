@@ -85,3 +85,32 @@ class AnswerQuestions(BaseModel):
     """One or more answers, sent as the user picks them on the review screen or in chat."""
 
     answers: list[AnswerIn] = Field(min_length=1)
+
+
+class RowEdit(BaseModel):
+
+    """The user's changes to one row: any field by name, and for a holding the stock or fund picked from the search."""
+
+    changes: dict[str, Any] = Field(default_factory=dict)
+    instrument: str | None = Field(default=None, description="A pick from the search, such as fund:123 or stock:45")
+
+
+class InstrumentChoice(BaseModel):
+
+    """One stock or fund suggested while the user types a name."""
+
+    value: str
+    label: str
+    kind: str
+    isin: str
+    name: str
+
+
+class ApprovalOutcome(BaseModel):
+
+    """How many rows one approval wrote, found unchanged, or could not write, and the document after it."""
+
+    written: int
+    no_change: int
+    failed: int
+    document: DocumentOut

@@ -155,7 +155,13 @@ class Checker:
 
     async def match_instrument(self, state: RowState) -> None:
 
-        """Find the stock or fund: certain by ISIN or symbol, otherwise a question with the closest choices."""
+        """Use the stock or fund the user picked, or find it: certain by ISIN or symbol, otherwise a question with the closest choices."""
+
+        picked = (state.row.edited_data or {}).get("instrument")
+
+        if picked:
+            self.use_instrument(state, await instrument_by_answer(self.session, picked))
+            return
 
         found = await find_instrument(self.session, state.data)
 

@@ -18,6 +18,9 @@ FUND_SEARCH_LIMIT = 60
 STOCK_SEARCH_LIMIT = 20
 SPACED_SEARCH_LIMIT = 600
 
+MIN_SUGGEST_CHARS = 2
+SUGGEST_LIMIT = 10
+
 FILLER_WORDS = {
     "fund", "plan", "direct", "regular", "growth", "option", "idcw", "dividend", "payout",
     "reinvestment", "the", "of", "dir", "gr", "reg", "ltd", "limited", "india", "scheme", "-",
@@ -90,7 +93,7 @@ def plan_wanted(text: str) -> tuple[str | None, str | None]:
     """The plan and option a name or plan hint asks for, such as direct and growth, or None for each when it does not say."""
 
     lowered = text.lower()
-    plan = "direct" if "direct" in lowered else "regular" if re.search(r"\breg(ular)?\b", lowered) else None
+    plan = "direct" if re.search(r"\bdir(ect)?\b", lowered) else "regular" if re.search(r"\breg(ular)?\b", lowered) else None
     choice = "growth" if "growth" in lowered else "idcw" if re.search(r"idcw|dividend|payout", lowered) else None
 
     return plan, choice
@@ -245,3 +248,35 @@ def choice_label(candidate: dict[str, Any]) -> str:
         return f"{candidate['name']} ({candidate['symbol']}, {candidate['isin']})"
 
     return f"{candidate['name']} ({candidate['isin']})"
+
+
+async def suggest_instruments(
+    session: AsyncSession,
+    text: str
+    ) -> list[dict[str, Any]]:
+
+    """Stocks and funds for a name being typed: symbols that start with it, then names with every word, closest first."""
+
+    text = text.strip()
+    words = search_words(text)
+
+    if len(text) < MIN_SUGGEST_CHARS:
+        return []
+
+    by_symbol = await session.scalars(select(Stock).where(Stock.symbol.startswith(text.upper().replace(" ", ""))).limit(STOCK_SEARCH_LIMIT))
+    found = [stock_ref(stock) for stock in by_symbol]
+
+    if words:
+        funds = await session.scalars(name_matches(select(MutualFund), MutualFund.scheme_name, words).limit(FUND_SEARCH_LIMIT))
+        named_stocks = await session.scalars(name_matches(select(Stock), Stock.company_name, words).limit(STOCK_SEARCH_LIMIT))
+        found += [fund_ref(fund) for fund in funds] + [stock_ref(stock) for stock in named_stocks] + await spaced_candidates(session, words)
+
+    unique = {(item["kind"], item["id"]): item for item in found}
+    symbols = [item for item in unique.values() if item["kind"] == "stock" and item["symbol"].startswith(text.upper())]
+    named = [item for item in unique.values() if item not in symbols and (not words or starts_a_word(words[0], item["name"]))]
+    ordered = symbols + sorted(named, key=lambda item: score(text, "", item), reverse=True)
+
+    return [
+        {"value": f"{item['kind']}:{item['id']}", "label": choice_label(item), "kind": item["kind"], "isin": item["isin"], "name": item["name"]}
+        for item in ordered[:SUGGEST_LIMIT]
+        ]

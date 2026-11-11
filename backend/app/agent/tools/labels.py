@@ -2,6 +2,10 @@
 
 
 TOOL_LABELS = {
+    "get_import_preview": "Reading your uploaded file",
+    "answer_import_question": "Saving your answer",
+    "approve_import": "Importing your file",
+    "undo_import": "Undoing the import",
     "check_goal_progress": "Checking your goal progress",
     "get_missing_sections": "Looking for missing details",
     "mark_section_status": "Noting what you don't have",

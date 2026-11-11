@@ -72,6 +72,10 @@ TOOL_POLICIES: dict[str, ToolPolicy] = {
     "link_asset_to_goal": SENSITIVE,
     "update_record": SENSITIVE_APPROVED,
     "delete_record": DESTRUCTIVE_APPROVED,
+    "get_import_preview": READ,
+    "answer_import_question": WRITE,
+    "approve_import": SENSITIVE_APPROVED,
+    "undo_import": DESTRUCTIVE_APPROVED,
     }
 
 

@@ -108,11 +108,25 @@ def column_values(
     values = {}
 
     for name in fields:
-
-        value = getattr(record, name)
-        values[name] = value.value if isinstance(value, Enum) else value.isoformat() if isinstance(value, date) else str(value) if value is not None else None
+        values[name] = as_json(getattr(record, name))
 
     return values
+
+
+def as_json(value: Any) -> Any:
+
+    """One saved value as JSON: enums as their value, dates as text, yes/no kept as true or false, numbers as exact text."""
+
+    if isinstance(value, Enum):
+        return value.value
+
+    if isinstance(value, date):
+        return value.isoformat()
+
+    if value is None or isinstance(value, (bool, int)):
+        return value
+
+    return str(value)
 
 
 def comparable_fields(
