@@ -95,6 +95,11 @@ class Settings(BaseSettings):
     TRANSCRIBE_TIMEOUT_SECONDS: float = 20
     MAX_AUDIO_BYTES: int = 4 * 1024 * 1024
 
+    UPLOAD_DIR: str = "var/uploads"
+    MAX_DOCUMENT_BYTES: int = 10 * 1024 * 1024
+    MAPPING_MODEL: str | None = None
+    MAPPING_SAMPLE_ROWS: int = 3
+
     LANGFUSE_PUBLIC_KEY: str | None = None
     LANGFUSE_SECRET_KEY: SecretStr | None = None
     LANGFUSE_BASE_URL: str = "https://cloud.langfuse.com"

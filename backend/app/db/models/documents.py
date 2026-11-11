@@ -3,12 +3,12 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Identity, Index, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.enums import DocumentStatus, ImportRowAction, ImportRowStatus
-from app.db.models.base import UserOwnedMixin, db_enum
+from app.db.models.base import UserOwnedMixin, created_at_column, db_enum, updated_at_column
 from app.db.session import Base
 
 
@@ -35,6 +35,25 @@ class Document(UserOwnedMixin, Base):
         server_default=DocumentStatus.uploaded.value,
         )
     error_message: Mapped[str | None] = mapped_column(Text)
+    summary: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+
+
+class LayoutMapping(Base):
+
+    """One sheet shape, known by its headers, and the table and fields its columns go to, shared by every user."""
+
+    __tablename__ = "layout_mappings"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    fingerprint: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    headers: Mapped[list[Any]] = mapped_column(JSONB, nullable=False)
+    target_table: Mapped[str | None] = mapped_column(String(50))
+    columns: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    reason: Mapped[str | None] = mapped_column(Text)
+    confirmed_by: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="SET NULL"))
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = created_at_column()
+    updated_at: Mapped[datetime] = updated_at_column()
 
 
 class ImportRow(UserOwnedMixin, Base):

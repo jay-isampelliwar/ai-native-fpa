@@ -500,9 +500,10 @@ class HoldingAssetType(StrEnum):
 
 class DocumentStatus(StrEnum):
 
-    """Where one uploaded file is between uploaded and its rows written or rejected."""
+    """Where one uploaded file is between uploaded, waiting for a confirmed mapping, parsed, and written or rejected."""
 
     uploaded = "uploaded"
+    needs_mapping = "needs_mapping"
     parsed = "parsed"
     imported = "imported"
     rejected = "rejected"
