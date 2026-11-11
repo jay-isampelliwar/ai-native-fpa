@@ -42,6 +42,8 @@ class DocumentOut(BaseModel):
     plans: list[dict[str, Any]] = Field(default_factory=list)
     pending_pages: dict[str, int] | None = None
     locked: bool = False
+    totals: list[dict[str, Any]] = Field(default_factory=list)
+    totals_blocked: bool = False
     rows: list[ImportRowOut] = Field(default_factory=list)
     created_at: datetime
 

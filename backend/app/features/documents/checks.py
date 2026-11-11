@@ -20,6 +20,7 @@ from app.features.documents.records import (
     saved_records,
     )
 from app.features.documents.repository import DocumentRepository
+from app.features.documents.totals import check_totals, mismatch_key
 from app.features.documents.rules import (
     keep_answers,
     mismatch_question,
@@ -403,14 +404,36 @@ async def run_checks(
     document: Document
     ) -> None:
 
-    """Check all of a document's open rows and store the counts the review screen shows."""
+    """Check all of a document's open rows and its printed totals, and store what the review screen shows."""
 
     rows = await DocumentRepository(session).rows(document.id)
 
     for state in await Checker(session, document.user_id).run(rows):
         finish(state)
 
-    document.summary = {**document.summary, "checks": counts(rows)}
+    totals = check_totals(rows_by_sheet(rows), document.summary.get("printed_totals", []))
+    key = mismatch_key(totals)
+    blocked = key is not None and document.summary.get("totals_accepted_for") != key
+    document.summary = {**document.summary, "checks": counts(rows), "totals": totals, "totals_key": key, "totals_blocked": blocked}
+
+
+def rows_by_sheet(rows: list[ImportRow]) -> dict[str, list[dict[str, Any]]]:
+
+    """Each sheet's rows as their values, leaving out rows the user removed or skipped, with the file line each came from."""
+
+    grouped: dict[str, list[dict[str, Any]]] = {}
+
+    for row in rows:
+
+        resolved = row.resolved or {}
+
+        if resolved.get("removed") or resolved.get("skipped") or row.status == ImportRowStatus.undone:
+            continue
+
+        data = {**row.parsed_data, **(row.edited_data or {}), "_line": (row.source or {}).get("row")}
+        grouped.setdefault((row.source or {}).get("sheet", ""), []).append(data)
+
+    return grouped
 
 
 def counts(rows: list[ImportRow]) -> dict[str, int]:

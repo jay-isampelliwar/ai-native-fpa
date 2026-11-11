@@ -1,6 +1,6 @@
 'use client';
 
-import { CalendarDays, CheckCircle2, ChevronDown, Columns3, Eye, Loader2, Lock, RotateCcw, Upload, X } from 'lucide-react';
+import { AlertTriangle, CalendarDays, CheckCircle2, ChevronDown, Columns3, Eye, Loader2, Lock, RotateCcw, Scale, Upload, X } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
 import MappingStep from '@/components/imports/MappingStep';
@@ -259,6 +259,18 @@ export default function ImportPanel({
           </section>
         )}
 
+        {document && (document.status === 'parsed' || document.status === 'imported') && document.totals.length > 0 && (
+          <TotalsCard
+            document={document}
+            busy={busy}
+            onAccept={async () => {
+              const next = await act(() => documents.acceptTotals(documentId));
+
+              if (next) show(next);
+            }}
+          />
+        )}
+
         {document?.status === 'parsed' && undated > 0 && (
           <DateBar
             count={undated}
@@ -315,7 +327,8 @@ export default function ImportPanel({
           {document?.status === 'parsed' && ready > 0 && (
             <button
               type="button"
-              disabled={busy || ready === 0}
+              disabled={busy || ready === 0 || document.totals_blocked}
+              title={document.totals_blocked ? 'The totals do not match yet' : undefined}
               onClick={() => void approve()}
               className="send-gradient flex h-10 items-center gap-2 rounded-xl px-5 text-[13.5px] font-semibold disabled:cursor-not-allowed disabled:opacity-40"
             >
@@ -530,6 +543,76 @@ function PlanNote({
           </li>
         ))}
       </ul>
+    </section>
+  );
+}
+
+/** A rupee amount kept as text, shown with Indian grouping. */
+function rupeesText(value: string): string {
+  const amount = Number(value);
+
+  return Number.isFinite(amount) ? `₹${amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : value;
+}
+
+/**
+ * The rows checked against the totals the file prints. A mismatch blocks the import until the
+ * person fixes the rows or picks Import anyway; "I will check the file" only folds this away.
+ */
+function TotalsCard({ document, busy, onAccept }: { document: DocumentView; busy: boolean; onAccept: () => void }) {
+  const [folded, setFolded] = useState(false);
+  const failed = document.totals.filter((item) => !item.ok);
+
+  if (failed.length === 0) {
+    return (
+      <p className="flex items-center gap-2 rounded-xl border border-line bg-panel px-3 py-2.5 text-[12.5px] text-secondary">
+        <Scale size={14} className="flex-none text-positive" aria-hidden="true" />
+        The rows add up to the totals in the file ({document.totals.length} check{document.totals.length === 1 ? '' : 's'}).
+      </p>
+    );
+  }
+
+  if (!document.totals_blocked) {
+    return (
+      <p className="flex items-center gap-2 rounded-xl border border-line bg-panel px-3 py-2.5 text-[12.5px] text-secondary">
+        <AlertTriangle size={14} className="flex-none text-warning" aria-hidden="true" />
+        The totals do not match, and you chose to import anyway.
+      </p>
+    );
+  }
+
+  return (
+    <section aria-label="Totals" className="tile tone-warn px-4 py-3">
+      <p className="flex items-center gap-2 text-[13.5px] font-medium text-primary">
+        <AlertTriangle size={15} className="flex-none text-warning" aria-hidden="true" />
+        The rows do not add up to the totals in the file
+      </p>
+
+      {!folded && (
+        <>
+          <ul className="mt-2 space-y-2">
+            {failed.map((item) => (
+              <li key={`${item.sheet}:${item.label}`} className="rounded-lg border border-line bg-panel px-3 py-2 text-[12.5px]">
+                <p className="text-primary">{item.label}</p>
+                <p className="mt-0.5 text-muted">
+                  {item.sheet} · file says {rupeesText(item.expected)} · rows give {rupeesText(item.found)} · off by {rupeesText(item.difference.replace('-', ''))}
+                </p>
+              </li>
+            ))}
+          </ul>
+
+          <p className="mt-2 text-[12.5px] text-secondary">Fix the rows below, or import anyway if you are sure the rows are right.</p>
+
+          <div className="mt-2.5 flex flex-wrap items-center gap-2">
+            <button type="button" disabled={busy} onClick={onAccept} className="send-gradient flex h-8 items-center gap-1.5 rounded-lg px-3 text-[12.5px] font-semibold disabled:opacity-40">
+              {busy && <Loader2 size={13} className="animate-spin" aria-hidden="true" />}
+              Import anyway
+            </button>
+            <button type="button" onClick={() => setFolded(true)} className="chip-button h-8 px-3 text-[12.5px]">
+              I will check the file
+            </button>
+          </div>
+        </>
+      )}
     </section>
   );
 }

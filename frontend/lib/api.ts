@@ -282,6 +282,11 @@ export const documents = {
     return request<DocumentView>(`/api/documents/${documentId}/rows/${rowId}/restore`, { method: "POST" });
   },
 
+  /** Import anyway after seeing the rows do not add up to the file's totals. Asked again if that changes. */
+  acceptTotals(documentId: number) {
+    return request<DocumentView>(`/api/documents/${documentId}/accept-totals`, { method: "POST" });
+  },
+
   /** Write every ready row into the person's records. */
   approve(documentId: number) {
     return request<ApprovalOutcome>(`/api/documents/${documentId}/approve`, { method: "POST" });

@@ -53,6 +53,7 @@ TABLE_FIELDS: dict[str, dict[str, str]] = {
         "direction": "transaction_direction",
         "debit_amount": "money",
         "credit_amount": "money",
+        "balance": "money",
         "category": "transaction_category",
         },
     "holdings": {

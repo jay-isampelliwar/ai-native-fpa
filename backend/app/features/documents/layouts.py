@@ -19,6 +19,7 @@ from app.features.documents.parsing import (
     header_columns,
     )
 from app.features.documents.reader import Sheet
+from app.features.documents.totals import labelled_totals, line_totals
 from app.services.llm import llm_service
 
 
@@ -206,19 +207,28 @@ def mapping_errors(
     return errors
 
 
+@dataclass
+class MappedSheet:
+
+    """One sheet read with a column plan: its rows, and the totals it prints, for the totals check."""
+
+    rows: list[ParsedRow]
+    printed: list[dict[str, Any]]
+
+
 def parse_mapped(
     sheet: Sheet,
     headers: list[str],
     target_table: str,
     columns: dict[str, str]
-    ) -> list[ParsedRow]:
+    ) -> MappedSheet:
 
-    """Read a sheet with a confirmed mapping, one row per line under the header."""
+    """Read a sheet with a confirmed plan, one row per line under the header, keeping total lines out of the rows and in the printed totals."""
 
     header_index = find_header(sheet, {header_key(header) for header in headers})
 
     if header_index is None:
-        return []
+        return MappedSheet([], [])
 
     positions = header_columns(sheet, header_index)
     field_by_key = {header_key(header): field_name for header, field_name in columns.items() if header_key(header) in positions}
@@ -237,7 +247,9 @@ def parse_mapped(
         if builder.has_content():
             rows.append(builder.row)
 
-    return rows
+    printed = labelled_totals(sheet, range(len(sheet.rows))) + line_totals(sheet, header_index, field_by_key, positions, target_table)
+
+    return MappedSheet(rows, [item.as_dict() for item in printed])
 
 
 def settle_direction(row: ParsedRow) -> None:

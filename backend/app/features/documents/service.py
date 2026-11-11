@@ -189,9 +189,10 @@ class DocumentService:
             else:
 
                 if content.pages:
-                    page_rows, page_notes = await self.read_with_model(content.pages)
+                    page_rows, page_notes, page_totals = await self.read_with_model(content.pages)
                     result.rows.extend(page_rows)
                     result.notes.extend(page_notes)
+                    result.printed.extend(page_totals)
 
                 await self.save_result(document, result, pending, plans)
 
@@ -208,7 +209,7 @@ class DocumentService:
 
         await self.session.commit()
 
-    async def read_with_model(self, pages: list[Page]) -> tuple[list[ParsedRow], list[SheetNote]]:
+    async def read_with_model(self, pages: list[Page]) -> tuple[list[ParsedRow], list[SheetNote], list[dict[str, Any]]]:
 
         """Have the model read the pages, turning any failure into a plain reason."""
 
@@ -260,7 +261,7 @@ class DocumentService:
         """Store the parsed rows, sheet notes and the column plans used, or wait for the user when a sheet's plan failed its checks."""
 
         notes = [note.as_dict() for note in result.notes]
-        base = {**kept_summary(document), "sheets": notes, "plans": plans or []}
+        base = {**kept_summary(document), "sheets": notes, "plans": plans or [], "printed_totals": result.printed}
 
         if pending:
             document.status = DocumentStatus.needs_mapping
@@ -340,8 +341,10 @@ class DocumentService:
         if target_table is None:
             return SheetNote(layout.sheet.name, "not_imported", "Sheet not imported: its saved mapping says it holds no records")
 
-        rows = parse_mapped(layout.sheet, layout.headers, target_table, columns)
+        mapped = parse_mapped(layout.sheet, layout.headers, target_table, columns)
+        rows = mapped.rows
         result.rows.extend(rows)
+        result.printed.extend(mapped.printed)
 
         if not rows:
             return SheetNote(layout.sheet.name, "empty", "Sheet found, but no rows")
@@ -588,6 +591,26 @@ class DocumentService:
 
         return document
 
+    async def accept_totals(
+        self,
+        user_id: int,
+        document_id: int
+        ) -> Document:
+
+        """Record that the user saw the totals mismatch and chose to import anyway; it holds only while the mismatch stays the same."""
+
+        document = await self.get(user_id, document_id)
+        await run_checks(self.session, document)
+        key = document.summary.get("totals_key")
+
+        if key is None:
+            raise EditInvalid(["The totals already match"])
+
+        document.summary = {**document.summary, "totals_accepted_for": key, "totals_blocked": False}
+        await self.session.commit()
+
+        return document
+
     async def set_as_of_date(
         self,
         user_id: int,
@@ -641,6 +664,9 @@ class DocumentService:
 
         if not waiting:
             raise NothingToApprove("No rows are ready yet. Answer the open questions and fix the errors first.")
+
+        if document.summary.get("totals_blocked"):
+            raise NothingToApprove("The rows do not add up to the totals in the file. Look at the totals in the review, then fix the rows or pick Import anyway.")
 
         for plan in document.summary.get("plans", []):
 
@@ -734,7 +760,7 @@ class DocumentService:
         return document
 
 
-KEPT_SUMMARY_KEYS = ("model_allowed", "locked")
+KEPT_SUMMARY_KEYS = ("model_allowed", "locked", "totals_accepted_for")
 
 
 def kept_summary(document: Document) -> dict[str, Any]:

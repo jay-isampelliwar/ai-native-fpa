@@ -12,6 +12,7 @@ from app.core.config import get_settings
 from app.features.documents.fields import TABLE_FIELDS, mappable_fields
 from app.features.documents.parsing import ParsedRow, RowBuilder, SheetNote
 from app.features.documents.reader import Cell, Page, Sheet
+from app.features.documents.totals import PRINTED_METRICS, Printed, amount
 from app.services.llm import llm_service
 
 
@@ -29,6 +30,7 @@ Rules:
 - Leave out totals, subtotals, page headers and anything you are not sure of.
 - Use only the table and field names listed below, spelled exactly. Leave out a field when it is not on the page.
 - When nothing on the page is a record, return no rows.
+- Put totals the page prints in totals, never in rows, using only these names: {totals}.
 
 Tables and their fields:
 {catalog}
@@ -53,9 +55,10 @@ class PageRecord(BaseModel):
 
 class PageReading(BaseModel):
 
-    """Everything the model found on one page."""
+    """Everything the model found on one page, its records and the totals it prints."""
 
     rows: list[PageRecord] = Field(default_factory=list)
+    totals: list[FieldValue] = Field(default_factory=list)
 
 
 def catalog() -> str:
@@ -90,7 +93,9 @@ async def read_page(page: Page) -> PageReading:
         method="function_calling",
         )
 
-    return await model.ainvoke([SystemMessage(content=PROMPT.format(catalog=catalog())), page_message(page)])
+    prompt = PROMPT.format(catalog=catalog(), totals=", ".join(PRINTED_METRICS))
+
+    return await model.ainvoke([SystemMessage(content=prompt), page_message(page)])
 
 
 def rows_of(
@@ -125,9 +130,28 @@ def rows_of(
     return rows
 
 
-async def read_pages(pages: list[Page]) -> tuple[list[ParsedRow], list[SheetNote]]:
+def totals_of(
+    page: Page,
+    reading: PageReading
+    ) -> list[dict[str, Any]]:
 
-    """Read every page with the model, a few at a time, and note what each gave."""
+    """The totals the model copied from a page, kept only when the name is known and the value is an amount."""
+
+    found = []
+
+    for item in reading.totals:
+
+        value = amount(item.value)
+
+        if item.name in PRINTED_METRICS and value is not None:
+            found.append(Printed(f"Page {page.number}", item.name, str(value), f"page {page.number}").as_dict())
+
+    return found
+
+
+async def read_pages(pages: list[Page]) -> tuple[list[ParsedRow], list[SheetNote], list[dict[str, Any]]]:
+
+    """Read every page with the model, a few at a time, and note what each gave and the totals it prints."""
 
     limit = asyncio.Semaphore(PAGE_CONCURRENCY)
 
@@ -141,16 +165,18 @@ async def read_pages(pages: list[Page]) -> tuple[list[ParsedRow], list[SheetNote
     readings = await asyncio.gather(*(one(page) for page in pages))
     rows: list[ParsedRow] = []
     notes: list[SheetNote] = []
+    printed: list[dict[str, Any]] = []
 
     for page, reading in readings:
 
         found = rows_of(page, reading)
+        printed.extend(totals_of(page, reading))
         rows.extend(found)
         how = "picture" if page.image is not None else "text"
         message = f"{len(found)} rows read by the model from the page {how}" if found else f"The model found no records in the page {how}"
         notes.append(SheetNote(f"Page {page.number}", "imported" if found else "empty", message, len(found)))
 
-    return rows, notes
+    return rows, notes, printed
 
 
 def page_summary(pages: list[Page]) -> dict[str, Any]:

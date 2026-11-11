@@ -1,112 +1,133 @@
-# Document Import Plan
+# Document Import
 
 ## Goal
 
-Put the right values from a file into the right tables for the user, with no wrong records.
+Put the right values from any financial file into the right tables for the user, with no wrong records.
 
 This is a single-user hobby project. The design stays small on purpose.
 
-## Core rule
+## Core rules
 
-- Code parses the file. The model never writes records.
-- Every row is checked before it is written.
-- The user sees a preview and approves it.
-- Writes go through the existing services, such as the investments service.
-- Each write is read back and checked.
+- Code reads and cleans every value. The model may read a layout or a page, but never writes records.
+- When anything is unsure, the user decides. The code never picks on its own.
+- Nothing is saved until the user presses Import.
+- Writes go through the existing domain services, and every write is read back and checked.
+- The model never sees rows above a header, and sees samples only with digits hidden.
+- A full page goes to the model only after the user says yes.
+- The user never sees ids, document numbers or links. Files are named by their file name.
 
 ## Flow
 
 ```text
-Upload -> classify -> parse -> check -> preview -> approve -> write -> read back
+Upload -> read -> classify or plan -> parse -> check -> review -> import -> read back -> note to chat
 ```
 
-1. The user uploads a file. The API hashes it with SHA-256.
-2. The same file again returns the earlier document. It is not parsed twice.
-3. The file is saved under `backend/var/uploads`.
-4. Code reads the header row and finds the format family.
-5. That family's parser turns each record into one `import_rows` row.
-6. Checks run: ISIN match, numbers, dates, duplicates, statement totals.
-7. The preview shows each row as create, update or no change.
-8. The user approves, edits or rejects rows.
-9. Approved rows are written through the domain service, then read back.
+1. The user attaches files in chat. Each one uploads on its own, as soon as it is picked.
+2. The same file again returns the earlier upload. A failed or unread upload is read again.
+3. The file is saved under `backend/var/uploads/{user_id}/`.
+4. The file is read into sheets for code, and pages for the model.
+5. Sheets are matched to a known family, or read with a column plan.
+6. Every value is cleaned, and every row is checked.
+7. The user reviews the rows in a panel beside the chat, then presses Import.
+8. The chat gets a short note, "Imported plan.xlsx". The agent reads the saved counts with a tool.
 
-Excel and CSV parse in under a second, so the API parses them directly. A worker is added only when PDFs or OCR arrive.
+The message to the agent carries only the document id. The tool returns counts and at most five
+questions or errors, so the chat stays small whatever the file size.
 
-## Classification
+## Accepted files
 
-- Each family lists the headers it expects.
-- The header row is compared with each family.
-- One match: that parser runs, and `documents.family` is set.
-- No match: the upload stops with "Format not known", plus the headers it found.
-- Two matches: the upload stops with "Matches two formats".
-- Later, an unknown file's headings and digit-masked samples go to the model. The model suggests a family or mapping, and the user confirms it.
+| File | How it is read |
+|---|---|
+| `.xlsx`, `.xls`, `.csv` | Code reads every sheet |
+| `.pdf` with tables | Code reads each table as a sheet |
+| `.pdf` page with text but no table | The model reads the text, after the user says yes |
+| Scanned `.pdf` page, `.png`, `.jpg`, `.webp` | The model reads the picture, after the user says yes |
 
-Known families:
+- The limits are 10 MB per file and 20 pages per PDF.
+- The bytes must match the file ending. Video and other files are refused.
+- A locked PDF asks for its password in the file chip. The password is used once and never saved.
 
-- `consolidated_holdings`
-- `broker_holdings`
-- `mutual_fund_statement`
+## Classify or plan
+
+- **Known family:** the planner workbook is matched by its sheet headers and read by fixed rules.
+- **Saved plan:** a sheet whose header shape was seen before is read with its saved column plan.
+- **New shape:** the model sees only the headings and digit-masked samples, and proposes a plan.
+  - If the plan passes the checks, the file is read with it at once. The review shows the plan, with "Change columns".
+  - If it fails, the user picks the columns before anything is read.
+- A plan is confirmed and saved when the user imports, or changes the columns.
+- The model can never map fields the code fills itself, such as a holding's type.
+
+## Checks on every row
+
+- Needed fields, value limits, and real dates.
+- Stocks and funds:
+  - Exact ISIN or exact symbol needs no question.
+  - Any match by name is a question with the five closest choices.
+- The same holding twice, with the same folio or no folio: a question on each line.
+- A saved holding with no folio while the file has one: a question.
+- Units × price more than 1% from the value: a question.
+- Matching saved records by type and name: create, update or no change. Two candidates: a question.
+- Rows the model read are marked "Check".
+- A file with no date gets one date for all rows, from the date bar.
+
+## Totals check
+
+- Total lines, such as "Total" or "Grand Total", are kept out of the rows and used only for the check.
+- Labelled totals above or below the rows are read by code: opening balance, closing balance,
+  invested value and present value.
+- Checks:
+  - Each column's sum against its total line.
+  - Holdings: units × average price against invested value, and value against present value.
+  - Bank: opening + credits − debits = closing.
+  - Running balance, line by line, in either order. The first line that breaks is named.
+- A difference within ₹1 passes.
+- A mismatch blocks the import until the user fixes the rows or picks "Import anyway".
+  If the mismatch changes afterwards, it asks again.
+
+## Review panel
+
+- What each sheet gave, and why a sheet was skipped.
+- Questions one at a time, "1 of N".
+- Rows by table, marked New, Update, No change, Saved, Not saved or Removed. Updates show old against new.
+- Edit any field. Fund and stock names suggest matches as you type.
+- Remove a row from the import, or bring it back. Saved records are never touched by this.
+- Import the ready rows, and undo the whole import afterwards.
+
+## Import and undo
+
+- Each row is written on its own. A failed row is marked with its reason, and the rest stay saved.
+- Before an update, the saved record must still match what the preview showed.
+- Old values are kept, so undo can put them back.
+- Undo removes what the import added and restores what it changed, newest row first.
+- Undo stops and changes nothing if any record was changed after the import.
 
 ## Tables
 
-Migration `0022_document_import`.
-
-### `documents`
-
-One uploaded file.
-
-| Column | Meaning |
+| Table | Holds |
 |---|---|
-| `user_id` | Owner |
-| `original_filename`, `mime_type`, `file_size_bytes` | What was uploaded |
-| `sha256` | Unique per user, so the same file is stored once |
-| `storage_path` | Where the file sits under `var/uploads` |
-| `family` | The format family it matched |
-| `status` | `uploaded`, `parsed`, `imported`, `rejected`, `failed` |
-| `error_message` | Why it failed |
+| `documents` | File, hash, status, family, summary: sheet notes, plans, totals, waiting steps |
+| `import_rows` | One record per row: parsed values, edits, old values, source cells, errors, warnings, questions, matches |
+| `layout_mappings` | Column plans by header shape, shared, confirmed by the user |
 
-### `import_rows`
+Document states: `uploaded`, `needs_mapping`, `needs_password`, `needs_consent`, `parsed`, `imported`, `rejected` (undone), `failed`.
 
-One full record from a document, such as one holding.
+Migrations `0022` to `0025`.
 
-| Column | Meaning |
+## Chat tools
+
+| Tool | Does |
 |---|---|
-| `document_id` | The file it came from |
-| `row_number` | Order in the file, unique per document |
-| `target_table` | Where it goes, such as `holdings` |
-| `action` | `create`, `update` or `no_change` |
-| `status` | `proposed`, `approved`, `rejected`, `written`, `failed`, `undone` |
-| `parsed_data` | Values as parsed. Never changed after parsing. |
-| `edited_data` | The user's changes, kept apart from `parsed_data` |
-| `previous_data` | Old values of the record, saved before an update |
-| `target_record_id` | The record updated or created |
-| `source` | Sheet, row and cells the values came from |
-| `errors` | Problems that block the write |
-| `warnings` | Problems the user should look at |
-| `written_at` | When the write happened |
+| `get_import_preview` | Reads counts, questions, errors and totals. Never rows. |
+| `answer_import_question` | Saves the user's own reply to one question |
+| `approve_import` | Imports the ready rows, behind the approval card |
+| `undo_import` | Undoes the import, behind the approval card |
 
-## Rules
+- One open question is asked in chat. More than one is answered in the review panel.
+- The agent never asks for a PDF password in chat, because chat is saved.
 
-- Money and units are stored as strings in JSON and as `NUMERIC` in tables, never as float.
-- Match a security by ISIN first. With no ISIN, the row needs review. No guessing.
-- The sum of rows must match the statement total.
-- The model sees only headings and digit-masked samples.
-- Rows above the header are never sent to the model. One real format has PAN there.
-- Undo puts back `previous_data`. If the record changed after the import, undo stops and warns.
+## Code
 
-## Phases
-
-| # | Phase | Done when |
-|---|---|---|
-| 1 | Two tables, one migration | Migration runs up and down |
-| 2 | Upload and parse holdings files | Real files give correct rows |
-| 3 | Checks: ISIN, totals, duplicates | A bad row shows an error |
-| 4 | Preview, approve, write, read back | Approve fills `holdings` correctly |
-| 5 | Upload and review card in the frontend | Works from the browser |
-| 6 | Later: other tables, PDFs, unknown formats | Added when needed |
-
-## Testing
-
-- One real test file per family, with every number checked.
-- Unit tests for the number and date cleaning.
-- The target is zero wrong records written.
+- Backend: `backend/app/features/documents/`
+- Chat tools: `backend/app/agent/tools/imports.py`
+- Frontend: `frontend/components/imports/`, `frontend/components/chat/FileChips.tsx`, `frontend/lib/useUploads.ts`
+- Tests: `backend/tests/documents/`

@@ -502,6 +502,17 @@ export interface PendingMapping {
   errors: string[];
 }
 
+/** One check of the rows against a total the file prints, such as its closing balance. */
+export interface TotalCheck {
+  sheet: string;
+  label: string;
+  expected: string;
+  found: string;
+  difference: string;
+  ok: boolean;
+  ref: string | null;
+}
+
 export interface ImportChecks {
   ready: number;
   with_errors: number;
@@ -526,6 +537,10 @@ export interface DocumentView {
   pending_pages: { count: number; pictures: number } | null;
   /** True for a PDF that needed a password, which must be given again for each new read. */
   locked: boolean;
+  /** Each check of the rows against a total the file prints. */
+  totals: TotalCheck[];
+  /** True while the totals do not match and the person has not picked Import anyway. */
+  totals_blocked: boolean;
   rows: ImportRowView[];
   created_at: string;
 }

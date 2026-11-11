@@ -85,7 +85,7 @@ def test_parse_with_confirmed_mapping() -> None:
     """Debit and credit columns become one amount with its direction, and a bad amount is an error, not a guess."""
 
     layout = bank_layout()
-    rows = parse_mapped(layout.sheet, layout.headers, "transactions", COLUMNS)
+    rows = parse_mapped(layout.sheet, layout.headers, "transactions", COLUMNS).rows
 
     assert rows[0].data == {"txn_date": "2026-10-01", "description": "UPI-SWIGGY", "amount": "450.00", "direction": "outflow"}
     assert rows[1].data["direction"] == "inflow"

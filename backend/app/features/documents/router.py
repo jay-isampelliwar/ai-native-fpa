@@ -67,6 +67,8 @@ async def document_out(
         plans=document.summary.get("plans", []),
         pending_pages=document.summary.get("pending_pages"),
         locked=bool(document.summary.get("locked")),
+        totals=document.summary.get("totals", []),
+        totals_blocked=bool(document.summary.get("totals_blocked")),
         rows=[ImportRowOut.model_validate(row, from_attributes=True) for row in rows],
         created_at=document.created_at,
         )
@@ -385,6 +387,27 @@ async def set_removed(
 
     try:
         document = await DocumentService(session).remove_row(user_id, document_id, row_id, removed)
+
+    except DocumentNotFound as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+
+    except EditInvalid as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, exc.errors) from exc
+
+    return await document_out(session, document)
+
+
+@router.post("/{document_id}/accept-totals")
+async def accept_totals(
+    document_id: int,
+    user_id: int = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_session),
+    ) -> DocumentOut:
+
+    """Import anyway after seeing that the rows do not add up to the file's totals; asked again if the mismatch changes."""
+
+    try:
+        document = await DocumentService(session).accept_totals(user_id, document_id)
 
     except DocumentNotFound as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc

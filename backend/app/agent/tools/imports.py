@@ -125,6 +125,8 @@ def preview_data(
         "errors": errors[:SHOWN_ERRORS],
         "pending_pages": document.summary.get("pending_pages"),
         "read_by_model": sum(1 for row in rows if (row.source or {}).get("read_by_model")),
+        "totals_mismatch": [item["label"] for item in document.summary.get("totals", []) if not item["ok"]][:SHOWN_ERRORS],
+        "totals_blocked": bool(document.summary.get("totals_blocked")),
         }
 
 
@@ -161,6 +163,12 @@ def preview_message(data: dict[str, Any]) -> str:
 
     if lines:
         parts.append(f"Ready to import from {name}: {'; '.join(lines)}.")
+
+    if data.get("totals_blocked"):
+        parts.append(
+            f"The rows of {name} do not add up to the totals the file prints ({'; '.join(data['totals_mismatch'])}). "
+            f"Nothing can be imported until the user looks at the totals in {REVIEW} and fixes the rows or picks Import anyway. Do not decide for them."
+            )
 
     if data["read_by_model"]:
         parts.append(f"{data['read_by_model']} rows were read by the model from pages, so tell the user to check those values.")

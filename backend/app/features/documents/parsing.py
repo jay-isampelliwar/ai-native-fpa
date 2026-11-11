@@ -8,6 +8,7 @@ from typing import Any
 from app.features.documents.fields import amount_fields, field_kind, read_value
 from app.features.documents.normalize import NotReadable, header_key, is_empty, to_decimal
 from app.features.documents.reader import Cell, Sheet
+from app.features.documents.totals import is_summary_line
 
 
 HEADER_SEARCH_ROWS = 25
@@ -54,6 +55,7 @@ class ParseResult:
 
     rows: list[ParsedRow] = field(default_factory=list)
     notes: list[SheetNote] = field(default_factory=list)
+    printed: list[dict[str, Any]] = field(default_factory=list)
 
 
 class RowBuilder:
@@ -215,7 +217,7 @@ def data_rows(
     header_index: int
     ) -> Iterator[tuple[int, dict[str, Cell | None]]]:
 
-    """Yield each non-blank row under the header as its sheet row number and a header-to-cell map."""
+    """Yield each non-blank row under the header as its sheet row number and a header-to-cell map, leaving out total lines."""
 
     columns = header_columns(sheet, header_index)
 
@@ -223,7 +225,7 @@ def data_rows(
 
         row = sheet.rows[index]
 
-        if not any(row):
+        if not any(row) or is_summary_line(row):
             continue
 
         cells = {key: row[position] if position < len(row) else None for key, position in columns.items()}
