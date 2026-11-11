@@ -76,7 +76,8 @@ export interface Turn {
   /** Filenames sent with a user turn, so the question keeps a record of what went with it. */
   attached?: string[];
   /** Imports this answer is about. The review cards for them are drawn under it. */
-  importIds?: string[];
+  /** Uploads sent with the message this reply answers, each drawn as a card under it. */
+  documentIds?: number[];
   /** Tools the planner called for this answer, in the order they started. Read by the thinking pill. */
   tools?: ToolStep[];
   /** How long the planner was at work on this answer, in ms, not counting a wait on an approval card. */
@@ -102,22 +103,22 @@ const ENTER = {
 export default function MessageTimeline({
   turns,
   streamingId,
-  userId,
   busy,
   openFormId,
   onRegenerate,
   onDecide,
   onOpenForm,
+  onOpenReview,
 }: {
   turns: Turn[];
   streamingId?: string;
-  userId: number | null;
   busy: boolean;
   /** The form block now open beside the chat, if any. */
   openFormId?: string | null;
   onRegenerate: (answerId: string) => void;
   onDecide: (answerId: string, decision: ApprovalDecision, edits?: ApprovalEdits) => void;
   onOpenForm: (answerId: string, blockId: string) => void;
+  onOpenReview: (documentId: number) => void;
 }) {
   const sentForms = new Set(turns.map((turn) => turn.form?.block_id).filter((id): id is string => Boolean(id)));
 
@@ -132,13 +133,13 @@ export default function MessageTimeline({
               key={turn.id}
               turn={turn}
               streaming={turn.id === streamingId}
-              userId={userId}
               busy={busy}
               sentForms={sentForms}
               openFormId={openFormId}
               onRegenerate={() => onRegenerate(turn.id)}
               onDecide={(decision, edits) => onDecide(turn.id, decision, edits)}
               onOpenForm={(blockId) => onOpenForm(turn.id, blockId)}
+              onOpenReview={onOpenReview}
             />
           )
         ),
@@ -162,11 +163,11 @@ function UserTurn({ turn }: { turn: Turn }) {
             <DetailsShared size={17} className="text-positive" />
             Details shared · {FORMS[turn.form.kind]?.title ?? 'Form'}
           </p>
-        ) : (
+        ) : turn.text ? (
           <p className="user-bubble px-4 py-2.5 text-[15.5px] leading-[1.6] whitespace-pre-wrap">
             {turn.text}
           </p>
-        )}
+        ) : null}
 
         {turn.attached && turn.attached.length > 0 && (
           <p className="mt-1.5 pr-1 text-[12.5px] text-muted">
@@ -183,23 +184,23 @@ function UserTurn({ turn }: { turn: Turn }) {
 function PlannerTurn({
   turn,
   streaming,
-  userId,
   busy,
   sentForms,
   openFormId,
   onRegenerate,
   onDecide,
   onOpenForm,
+  onOpenReview,
 }: {
   turn: Turn;
   streaming: boolean;
-  userId: number | null;
   busy: boolean;
   sentForms: Set<string>;
   openFormId?: string | null;
   onRegenerate: () => void;
   onDecide: (decision: ApprovalDecision, edits?: ApprovalEdits) => void;
   onOpenForm: (blockId: string) => void;
+  onOpenReview: (documentId: number) => void;
 }) {
   const forms = (turn.blocks ?? []).filter((entry) => entry.block.type === 'form');
 
@@ -257,9 +258,8 @@ function PlannerTurn({
             only way anything read from a document is saved, so they sit with the reply that asked
             for the decision rather than anywhere else on the screen. */}
         {!streaming &&
-          typeof userId === 'number' &&
-          turn.importIds?.map((importId) => (
-            <ImportReview key={importId} userId={userId} importId={importId} />
+          turn.documentIds?.map((documentId) => (
+            <ImportReview key={documentId} documentId={documentId} onOpen={onOpenReview} />
           ))}
 
         {!streaming && turn.text && (

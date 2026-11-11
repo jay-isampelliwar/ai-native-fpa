@@ -1,6 +1,6 @@
 """Request and response shapes for the document routes."""
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -39,6 +39,9 @@ class DocumentOut(BaseModel):
     sheets: list[dict[str, Any]] = Field(default_factory=list)
     checks: dict[str, int] = Field(default_factory=dict)
     pending_mappings: list[dict[str, Any]] = Field(default_factory=list)
+    plans: list[dict[str, Any]] = Field(default_factory=list)
+    pending_pages: dict[str, int] | None = None
+    locked: bool = False
     rows: list[ImportRowOut] = Field(default_factory=list)
     created_at: datetime
 
@@ -114,3 +117,24 @@ class ApprovalOutcome(BaseModel):
     no_change: int
     failed: int
     document: DocumentOut
+
+
+class AsOfDate(BaseModel):
+
+    """The date to give every row that needs one and has none, such as holdings from a broker export."""
+
+    as_of_date: date
+
+
+class Unlock(BaseModel):
+
+    """The password of a locked PDF, used for one read and never saved."""
+
+    password: str = Field(min_length=1, max_length=200)
+
+
+class AllowModel(BaseModel):
+
+    """The user's OK to let the model read the pages, with the PDF's password again when the file is locked."""
+
+    password: str | None = Field(default=None, max_length=200)

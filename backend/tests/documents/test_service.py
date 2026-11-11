@@ -133,27 +133,22 @@ async def test_planner_upload_parses_and_repeat_is_duplicate(user_id: int) -> No
     assert not asked
 
 
-async def test_unknown_file_waits_then_parses_after_confirm(
+async def test_unknown_file_is_read_at_once_with_the_model_plan(
     user_id: int,
     bank_headers: list[str]
     ) -> None:
 
-    """An unknown CSV waits for a mapping, parses once confirmed, and the next file of that shape skips the model."""
+    """An unknown CSV is read straight away when the model's plan passes the checks, the plan is shown, and the next file of that shape skips the model."""
 
     async with SessionLocal() as session:
         document, _ = await DocumentService(session).upload(user_id, "bank.csv", bank_csv(bank_headers, "450.00"))
-
-    assert document.status == DocumentStatus.needs_mapping
-    assert document.summary["pending_mappings"][0]["fingerprint"] == fingerprint(bank_headers)
-    assert asked == ["CSV"]
-
-    async with SessionLocal() as session:
-        document = await DocumentService(session).confirm_mapping(user_id, document.id, [])
         rows = await DocumentRepository(session).rows(document.id)
 
     assert document.status == DocumentStatus.parsed
+    assert document.summary["plans"][0]["fingerprint"] == fingerprint(bank_headers)
     assert rows[0].parsed_data == {"txn_date": "2026-10-01", "description": "UPI-TEST", "amount": "450.00", "direction": "outflow"}
     assert rows[0].source["cells"]["debit_amount"] == "C2"
+    assert asked == ["CSV"]
 
     async with SessionLocal() as session:
         second, _ = await DocumentService(session).upload(user_id, "bank2.csv", bank_csv(bank_headers, "99.00"))
@@ -162,12 +157,55 @@ async def test_unknown_file_waits_then_parses_after_confirm(
     assert asked == ["CSV"]
 
 
+async def test_changing_columns_reads_the_file_again(
+    user_id: int,
+    bank_headers: list[str]
+    ) -> None:
+
+    """Changing a sheet's columns saves the new plan and reads the file again with it."""
+
+    async with SessionLocal() as session:
+        document, _ = await DocumentService(session).upload(user_id, "bank.csv", bank_csv(bank_headers, "450.00"))
+
+    columns = {bank_headers[0]: "txn_date", bank_headers[2]: "debit_amount"}
+
+    async with SessionLocal() as session:
+        document = await DocumentService(session).confirm_mapping(user_id, document.id, [SheetChoice(sheet="CSV", target_table="transactions", columns=columns)])
+        rows = await DocumentRepository(session).rows(document.id)
+
+    assert "description" not in rows[0].parsed_data
+    assert document.summary["plans"][0]["confirmed_at"] is not None
+
+
+async def test_plan_failing_checks_waits_for_columns(
+    user_id: int,
+    bank_headers: list[str],
+    monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+
+    """A plan with no amount column fails the checks, so the file waits for the user to pick columns."""
+
+    async def weak(layout: SheetLayout) -> SheetMapping:
+
+        """Map only the date, which cannot make a row."""
+
+        return SheetMapping(target_table="transactions", columns=[ColumnChoice(header=layout.headers[0], field="txn_date")], reason="A bank statement")
+
+    monkeypatch.setattr(document_service, "propose_mapping", weak)
+
+    async with SessionLocal() as session:
+        document, _ = await DocumentService(session).upload(user_id, "bank.csv", bank_csv(bank_headers, "450.00"))
+
+    assert document.status == DocumentStatus.needs_mapping
+    assert document.summary["pending_mappings"][0]["errors"]
+
+
 async def test_bad_mapping_is_refused(
     user_id: int,
     bank_headers: list[str]
     ) -> None:
 
-    """A confirmed mapping naming a field the table does not have is refused, and the document keeps waiting."""
+    """A plan naming a field the table does not have is refused, and the document stays as it was."""
 
     async with SessionLocal() as session:
         document, _ = await DocumentService(session).upload(user_id, "bank.csv", bank_csv(bank_headers, "10.00"))
@@ -181,7 +219,7 @@ async def test_bad_mapping_is_refused(
 
         reloaded = await DocumentService(session).get(user_id, document.id)
 
-    assert reloaded.status == DocumentStatus.needs_mapping
+    assert reloaded.status == DocumentStatus.parsed
 
 
 async def test_broken_file_fails_with_reason(user_id: int) -> None:

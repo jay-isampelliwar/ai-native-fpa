@@ -250,3 +250,68 @@ async def test_no_change_rows_are_done_without_writing(user_id: int) -> None:
     assert outcome["written"] == 0
     assert outcome["no_change"] == 3
     assert len(await saved(IncomeSource, user_id)) == 1
+
+
+async def test_one_date_for_every_undated_row(
+    user_id: int,
+    market: Market
+    ) -> None:
+
+    """Rows with no as-of date get the chosen date in one step, and a future date is refused."""
+
+    from datetime import date, timedelta
+
+    document_id, rows = await upload(user_id, workbook([], [stock_line(market)], base_date=None))
+    row = rows[f"ZQ{market.tag.upper()}"]
+
+    assert any(error.startswith("as_of_date") for error in row.errors)
+
+    async with SessionLocal() as session:
+
+        with pytest.raises(EditInvalid):
+            await DocumentService(session).set_as_of_date(user_id, document_id, date.today() + timedelta(days=1))
+
+    async with SessionLocal() as session:
+        await DocumentService(session).set_as_of_date(user_id, document_id, date(2026, 10, 31))
+
+    row = (await rows_by_name(document_id))[f"ZQ{market.tag.upper()}"]
+
+    assert row.edited_data["as_of_date"] == "2026-10-31"
+    assert not any(error.startswith("as_of_date") for error in row.errors)
+
+
+async def test_removed_row_is_never_written_and_can_come_back(
+    user_id: int,
+    market: Market
+    ) -> None:
+
+    """A removed row stays out of the import and its checks, and bringing it back makes it ready again."""
+
+    document_id, rows = await upload(user_id, workbook([], [stock_line(market)]))
+    row = rows[f"ZQ{market.tag.upper()}"]
+
+    async with SessionLocal() as session:
+        await DocumentService(session).remove_row(user_id, document_id, row.id, True)
+
+    outcome = await approve(user_id, document_id)
+
+    assert await saved(Holding, user_id) == []
+    assert outcome["written"] >= 1
+
+    removed = (await rows_by_name(document_id))[f"ZQ{market.tag.upper()}"]
+
+    assert removed.status == ImportRowStatus.rejected
+    assert removed.resolved["removed"] is True
+
+    async with SessionLocal() as session:
+        await DocumentService(session).remove_row(user_id, document_id, row.id, False)
+
+    back = (await rows_by_name(document_id))[f"ZQ{market.tag.upper()}"]
+
+    assert back.status == ImportRowStatus.proposed
+    assert back.action == ImportRowAction.create
+
+    second = await approve(user_id, document_id)
+
+    assert second["written"] == 1
+    assert len(await saved(Holding, user_id)) == 1

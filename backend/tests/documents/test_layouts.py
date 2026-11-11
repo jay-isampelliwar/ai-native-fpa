@@ -2,7 +2,7 @@
 
 import pytest
 
-from app.features.documents.layouts import fingerprint, layout_of, mapping_errors, masked_samples, parse_mapped
+from app.features.documents.layouts import ColumnChoice, SheetMapping, columns_of, fingerprint, layout_of, mapping_errors, masked_samples, parse_mapped
 from app.features.documents.reader import UnreadableFile, file_kind, read_file
 
 
@@ -99,3 +99,18 @@ def test_renamed_file_refused() -> None:
 
     with pytest.raises(UnreadableFile):
         file_kind("fake.xlsx", BANK_CSV)
+
+
+def test_fields_the_planner_fills_cannot_be_mapped() -> None:
+
+    """A holding's type comes from the matched stock or fund, so a column such as Sector is refused for it and dropped from the model's answer."""
+
+    headers = ["Symbol", "Sector"]
+    proposal = SheetMapping(
+        target_table="holdings",
+        columns=[ColumnChoice(header="Symbol", field="security_name"), ColumnChoice(header="Sector", field="asset_type")],
+        reason="test",
+        )
+
+    assert mapping_errors("holdings", {"Symbol": "security_name", "Sector": "asset_type"}, headers)
+    assert columns_of(proposal) == {"Symbol": "security_name"}

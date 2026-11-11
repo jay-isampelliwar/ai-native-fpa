@@ -27,7 +27,7 @@ from app.agent.cards import (
 from app.agent.context import PlannerContext
 from app.agent.nodes import AGENT_NODE, TOOLS_NODE
 from app.agent.state import PlannerState
-from app.agent.tools.imports import counts_line, review_link, table_counts
+from app.agent.tools.imports import counts_line, table_counts
 from app.agent.tools.labels import label_for
 from app.agent.tools.policies import needs_approval
 from app.agent.tools.records import record_fields, show_value
@@ -393,7 +393,6 @@ async def import_preview(call: ToolCall, user_id: int) -> Preview | None:
 
     lines = counts_line(table_counts([row for row in rows if ready(row)]))
     fields = [{"name": line.split(":")[0], "value": line.split(": ", 1)[1]} for line in lines]
-    fields.append({"name": "review", "value": review_link(document.id)})
 
     return {"action": "run", "title": f"Import {document.original_filename}?", "fields": fields}
 

@@ -1,5 +1,7 @@
 """The document routes: upload a file, list and read uploads, and confirm a mapping for an unknown format."""
 
+from typing import Any
+
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -9,16 +11,20 @@ from app.db.models import Document
 from app.db.session import get_session
 from app.features.documents.reader import UnreadableFile
 from app.features.documents.repository import DocumentRepository
+from app.features.documents.fields import CHOICES, TABLE_FIELDS
 from app.features.documents.matching import suggest_instruments
 from app.features.documents.schemas import (
+    AllowModel,
     AnswerQuestions,
     ApprovalOutcome,
+    AsOfDate,
     ConfirmMapping,
     DocumentListItem,
     DocumentOut,
     ImportRowOut,
     InstrumentChoice,
     RowEdit,
+    Unlock,
     )
 from app.features.documents.writer import UndoBlocked
 from app.features.records.exceptions import RecordError
@@ -58,6 +64,9 @@ async def document_out(
         sheets=document.summary.get("sheets", []),
         checks=document.summary.get("checks", {}),
         pending_mappings=document.summary.get("pending_mappings", []),
+        plans=document.summary.get("plans", []),
+        pending_pages=document.summary.get("pending_pages"),
+        locked=bool(document.summary.get("locked")),
         rows=[ImportRowOut.model_validate(row, from_attributes=True) for row in rows],
         created_at=document.created_at,
         )
@@ -88,6 +97,14 @@ async def upload_document(
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc)) from exc
 
     return await document_out(session, document, duplicate)
+
+
+@router.get("/fields")
+async def list_fields(user_id: int = Depends(get_current_user_id)) -> dict[str, Any]:
+
+    """Every table a file can fill with each field's kind, and the allowed values of each choice kind, for the mapping and edit forms."""
+
+    return {"tables": TABLE_FIELDS, "choices": {kind: [value for value, _ in rules] for kind, rules in CHOICES.items()}}
 
 
 @router.get("/instruments/search")
@@ -262,3 +279,117 @@ async def undo_document(
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
 
     return await document_out(session, await service.get(user_id, document_id))
+
+
+@router.post("/{document_id}/as-of-date")
+async def set_as_of_date(
+    document_id: int,
+    body: AsOfDate,
+    user_id: int = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_session),
+    ) -> DocumentOut:
+
+    """Set the as-of date on every row missing one, such as all holdings of a broker export, and check the document again."""
+
+    try:
+        document = await DocumentService(session).set_as_of_date(user_id, document_id, body.as_of_date)
+
+    except DocumentNotFound as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+
+    except EditInvalid as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, exc.errors) from exc
+
+    return await document_out(session, document)
+
+
+@router.post("/{document_id}/password")
+async def unlock_document(
+    document_id: int,
+    body: Unlock,
+    user_id: int = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_session),
+    ) -> DocumentOut:
+
+    """Read a locked PDF with its password; the password is used once and never saved."""
+
+    try:
+        document = await DocumentService(session).unlock(user_id, document_id, body.password)
+
+    except DocumentNotFound as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+
+    except MappingNotExpected as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+
+    return await document_out(session, document)
+
+
+@router.post("/{document_id}/read-pages")
+async def allow_model(
+    document_id: int,
+    body: AllowModel,
+    user_id: int = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_session),
+    ) -> DocumentOut:
+
+    """Let the model read this file's scanned pages, photos or text with no table, after the user said yes."""
+
+    try:
+        document = await DocumentService(session).allow_model(user_id, document_id, body.password)
+
+    except DocumentNotFound as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+
+    except MappingNotExpected as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+
+    return await document_out(session, document)
+
+
+@router.delete("/{document_id}/rows/{row_id}")
+async def remove_row(
+    document_id: int,
+    row_id: int,
+    user_id: int = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_session),
+    ) -> DocumentOut:
+
+    """Take one row out of this import, so it is never written; saved records are not touched."""
+
+    return await set_removed(session, user_id, document_id, row_id, True)
+
+
+@router.post("/{document_id}/rows/{row_id}/restore")
+async def restore_row(
+    document_id: int,
+    row_id: int,
+    user_id: int = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_session),
+    ) -> DocumentOut:
+
+    """Bring back a row the user took out of this import."""
+
+    return await set_removed(session, user_id, document_id, row_id, False)
+
+
+async def set_removed(
+    session: AsyncSession,
+    user_id: int,
+    document_id: int,
+    row_id: int,
+    removed: bool
+    ) -> DocumentOut:
+
+    """Remove or bring back one row, answering 404 or 422 with the reason."""
+
+    try:
+        document = await DocumentService(session).remove_row(user_id, document_id, row_id, removed)
+
+    except DocumentNotFound as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+
+    except EditInvalid as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, exc.errors) from exc
+
+    return await document_out(session, document)

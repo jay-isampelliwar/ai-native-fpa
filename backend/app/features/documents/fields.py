@@ -299,6 +299,25 @@ READERS: dict[str, Callable[[Any], Any]] = {
 
 AMOUNT_KINDS = {"money", "units"}
 
+CODE_FIELDS: dict[str, set[str]] = {
+    "holdings": {"asset_type"},
+    "sip_plans": {"holding_row_number"},
+    }
+
+
+def mappable_fields(table: str) -> list[str]:
+
+    """The fields a file column may be mapped to, leaving out those the code fills itself, such as a holding's type."""
+
+    return [name for name in TABLE_FIELDS[table] if name not in CODE_FIELDS.get(table, set())]
+
+
+def dated_tables() -> set[str]:
+
+    """The tables whose records need an as-of date."""
+
+    return {table for table, fields in TABLE_FIELDS.items() if "as_of_date" in fields}
+
 
 def pick_choice(
     kind: str,

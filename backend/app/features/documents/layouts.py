@@ -8,7 +8,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from app.core.config import get_settings
-from app.features.documents.fields import TABLE_FIELDS
+from app.features.documents.fields import TABLE_FIELDS, mappable_fields
 from app.features.documents.normalize import header_key, to_decimal
 from app.features.documents.parsing import (
     ParsedRow,
@@ -136,7 +136,7 @@ def catalog_text() -> str:
 
     """The table and field list for the prompt."""
 
-    return "\n".join(f"- {table}: {', '.join(fields)}" for table, fields in TABLE_FIELDS.items())
+    return "\n".join(f"- {table}: {', '.join(mappable_fields(table))}" for table in TABLE_FIELDS)
 
 
 def layout_text(layout: SheetLayout) -> str:
@@ -191,6 +191,9 @@ def mapping_errors(
 
         if field_name not in fields:
             errors.append(f"'{field_name}' is not a field of {target_table}")
+
+        elif field_name not in mappable_fields(target_table):
+            errors.append(f"'{field_name}' is filled in by the planner, so no column can map to it")
 
     used = list(columns.values())
 
@@ -263,11 +266,28 @@ def settle_direction(row: ParsedRow) -> None:
         row.data["direction"] = "inflow"
 
 
+def usable_columns(
+    target_table: str | None,
+    columns: dict[str, Any]
+    ) -> dict[str, Any]:
+
+    """A saved column plan without fields the planner fills itself, so an older plan made before that rule still reads cleanly."""
+
+    if target_table not in TABLE_FIELDS:
+        return dict(columns)
+
+    allowed = set(mappable_fields(target_table))
+
+    return {header: field_name for header, field_name in columns.items() if field_name in allowed}
+
+
 def columns_of(mapping: SheetMapping) -> dict[str, str]:
 
-    """The model's column list as a header-to-field map."""
+    """The model's column list as a header-to-field map, dropping fields the planner fills itself or that do not exist."""
 
-    return {choice.header: choice.field for choice in mapping.columns}
+    allowed = set(mappable_fields(mapping.target_table)) if mapping.target_table in TABLE_FIELDS else set()
+
+    return {choice.header: choice.field for choice in mapping.columns if choice.field in allowed}
 
 
 def as_proposal(

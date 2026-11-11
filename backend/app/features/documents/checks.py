@@ -70,9 +70,14 @@ class RowState:
 
 def checkable(row: ImportRow) -> bool:
 
-    """Whether a row is still open to checks: proposed, or skipped earlier by the user's own answer."""
+    """Whether a row is still open to checks: proposed, or skipped earlier by the user's own answer, but never one the user removed."""
 
-    return row.status == ImportRowStatus.proposed or (row.status == ImportRowStatus.rejected and bool((row.resolved or {}).get("skipped")))
+    resolved = row.resolved or {}
+
+    if resolved.get("removed"):
+        return False
+
+    return row.status == ImportRowStatus.proposed or (row.status == ImportRowStatus.rejected and bool(resolved.get("skipped")))
 
 
 def start(row: ImportRow) -> RowState:

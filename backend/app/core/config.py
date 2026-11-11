@@ -98,6 +98,7 @@ class Settings(BaseSettings):
     UPLOAD_DIR: str = "var/uploads"
     MAX_DOCUMENT_BYTES: int = 10 * 1024 * 1024
     MAPPING_MODEL: str | None = None
+    PAGE_MODEL: str | None = None
     MAPPING_SAMPLE_ROWS: int = 3
 
     LANGFUSE_PUBLIC_KEY: str | None = None

@@ -30,6 +30,9 @@ class FormSubmission(BaseModel):
             }
 
 
+MAX_ATTACHED_DOCUMENTS = 10
+
+
 class CreateRunRequest(BaseModel):
 
     """One user message or filled form to start a run, with the id the frontend made for retries."""
@@ -38,17 +41,18 @@ class CreateRunRequest(BaseModel):
     client_request_id: str = Field(min_length=1, max_length=255)
     message: str = ""
     form: FormSubmission | None = None
+    document_ids: list[int] = Field(default_factory=list, max_length=MAX_ATTACHED_DOCUMENTS)
 
     @model_validator(mode="after")
     def text_or_form(self) -> Self:
 
-        """Refuse a request with neither a message nor a form, and write a form as the message the agent reads."""
+        """Refuse a request with no message, form or attached file, and write a form as the message the agent reads."""
 
         if self.form is not None:
             self.message = form_text(self.form.kind, self.form.values, self.form.record_id)
 
-        if not self.message.strip():
-            raise ValueError("Send a message or a form")
+        if not self.message.strip() and not self.document_ids:
+            raise ValueError("Send a message, a form or a file")
 
         return self
 

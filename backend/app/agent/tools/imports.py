@@ -11,7 +11,7 @@ from app.agent.context import PlannerContext
 from app.agent.tools.limits import tool_session
 from app.agent.tools.operations import run_write
 from app.agent.tools.results import ToolResult, checked, conflict, invalid, not_found, ok, to_message
-from app.db.enums import ImportRowStatus
+from app.db.enums import ImportRowAction, ImportRowStatus
 from app.db.models import Document, ImportRow
 from app.features.documents.repository import DocumentRepository
 from app.features.documents.schemas import AnswerIn
@@ -24,11 +24,9 @@ SHOWN_QUESTIONS = 5
 SHOWN_ERRORS = 5
 
 
-def review_link(document_id: int) -> str:
+REVIEW = "the review (the Review button under their message, or the file's name above the chat box)"
 
-    """Where the review screen for one upload lives in the app."""
-
-    return f"/documents/{document_id}"
+PRIVATE = "Never show the user ids, document numbers, row numbers or links."
 
 
 def table_counts(rows: list[ImportRow]) -> dict[str, dict[str, int]]:
@@ -91,16 +89,23 @@ async def find_document(
     return documents[0] if documents else None
 
 
+def saved_counts(rows: list[ImportRow]) -> dict[str, int]:
+
+    """For each table, how many rows the import wrote."""
+
+    return dict(Counter(row.target_table for row in rows if row.status == ImportRowStatus.written and row.action != ImportRowAction.no_change))
+
+
 def preview_data(
     document: Document,
     rows: list[ImportRow]
     ) -> dict[str, Any]:
 
-    """What the model needs to explain an upload: counts, sheet notes, open questions and errors."""
+    """What the model needs to explain an upload: counts, saved rows, open questions and errors, never the rows themselves."""
 
     questions = open_questions(rows)
     errors = [
-        {"row_number": row.row_number, "table": row.target_table, "error": row.errors[0]}
+        {"table": row.target_table, "error": row.errors[0]}
         for row in rows
         if row.status in (ImportRowStatus.proposed, ImportRowStatus.failed) and row.errors
         ]
@@ -110,34 +115,76 @@ def preview_data(
         "file": document.original_filename,
         "status": document.status.value,
         "counts": table_counts(rows),
+        "saved": saved_counts(rows),
+        "failed": sum(1 for row in rows if row.status == ImportRowStatus.failed),
         "checks": document.summary.get("checks", {}),
-        "sheets": document.summary.get("sheets", []),
+        "sheets": [{"sheet": note["sheet"], "outcome": note["outcome"], "message": note["message"]} for note in document.summary.get("sheets", [])],
         "open_question_count": len(questions),
         "open_questions": questions[:SHOWN_QUESTIONS],
         "error_count": len(errors),
         "errors": errors[:SHOWN_ERRORS],
-        "review_link": review_link(document.id),
+        "pending_pages": document.summary.get("pending_pages"),
+        "read_by_model": sum(1 for row in rows if (row.source or {}).get("read_by_model")),
         }
 
 
 def preview_message(data: dict[str, Any]) -> str:
 
-    """The next step for the model, by how many questions are open: ask one in chat, or send the user to the review screen."""
+    """The next step for the model in plain words: what was saved, then what the user still has to do, and where."""
+
+    name = data["file"]
+
+    if data["status"] == "needs_password":
+        return f"{name} is a locked PDF. Ask the user to type its password into the box in {REVIEW}. Never ask for the password in chat, since chat is saved. {PRIVATE}"
+
+    if data["status"] == "needs_consent":
+        pages = data.get("pending_pages") or {}
+
+        return (
+            f"{name} has {pages.get('count', 0)} page(s) that only the model can read, so the whole page, with any name, PAN or account "
+            f"numbers on it, would be sent to the model. Explain this in simple words and ask the user to say yes or no in {REVIEW}. "
+            f"Do not decide for them. {PRIVATE}"
+            )
+
+    if data["status"] == "needs_mapping":
+        return f"The columns of {name} could not be matched safely. Ask the user to pick them in {REVIEW}. {PRIVATE}"
+
+    parts = []
+
+    if data["saved"]:
+        parts.append(f"Saved from {name}: {', '.join(f'{number} {table}' for table, number in data['saved'].items())}.")
+
+    if data["failed"]:
+        parts.append(f"{data['failed']} rows could not be saved; the reasons are in {REVIEW}.")
 
     lines = counts_line(data["counts"])
-    summary = f"{data['file']} is {data['status']}. Ready to import: {'; '.join(lines) or 'nothing yet'}."
+
+    if lines:
+        parts.append(f"Ready to import from {name}: {'; '.join(lines)}.")
+
+    if data["read_by_model"]:
+        parts.append(f"{data['read_by_model']} rows were read by the model from pages, so tell the user to check those values.")
+
     count = data["open_question_count"]
 
     if count == 1:
-        return f"{summary} One question is open. Ask it in chat in simple words with its choices, then save the reply with answer_import_question. Do not pick for the user."
+        parts.append("One question is open. Ask it in chat in simple words with its choices, then save the reply with answer_import_question. Do not pick for the user.")
 
-    if count > 1:
-        return f"{summary} {count} questions are open. Do not ask them in chat. Send the user to the review screen at {data['review_link']} to answer them one by one."
+    elif count > 1:
+        parts.append(f"{count} questions are open. Do not ask them in chat. Ask the user to answer them one by one in {REVIEW}.")
 
-    if data["error_count"]:
-        return f"{summary} {data['error_count']} rows have errors to fix on the review screen at {data['review_link']}. The ready rows can be approved now with approve_import."
+    elif data["error_count"]:
+        parts.append(f"{data['error_count']} rows need fixing, such as a missing date or amount. Ask the user to fix them in {REVIEW}.")
 
-    return f"{summary} Every row is ready. Ask the user if they want to import it, then call approve_import."
+    elif lines:
+        parts.append("Every row is ready. Ask the user if they want to import it, then call approve_import.")
+
+    if not parts:
+        parts.append(f"Nothing from {name} is waiting.")
+
+    parts.append(PRIVATE)
+
+    return " ".join(parts)
 
 
 @tool
@@ -216,9 +263,9 @@ async def approve_import(
         message = f"Imported {outcome['written']} rows, {outcome['no_change']} had no change."
 
         if outcome["failed"]:
-            message += f" {outcome['failed']} could not be saved; their reasons are on the review screen at {review_link(document_id)}."
+            message += f" {outcome['failed']} could not be saved; the reasons are in {REVIEW}."
 
-        return checked(message, {**outcome, "review_link": review_link(document_id)})
+        return checked(f"{message} {PRIVATE}", outcome)
 
     return to_message(await run_write(runtime, write), runtime.tool_call_id)
 

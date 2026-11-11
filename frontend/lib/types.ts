@@ -421,104 +421,150 @@ export interface ConversationDetail {
 }
 
 /**
- * The states one uploaded document moves through, mirrored from the backend's own tuple.
- *
- * `locked` and `needs_mapping` are not failures and must not be drawn as one. A locked PDF is
- * waiting for a password and a `needs_mapping` file is waiting for a column mapping — both are
- * asking the reader for something, which is the opposite of a dead end.
+ * Where one upload is: waiting for a confirmed column mapping, parsed and waiting for review,
+ * imported, undone (`rejected`) or failed with a reason.
  */
-export type ImportStatus =
+export type DocumentStatus =
   | 'uploaded'
-  | 'extracting'
-  | 'extracted'
-  | 'committed'
-  | 'failed'
   | 'needs_mapping'
-  | 'locked'
-  | 'rejected';
+  | 'needs_password'
+  | 'needs_consent'
+  | 'parsed'
+  | 'imported'
+  | 'rejected'
+  | 'failed';
 
-/** One accepted upload, answered before the file has been read. */
-export interface UploadedDocument {
-  id: string;
-  filename: string;
-  status: ImportStatus;
-  duplicate: boolean;
+export type ImportRowAction = 'create' | 'update' | 'no_change';
+
+export type ImportRowStatus = 'proposed' | 'approved' | 'rejected' | 'written' | 'failed' | 'undone';
+
+/** What happened to one sheet of an upload: read, empty, skipped, hidden, or waiting for a mapping. */
+export interface SheetNote {
+  sheet: string;
+  outcome: 'imported' | 'empty' | 'not_imported' | 'needs_mapping' | 'warning';
+  message: string;
+  rows: number;
 }
 
-export interface UploadResponse {
-  documents: UploadedDocument[];
+export interface QuestionOption {
+  value: string;
+  label: string;
 }
 
-/**
- * Where one document has reached, with the row tallies a card needs before fetching any detail.
- *
- * The four counts are of staged rows, not of records written. `duplicate_rows` are the ones held
- * back because they already appear in the person's records, and they are approved separately.
- */
-export interface DocumentImport {
+/** One doubt the code would not settle alone. The answer is one of the option values, or null. */
+export interface ImportQuestion {
   id: string;
-  filename: string;
-  content_type: string;
-  byte_size: number;
-
-  status: ImportStatus;
-  document_kind: string;
-  detected_format: string | null;
-  extractor: string | null;
-  error: string | null;
-
-  row_count: number;
-  pending_rows: number;
-  accepted_rows: number;
-  rejected_rows: number;
-  duplicate_rows: number;
-
-  statement_totals: Record<string, string> | null;
-  computed_totals: Record<string, string> | null;
-  reconciled: boolean | null;
-  reconciliation_note: string | null;
-
-  import_batch_id: string | null;
-  created_at: string;
-  extracted_at: string | null;
-  committed_at: string | null;
+  kind: 'pick_instrument' | 'keep_duplicate' | 'pick_record' | 'value_mismatch';
+  text: string;
+  options: QuestionOption[];
+  answer: string | null;
 }
 
-/**
- * One extracted record as the review card shows it, before anyone has approved anything.
- *
- * `payload` is shaped for the table the row is destined for, so its keys differ between a
- * transaction and a holding. The card reads it defensively rather than assuming one shape.
- *
- * `confidence` is how sure the extractor was. A deterministic parser reports 1, an inferred
- * reading reports less, and the card sorts the doubtful ones to the top.
- */
-export interface StagedRow {
-  id: string;
-  row_index: number;
+/** The stock or fund a holding row was matched to. */
+export interface MatchedInstrument {
+  kind: 'stock' | 'fund';
+  id: number;
+  isin: string;
+  name: string;
+}
+
+/** One full record read from a file, with where it came from and what approving it would do. */
+export interface ImportRowView {
+  id: number;
+  row_number: number;
   target_table: string;
-  payload: Record<string, string | null>;
-
-  confidence: string;
-  status: 'pending' | 'accepted' | 'rejected' | 'duplicate';
-  issue: string | null;
-  edited: boolean;
-
-  source_sheet: string | null;
-  source_row_number: number | null;
-  source_cells: string[];
+  action: ImportRowAction | null;
+  status: ImportRowStatus;
+  parsed_data: Record<string, unknown>;
+  edited_data: Record<string, unknown> | null;
+  source: { sheet?: string; row?: number; cells?: Record<string, string>; read_by_model?: boolean };
+  errors: string[];
+  warnings: string[];
+  questions: ImportQuestion[];
+  resolved: {
+    instrument?: MatchedInstrument;
+    existing?: Record<string, unknown>;
+    changes?: Record<string, unknown>;
+    skipped?: boolean;
+    /** True when the person took this row out of the import. */
+    removed?: boolean;
+  };
 }
 
-export interface StagedRows {
-  import_id: string;
-  rows: StagedRow[];
+/** The model's proposed mapping for one sheet of an unknown file, waiting for the user. */
+export interface PendingMapping {
+  sheet: string;
+  fingerprint: string;
+  headers: string[];
+  target_table: string | null;
+  columns: Record<string, string>;
+  reason: string | null;
+  errors: string[];
 }
 
-/** What one approval wrote, including anything it could not write and why. */
-export interface CommitResult {
-  status: 'committed' | 'already_committed' | 'nothing_accepted' | 'not_ready' | 'not_found';
-  rows_written: number;
-  rows_skipped: number;
-  import_batch_id: string | null;
-  detail: string | null;
+export interface ImportChecks {
+  ready: number;
+  with_errors: number;
+  open_questions: number;
+  skipped: number;
+  no_change: number;
+}
+
+export interface DocumentView {
+  id: number;
+  original_filename: string;
+  family: string | null;
+  status: DocumentStatus;
+  error_message: string | null;
+  duplicate: boolean;
+  sheets: SheetNote[];
+  checks: Partial<ImportChecks>;
+  pending_mappings: PendingMapping[];
+  /** The column plans the file was read with; each can be changed while nothing is imported. */
+  plans: (PendingMapping & { confirmed_at?: string | null })[];
+  /** Pages only the model can read, waiting for the person's OK. */
+  pending_pages: { count: number; pictures: number } | null;
+  /** True for a PDF that needed a password, which must be given again for each new read. */
+  locked: boolean;
+  rows: ImportRowView[];
+  created_at: string;
+}
+
+export interface SheetChoice {
+  sheet: string;
+  target_table: string | null;
+  columns: Record<string, string>;
+}
+
+export interface QuestionAnswer {
+  row_id: number;
+  question_id: string;
+  answer: string;
+}
+
+export interface RowEdit {
+  changes?: Record<string, unknown>;
+  /** A pick from the search, such as fund:123. */
+  instrument?: string;
+}
+
+export interface InstrumentChoice {
+  value: string;
+  label: string;
+  kind: 'stock' | 'fund';
+  isin: string;
+  name: string;
+}
+
+export interface ApprovalOutcome {
+  written: number;
+  no_change: number;
+  failed: number;
+  document: DocumentView;
+}
+
+/** Each table a file can fill with each field's kind, such as money or date, and the values each choice kind allows. */
+export interface ImportFields {
+  tables: Record<string, Record<string, string>>;
+  choices: Record<string, string[]>;
 }

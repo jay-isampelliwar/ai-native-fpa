@@ -1,47 +1,39 @@
 'use client';
 
-import { AlertTriangle, FileText, Loader2, Lock, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, FileText, Loader2, Lock, X } from 'lucide-react';
 import { useState } from 'react';
 
 import type { Attachment } from '@/lib/useUploads';
 
 /**
- * The attached files, drawn above the composer while they are read.
+ * The attached files, drawn above the composer while they upload.
  *
- * A chip says what is happening to one file in words rather than only through a spinner, because
- * the states differ in what they ask of the reader: a file being read needs patience, a locked one
- * needs a password, a refused one needs a different file. Drawing all three as "loading" would
- * hide the two that a person can actually act on.
- *
- * The password field appears inside the chip rather than as a dialog. It belongs to one file, and a
- * modal over the conversation would make it look like the app is asking about the whole message.
- *
- * Nothing here is a form. The password is sent on Enter or on the button, and a wrong one leaves
- * the chip exactly where it was with the reason under it, so the next attempt costs one field.
+ * Each chip says in words what its file needs, because the states ask different things of the
+ * reader: one is still uploading, one is locked, one has pages only the model can read, one has
+ * questions, one failed. A locked PDF takes its password right in the chip; the password is sent
+ * once and never kept. Clicking a chip that reached the server opens its review beside the chat.
  */
 
 function describe(item: Attachment): { label: string; tone: string } {
   switch (item.status) {
     case 'uploading':
       return { label: 'Uploading…', tone: 'text-muted' };
-    case 'uploaded':
-    case 'extracting':
-      return { label: 'Reading…', tone: 'text-muted' };
-    case 'extracted':
-      return {
-        label: item.repeat
-          ? 'Already imported'
-          : `${item.rowCount} row${item.rowCount === 1 ? '' : 's'} found`,
-        tone: 'text-secondary',
-      };
-    case 'locked':
-      return { label: 'Needs a password', tone: 'text-warning' };
     case 'needs_mapping':
-      return { label: 'Layout not recognised', tone: 'text-warning' };
-    case 'committed':
-      return { label: 'Saved', tone: 'text-positive' };
+      return { label: 'Pick the columns to read it', tone: 'text-warning' };
+    case 'needs_password':
+      return { label: 'Locked, needs its password', tone: 'text-warning' };
+    case 'needs_consent':
+      return { label: `${item.modelPages} page${item.modelPages === 1 ? '' : 's'} for the model, open to allow`, tone: 'text-warning' };
+    case 'parsed': {
+      const rows = `${item.rowCount} row${item.rowCount === 1 ? '' : 's'}`;
+      const questions = item.openQuestions ? `, ${item.openQuestions} to answer` : '';
+
+      return { label: `${item.repeat ? 'Uploaded before · ' : ''}${rows}${questions}`, tone: item.openQuestions ? 'text-warning' : 'text-secondary' };
+    }
+    case 'imported':
+      return { label: item.repeat ? 'Imported before' : 'Imported', tone: 'text-positive' };
     case 'rejected':
-      return { label: 'Refused', tone: 'text-muted' };
+      return { label: 'Import undone', tone: 'text-muted' };
     default:
       return { label: 'Could not be read', tone: 'text-negative' };
   }
@@ -50,18 +42,20 @@ function describe(item: Attachment): { label: string; tone: string } {
 export default function FileChips({
   attachments,
   onRemove,
+  onOpen,
   onUnlock,
 }: {
   attachments: Attachment[];
   onRemove: (key: string) => void;
-  onUnlock: (key: string, password: string) => void;
+  onOpen: (documentId: number) => void;
+  onUnlock: (key: string, documentId: number, password: string) => void;
 }) {
   if (attachments.length === 0) return null;
 
   return (
     <ul className="mb-2 flex flex-col gap-1.5">
       {attachments.map((item) => (
-        <Chip key={item.key} item={item} onRemove={onRemove} onUnlock={onUnlock} />
+        <Chip key={item.key} item={item} onRemove={onRemove} onOpen={onOpen} onUnlock={onUnlock} />
       ))}
     </ul>
   );
@@ -70,82 +64,94 @@ export default function FileChips({
 function Chip({
   item,
   onRemove,
+  onOpen,
   onUnlock,
 }: {
   item: Attachment;
   onRemove: (key: string) => void;
-  onUnlock: (key: string, password: string) => void;
+  onOpen: (documentId: number) => void;
+  onUnlock: (key: string, documentId: number, password: string) => void;
 }) {
   const [password, setPassword] = useState('');
-
   const { label, tone } = describe(item);
-  const working = item.status === 'uploading' || item.status === 'uploaded' || item.status === 'extracting';
+
+  function sendPassword() {
+    if (!password || typeof item.documentId !== 'number') return;
+
+    onUnlock(item.key, item.documentId, password);
+    setPassword('');
+  }
+
+  const openable = typeof item.documentId === 'number';
 
   return (
     <li className="rounded-xl border border-line bg-panel-subtle px-2.5 py-2">
       <div className="flex items-center gap-2">
         <span className="flex-none text-muted" aria-hidden="true">
-          {working ? (
+          {item.status === 'uploading' ? (
             <Loader2 size={14} className="animate-spin" />
-          ) : item.status === 'locked' ? (
-            <Lock size={14} />
           ) : item.status === 'failed' ? (
             <AlertTriangle size={14} />
+          ) : item.status === 'needs_password' ? (
+            <Lock size={14} />
+          ) : item.status === 'imported' ? (
+            <CheckCircle2 size={14} />
           ) : (
             <FileText size={14} />
           )}
         </span>
 
-        <span className="min-w-0 flex-1 truncate text-[12.5px] text-primary" title={item.name}>
+        <button
+          type="button"
+          disabled={!openable}
+          onClick={() => openable && onOpen(item.documentId as number)}
+          title={openable ? `Review ${item.name}` : item.name}
+          className="min-w-0 flex-1 truncate text-left text-[12.5px] text-primary enabled:hover:underline disabled:cursor-default"
+        >
           {item.name}
-        </span>
+        </button>
 
         <span className={`flex-none text-[11.5px] ${tone}`}>{label}</span>
 
         <button
           type="button"
           onClick={() => onRemove(item.key)}
-          aria-label={`Remove ${item.name}`}
+          aria-label={`Remove ${item.name} from this message`}
           className="grid h-6 w-6 flex-none place-items-center rounded-lg text-muted transition hover:text-primary"
         >
           <X size={13} aria-hidden="true" />
         </button>
       </div>
 
-      {item.status === 'locked' && (
+      {item.status === 'needs_password' && (
         <div className="mt-2 flex items-center gap-1.5 pl-6">
           <input
             type="password"
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key !== 'Enter' || !password) return;
+              if (event.key !== 'Enter') return;
 
               event.preventDefault();
-              onUnlock(item.key, password);
-              setPassword('');
+              sendPassword();
             }}
             placeholder="PDF password"
             aria-label={`Password for ${item.name}`}
+            autoComplete="off"
             className="min-w-0 flex-1 rounded-lg border border-line bg-panel px-2 py-1 text-[12px] text-primary outline-none placeholder:text-muted"
           />
-
           <button
             type="button"
             disabled={!password}
-            onClick={() => {
-              onUnlock(item.key, password);
-              setPassword('');
-            }}
-            className="flex-none rounded-lg px-2.5 py-1 text-[12px] font-medium transition disabled:cursor-not-allowed disabled:opacity-40"
-            style={{ background: 'var(--accent)', color: 'var(--on-accent)' }}
+            onClick={sendPassword}
+            className="send-gradient flex-none rounded-lg px-2.5 py-1 text-[12px] font-medium disabled:cursor-not-allowed disabled:opacity-40"
           >
             Open
           </button>
         </div>
       )}
 
-      {item.error && item.status !== 'extracted' && (
+      {item.error && (item.status === 'failed' || item.status === 'needs_password') && (
         <p className="mt-1.5 pl-6 text-[11.5px] leading-[1.45] text-secondary">{item.error}</p>
       )}
     </li>

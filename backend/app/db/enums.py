@@ -504,6 +504,8 @@ class DocumentStatus(StrEnum):
 
     uploaded = "uploaded"
     needs_mapping = "needs_mapping"
+    needs_password = "needs_password"
+    needs_consent = "needs_consent"
     parsed = "parsed"
     imported = "imported"
     rejected = "rejected"

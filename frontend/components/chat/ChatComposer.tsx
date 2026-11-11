@@ -1,12 +1,12 @@
 'use client';
 
-import { Lightbulb, Loader2, Mic, Plus, Sparkles, Square, Telescope, X } from 'lucide-react';
+import { Loader2, Mic, Paperclip, Plus, Sparkles, Square, X } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import FileChips from '@/components/chat/FileChips';
 import VoiceBars from '@/components/chat/VoiceBars';
-import { SendPlane, Statement } from '@/components/icons/FinIcons';
+import { SendPlane } from '@/components/icons/FinIcons';
 import type { Attachment } from '@/lib/useUploads';
 import { useVoiceInput } from '@/lib/useVoiceInput';
 
@@ -38,7 +38,7 @@ import { useVoiceInput } from '@/lib/useVoiceInput';
  * in a row still fires a change event.
  *
  * Two layouts, as in the reference. `hero` is the large box in the middle of an empty
- * chat, with the Reasoning and Deep Research pills. `dock` is the box pinned to the
+ * chat. `dock` is the box pinned to the
  * bottom once the conversation starts. Both put the text on top and the buttons below.
  *
  * The mic records the person and writes their words into the box as they speak, after any
@@ -46,8 +46,7 @@ import { useVoiceInput } from '@/lib/useVoiceInput';
  * words, and Send waits until the final words are in. Nothing is sent by itself: the person
  * reads the text and sends it.
  *
- * Plus, Reasoning and Deep Research are drawn but do nothing yet. The agent has no mode switch
- * for them to turn on.
+ * Plus is drawn but does nothing yet.
  */
 
 /** Put spoken words after what was already typed, with one space between them. */
@@ -65,8 +64,7 @@ function clock(seconds: number): string {
 }
 
 /** What the pipeline can actually read: the deterministic formats first, then the ones a model reads. */
-const ACCEPTED =
-  '.csv,.xlsx,.xls,.pdf,.png,.jpg,.jpeg,.webp,text/csv,application/pdf,image/png,image/jpeg,image/webp';
+const ACCEPTED = '.csv,.xlsx,.xls,.pdf,.png,.jpg,.jpeg,.webp,text/csv,application/pdf,image/png,image/jpeg,image/webp';
 
 export default function ChatComposer({
   value,
@@ -78,6 +76,7 @@ export default function ChatComposer({
   attachments,
   onAttach,
   onRemoveAttachment,
+  onOpenAttachment,
   onUnlockAttachment,
   variant = 'dock',
 }: {
@@ -90,7 +89,8 @@ export default function ChatComposer({
   attachments: Attachment[];
   onAttach: (files: File[]) => void;
   onRemoveAttachment: (key: string) => void;
-  onUnlockAttachment: (key: string, password: string) => void;
+  onOpenAttachment: (documentId: number) => void;
+  onUnlockAttachment: (key: string, documentId: number, password: string) => void;
   variant?: 'hero' | 'dock';
 }) {
   const shell = useRef<HTMLDivElement>(null);
@@ -102,6 +102,9 @@ export default function ChatComposer({
   );
 
   const recording = mic.state !== 'idle';
+
+  // Files alone are enough to send: the planner is told which uploads came with the message.
+  const hasFiles = attachments.some((item) => typeof item.documentId === 'number');
 
   // Send pressed while the mic was open: finish the recording first, then send what it heard.
   const sendWhenDone = useRef(false);
@@ -131,8 +134,8 @@ export default function ChatComposer({
     sendWhenDone.current = false;
     setSending(false);
 
-    if (value.trim()) onSend();
-  }, [mic.state, value, onSend]);
+    if (value.trim() || hasFiles) onSend();
+  }, [mic.state, value, onSend, hasFiles]);
 
   // Re-measure on every change, resetting first so the box can shrink again.
   useEffect(() => {
@@ -143,10 +146,7 @@ export default function ChatComposer({
     field.style.height = `${Math.min(field.scrollHeight, 132)}px`;
   }, [value, inputRef]);
 
-  const reading = attachments.some(
-    (item) =>
-      item.status === 'uploading' || item.status === 'uploaded' || item.status === 'extracting',
-  );
+  const reading = attachments.some((item) => item.status === 'uploading');
 
   const hero = variant === 'hero';
 
@@ -155,6 +155,7 @@ export default function ChatComposer({
       <FileChips
         attachments={attachments}
         onRemove={onRemoveAttachment}
+        onOpen={onOpenAttachment}
         onUnlock={onUnlockAttachment}
       />
 
@@ -228,15 +229,8 @@ export default function ChatComposer({
             title="Attach a bank or holdings statement"
             className="icon-boxed h-8 w-8"
           >
-            <Statement size={17} />
+            <Paperclip size={16} aria-hidden="true" />
           </button>
-
-          {hero && (
-            <>
-              <ModePill icon={<Lightbulb size={14} aria-hidden="true" />}>Reasoning</ModePill>
-              <ModePill icon={<Telescope size={14} aria-hidden="true" />}>Deep Research</ModePill>
-            </>
-          )}
 
           <div className="ml-auto flex items-center gap-1.5">
             <button
@@ -279,7 +273,7 @@ export default function ChatComposer({
                   key="send"
                   type="button"
                   onClick={sendOrFinish}
-                  disabled={reading || mic.state === 'finishing' || (!recording && !value.trim())}
+                  disabled={reading || mic.state === 'finishing' || (!recording && !value.trim() && !hasFiles)}
                   aria-label={recording ? 'Finish listening and send' : 'Send message'}
                   initial={{ opacity: 0, scale: 0.6 }}
                   animate={{ opacity: 1, scale: 1 }}
@@ -322,15 +316,3 @@ export default function ChatComposer({
   );
 }
 
-/** A labelled pill in the hero composer's toolbar. Drawn only, for now. */
-function ModePill({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) {
-  return (
-    <button
-      type="button"
-      className="chip-button h-8 gap-1.5 px-2.5 text-[13px] font-medium max-sm:hidden"
-    >
-      {icon}
-      {children}
-    </button>
-  );
-}

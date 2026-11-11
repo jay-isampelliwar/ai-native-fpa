@@ -1,4 +1,4 @@
-"""Reading an uploaded spreadsheet or CSV into plain sheets of cells, each cell keeping its address for evidence."""
+"""Reading an uploaded spreadsheet, CSV, PDF or photo into sheets of cells for code, and pages for the model, each keeping its address."""
 
 import csv
 import io
@@ -6,18 +6,35 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import openpyxl
+import pdfplumber
 import xlrd
 from openpyxl.utils import get_column_letter
+from pdfminer.pdfdocument import PDFPasswordIncorrect
+from pdfplumber.utils.exceptions import PdfminerException
 
 
 XLSX_SIGNATURE = b"PK\x03\x04"
 XLS_SIGNATURE = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+PDF_SIGNATURE = b"%PDF"
+PNG_SIGNATURE = b"\x89PNG"
+JPEG_SIGNATURE = b"\xff\xd8\xff"
 
 MIME_TYPES = {
     ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     ".xls": "application/vnd.ms-excel",
     ".csv": "text/csv",
+    ".pdf": "application/pdf",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
     }
+
+IMAGE_ENDINGS = {".png", ".jpg", ".jpeg", ".webp"}
+
+MAX_PDF_PAGES = 20
+MIN_PAGE_TEXT = 40
+PAGE_RENDER_DPI = 150
 
 CSV_ENCODINGS = ("utf-8-sig", "cp1252")
 CSV_DELIMITERS = ",;\t|"
@@ -27,6 +44,11 @@ CSV_SNIFF_BYTES = 4096
 class UnreadableFile(ValueError):
 
     """A file that is not the type its name says, or cannot be opened as one."""
+
+
+class PasswordNeeded(ValueError):
+
+    """A locked PDF, opened with no password or a wrong one."""
 
 
 @dataclass
@@ -54,6 +76,34 @@ class Sheet:
         return [cell.value if cell else None for cell in self.rows[index]]
 
 
+@dataclass
+class Page:
+
+    """One page only the model can read: its text when it has text but no table, or a picture of it when scanned."""
+
+    number: int
+    text: str | None = None
+    image: bytes | None = None
+    mime_type: str = "image/png"
+
+
+@dataclass
+class FileContent:
+
+    """Everything read from one file: tables as sheets for code to read, and pages left for the model."""
+
+    sheets: list[Sheet] = field(default_factory=list)
+    pages: list[Page] = field(default_factory=list)
+
+
+SIGNATURES = {
+    ".pdf": (PDF_SIGNATURE,),
+    ".png": (PNG_SIGNATURE,),
+    ".jpg": (JPEG_SIGNATURE,),
+    ".jpeg": (JPEG_SIGNATURE,),
+    }
+
+
 def file_kind(
     filename: str,
     data: bytes
@@ -64,7 +114,13 @@ def file_kind(
     ending = "." + filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
 
     if ending not in MIME_TYPES:
-        raise UnreadableFile("Only .xlsx, .xls and .csv files can be imported")
+        raise UnreadableFile("Only spreadsheets, CSV files, PDFs and photos (.png, .jpg, .webp) can be imported")
+
+    if ending in SIGNATURES and not data.startswith(SIGNATURES[ending]):
+        raise UnreadableFile(f"This file is named {ending} but its contents are not")
+
+    if ending == ".webp" and not (data[:4] == b"RIFF" and data[8:12] == b"WEBP"):
+        raise UnreadableFile("This file is named .webp but its contents are not")
 
     if ending == ".xlsx" and not data.startswith(XLSX_SIGNATURE):
         raise UnreadableFile("This file is named .xlsx but is not an Excel workbook")
@@ -100,6 +156,97 @@ def read_file(
 
     except Exception as exc:
         raise UnreadableFile("The file could not be opened. It may be damaged or password protected.") from exc
+
+
+def read_document(
+    ending: str,
+    data: bytes,
+    password: str | None = None
+    ) -> FileContent:
+
+    """Read any accepted file: spreadsheets and CSVs into sheets, PDFs into table sheets and pages, photos into one page."""
+
+    if ending in IMAGE_ENDINGS:
+        return FileContent(pages=[Page(number=1, image=data, mime_type=MIME_TYPES[ending])])
+
+    if ending == ".pdf":
+        return read_pdf(data, password)
+
+    return FileContent(sheets=read_file(ending, data))
+
+
+def read_pdf(
+    data: bytes,
+    password: str | None
+    ) -> FileContent:
+
+    """Read each page's tables as sheets; a page with no table gives its text, or a picture when it has no text."""
+
+    try:
+        pdf = pdfplumber.open(io.BytesIO(data), password=password or "")
+
+    except PdfminerException as exc:
+
+        if is_locked(exc):
+            raise PasswordNeeded("This PDF is locked. Give its password to read it.") from exc
+
+        raise UnreadableFile("The PDF could not be opened. It may be damaged.") from exc
+
+    with pdf:
+
+        if len(pdf.pages) > MAX_PDF_PAGES:
+            raise UnreadableFile(f"This PDF has {len(pdf.pages)} pages. Files of up to {MAX_PDF_PAGES} pages can be read.")
+
+        content = FileContent()
+
+        for number, page in enumerate(pdf.pages, start=1):
+
+            tables = [table for table in page.extract_tables() if table and len(table) > 1]
+
+            for index, table in enumerate(tables, start=1):
+                content.sheets.append(table_sheet(f"Page {number} table {index}", table))
+
+            if tables:
+                continue
+
+            text = (page.extract_text() or "").strip()
+
+            if len(text) >= MIN_PAGE_TEXT:
+                content.pages.append(Page(number=number, text=text))
+                continue
+
+            buffer = io.BytesIO()
+            page.to_image(resolution=PAGE_RENDER_DPI).original.save(buffer, format="PNG")
+            content.pages.append(Page(number=number, image=buffer.getvalue()))
+
+        return content
+
+
+def is_locked(exc: Exception) -> bool:
+
+    """Whether pdfminer refused the file for a missing or wrong password."""
+
+    cause = exc.args[0] if exc.args else exc
+
+    return isinstance(cause, PDFPasswordIncorrect) or "password" in str(cause).lower()
+
+
+def table_sheet(
+    name: str,
+    table: list[list[str | None]]
+    ) -> Sheet:
+
+    """One PDF table as a sheet, each cell's address naming the page table, row and column."""
+
+    sheet = Sheet(name=name)
+
+    for row_index, values in enumerate(table):
+        sheet.rows.append([
+            Cell(" ".join(value.split()), f"{name}, {get_column_letter(column_index + 1)}{row_index + 1}") if has_value(value) else None
+            for column_index, value in enumerate(values)
+            ])
+
+    return sheet
 
 
 def read_xlsx(data: bytes) -> list[Sheet]:

@@ -112,17 +112,18 @@ async def user_id(market: Market) -> AsyncIterator[int]:
 
 def workbook(
     funds: list[list],
-    stocks: list[list]
+    stocks: list[list],
+    base_date: str | None = "2026-11-01"
     ) -> bytes:
 
-    """A planner workbook with these fund and stock lines, one expense, and the plan date."""
+    """A planner workbook with these fund and stock lines, one expense, and the plan date unless it is None."""
 
     book = openpyxl.Workbook()
     book.remove(book.active)
 
     sheets = {
         "1_Personal_Details": [
-            ["Plan base date:", "2026-11-01"],
+            ["Plan base date:", base_date] if base_date else ["1. Personal Details"],
             ["Role", "Name", "Date of Birth"],
             ["Primary Client", "Test User", "1990-01-15"],
             ],

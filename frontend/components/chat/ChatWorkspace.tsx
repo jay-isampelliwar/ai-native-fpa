@@ -13,6 +13,7 @@ import type {
   ApprovalEdits,
   ApprovalState,
   ConversationDetail,
+  DocumentView,
   FormBlock,
   FormSubmission,
   FormValue,
@@ -24,6 +25,7 @@ import ChatComposer from '@/components/chat/ChatComposer';
 import ChatHeader from '@/components/chat/ChatHeader';
 import { OPEN_FORM_EVENT, type OpenFormDetail } from '@/components/blocks/EmptyCard';
 import FormPanel from '@/components/forms/FormPanel';
+import ImportPanel from '@/components/imports/ImportPanel';
 import MessageTimeline, { type Turn } from '@/components/chat/MessageTimeline';
 import SuggestedPrompts from '@/components/chat/SuggestedPrompts';
 import Orb from '@/components/ui/Orb';
@@ -77,22 +79,59 @@ function closeSteps(steps: ToolStep[] | undefined, status: 'stopped' | 'error'):
   return steps?.map((step) => (step.status === 'running' ? { ...step, status } : step));
 }
 
+/** The line the backend adds to a message for its attached uploads, such as "Attached: plan.xlsx (document 12)." */
+const ATTACHED_LINE = /(?:^|\n+)Attached: (.+?)\.(?: Please read (?:it|them)\.)?\s*$/;
+
+const ATTACHED_FILE = /^(.*) \(document (\d+)\)$/;
+
+/**
+ * Split a saved user message into the words the person wrote and the files that came with it, so
+ * the ids the planner reads are never drawn, and the file cards come back under the reply.
+ */
+function splitAttached(text: string): { text: string; names: string[]; documentIds: number[] } {
+  const found = ATTACHED_LINE.exec(text);
+
+  if (!found) return { text, names: [], documentIds: [] };
+
+  const files = found[1].split(', ').map((part) => ATTACHED_FILE.exec(part)).filter((match): match is RegExpExecArray => match !== null);
+
+  return {
+    text: text.slice(0, found.index).trim(),
+    names: files.map((match) => match[1]),
+    documentIds: files.map((match) => Number(match[2])),
+  };
+}
+
 /** Turn a saved chat into the turns the timeline draws. */
 function turnsFrom(detail: ConversationDetail): Turn[] {
-  return detail.messages.map((message) => ({
-    id: `m${message.id}`,
-    role: message.role === 'user' ? 'user' : 'planner',
-    text:
-      message.role === 'assistant' && message.status === 'failed' && !message.text
-        ? 'This reply could not be completed.'
-        : message.text,
-    at: new Date(message.created_at),
-    failed: message.status === 'failed',
-    stopped: message.status === 'cancelled',
-    tools: message.tools,
-    blocks: message.blocks ?? [],
-    form: message.form ?? null,
-  }));
+  const turns: Turn[] = [];
+  let carried: number[] = [];
+
+  for (const message of detail.messages) {
+    const user = message.role === 'user';
+    const split = user ? splitAttached(message.text) : null;
+
+    turns.push({
+      id: `m${message.id}`,
+      role: user ? 'user' : 'planner',
+      text:
+        message.role === 'assistant' && message.status === 'failed' && !message.text
+          ? 'This reply could not be completed.'
+          : (split?.text ?? message.text),
+      at: new Date(message.created_at),
+      failed: message.status === 'failed',
+      stopped: message.status === 'cancelled',
+      tools: message.tools,
+      blocks: message.blocks ?? [],
+      form: message.form ?? null,
+      ...(split?.names.length ? { attached: split.names } : {}),
+      ...(!user && carried.length ? { documentIds: carried } : {}),
+    });
+
+    carried = split ? split.documentIds : [];
+  }
+
+  return turns;
 }
 
 /**
@@ -149,7 +188,17 @@ export default function ChatWorkspace({
   const [loading, setLoading] = useState(openConversationId !== null);
   const [loadFailed, setLoadFailed] = useState(false);
 
-  const uploads = useUploads(userId);
+  const uploads = useUploads();
+
+  // The upload whose review is open beside the chat. Only one side panel shows at a time.
+  const [review, setReview] = useState<number | null>(null);
+
+  const openReview = useCallback((documentId: number) => {
+    setForm(null);
+    setReview(documentId);
+  }, []);
+
+  const closeReview = useCallback(() => setReview(null), []);
 
   // The run writing the current reply, and whether Stop was pressed before its id arrived.
   const runId = useRef<number | null>(null);
@@ -184,8 +233,8 @@ export default function ChatWorkspace({
   }, [conversationId]);
 
   useEffect(() => {
-    onFormChange?.(form !== null);
-  }, [form, onFormChange]);
+    onFormChange?.(form !== null || review !== null);
+  }, [form, review, onFormChange]);
 
   // The shell shows the history list again when this pane goes away with a form still open.
   useEffect(() => () => onFormChange?.(false), [onFormChange]);
@@ -412,19 +461,26 @@ export default function ChatWorkspace({
   }
 
   /** Start one turn from typed words or a filled form, with the user turn drawn first. */
-  async function start(outgoing: Outgoing, shown: { text: string; form?: FormSubmission }) {
-    if (busy || loading || uploads.reading || typeof userId !== 'number') return;
+  async function start(
+    outgoing: Outgoing,
+    shown: { text: string; form?: FormSubmission },
+    files?: { documentIds: number[]; names: string[] },
+  ) {
+    if (busy || loading || (!files && uploads.reading) || typeof userId !== 'number') return;
 
     const answerId = newId();
     const questionId = newId();
 
     // Read before clearing: the chips are emptied as the message is sent, and these ids are what
-    // ties the reply to the files it is about.
-    const importIds = uploads.importIds;
-    const attached = uploads.attachments.map((item) => item.name);
+    // ties the reply to the files it is about. A turn with its own files, such as an import
+    // note, leaves the composer and its chips alone.
+    const documentIds = files ? files.documentIds : uploads.documentIds;
+    const attached = files ? files.names : uploads.attachments.map((item) => item.name);
 
-    if (!shown.form) setDraft('');
-    uploads.clear();
+    if (!files) {
+      if (!shown.form) setDraft('');
+      uploads.clear();
+    }
 
     // A new question moves to the top of the pane, even if the person had scrolled up before sending it.
     anchorId.current = questionId;
@@ -437,17 +493,36 @@ export default function ChatWorkspace({
         turn.approval?.state === 'pending' ? { ...turn, approval: { ...turn.approval, state: 'skipped' as const } } : turn,
       ),
       { id: questionId, role: 'user', text: shown.text, at: new Date(), attached, form: shown.form ?? null },
-      { id: answerId, role: 'planner', text: '', at: new Date(), importIds },
+      { id: answerId, role: 'planner', text: '', at: new Date(), documentIds },
     ]);
 
     await listen(answerId, (handlers, signal) => streamMessage(conversationId, outgoing, handlers, signal));
   }
 
+  /**
+   * After an import is saved from the review, tell the planner in one short turn. Only the file's
+   * id goes with it, never its rows: the planner reads the saved counts with its own tool, so the
+   * chat stays small however large the file was. Skipped while a reply is still being written.
+   */
+  async function announceImport(document: DocumentView) {
+    if (busy) return;
+
+    const shown = `Imported ${document.original_filename}`;
+
+    await start(
+      { message: `${shown}. Tell me what was saved and what still needs my attention.`, document_ids: [document.id] },
+      { text: shown },
+      { documentIds: [document.id], names: [] },
+    );
+  }
+
   async function send(message: string) {
     const trimmed = message.trim();
-    if (!trimmed) return;
+    const documentIds = uploads.documentIds;
 
-    await start({ message: trimmed }, { text: trimmed });
+    if (!trimmed && documentIds.length === 0) return;
+
+    await start(documentIds.length ? { message: trimmed, document_ids: documentIds } : { message: trimmed }, { text: trimmed });
   }
 
   /** Send the open form's values as the next turn and close the form. */
@@ -529,7 +604,8 @@ export default function ChatWorkspace({
     attachments: uploads.attachments,
     onAttach: (files: File[]) => void uploads.add(files),
     onRemoveAttachment: uploads.remove,
-    onUnlockAttachment: (key: string, password: string) => void uploads.unlock(key, password),
+    onOpenAttachment: openReview,
+    onUnlockAttachment: uploads.unlock,
   };
 
   return (
@@ -588,12 +664,12 @@ export default function ChatWorkspace({
             <MessageTimeline
               turns={turns}
               streamingId={streamingId}
-              userId={userId}
               busy={busy}
               openFormId={form?.blockId ?? null}
               onRegenerate={regenerate}
               onDecide={(answerId, decision, edits) => void decide(answerId, decision, edits)}
               onOpenForm={openForm}
+              onOpenReview={openReview}
             />
           )}
 
@@ -687,6 +763,20 @@ export default function ChatWorkspace({
               onSend={(values) => void sendForm(values)}
               onClose={closeForm}
             />
+          </motion.aside>
+        )}
+
+        {review !== null && !form && (
+          <motion.aside
+            key={`review:${review}`}
+            aria-label="Import review"
+            initial={{ opacity: 0, x: 24 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 24 }}
+            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+            className="fixed inset-0 z-50 min-h-0 overflow-hidden bg-panel-subtle lg:static lg:inset-auto lg:z-auto lg:flex-1 lg:border-l lg:border-line"
+          >
+            <ImportPanel documentId={review} onClose={closeReview} onChanged={uploads.refresh} onImported={(document) => void announceImport(document)} />
           </motion.aside>
         )}
       </AnimatePresence>
