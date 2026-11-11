@@ -22,6 +22,8 @@ class ImportRowOut(BaseModel):
     source: dict[str, Any]
     errors: list[Any]
     warnings: list[Any]
+    questions: list[Any]
+    resolved: dict[str, Any]
 
 
 class DocumentOut(BaseModel):
@@ -35,6 +37,7 @@ class DocumentOut(BaseModel):
     error_message: str | None
     duplicate: bool = False
     sheets: list[dict[str, Any]] = Field(default_factory=list)
+    checks: dict[str, int] = Field(default_factory=dict)
     pending_mappings: list[dict[str, Any]] = Field(default_factory=list)
     rows: list[ImportRowOut] = Field(default_factory=list)
     created_at: datetime
@@ -66,3 +69,19 @@ class ConfirmMapping(BaseModel):
     """The mappings the user confirms; sheets left out keep the model's proposal."""
 
     sheets: list[SheetChoice] = Field(default_factory=list)
+
+
+class AnswerIn(BaseModel):
+
+    """The user's answer to one question on one row."""
+
+    row_id: int
+    question_id: str
+    answer: str
+
+
+class AnswerQuestions(BaseModel):
+
+    """One or more answers, sent as the user picks them on the review screen or in chat."""
+
+    answers: list[AnswerIn] = Field(min_length=1)

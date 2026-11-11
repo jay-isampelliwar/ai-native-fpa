@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.db.enums import DocumentStatus
 from app.db.models import Document, ImportRow
+from app.features.documents.checks import run_checks
 from app.features.documents.families import TooManyFamilies, classify
 from app.features.documents.layouts import (
     SheetLayout,
@@ -23,7 +24,7 @@ from app.features.documents.layouts import (
 from app.features.documents.parsing import ParsedRow, ParseResult, SheetNote
 from app.features.documents.reader import MIME_TYPES, Sheet, UnreadableFile, file_kind, read_file
 from app.features.documents.repository import DocumentRepository
-from app.features.documents.schemas import SheetChoice
+from app.features.documents.schemas import AnswerIn, SheetChoice
 from app.features.documents.storage import load_file, save_file
 
 
@@ -56,6 +57,18 @@ class MappingInvalid(ValueError):
     def __init__(self, errors: list[str]) -> None:
 
         """Keep every reason the mapping was refused."""
+
+        super().__init__("; ".join(errors))
+        self.errors = errors
+
+
+class AnswerInvalid(ValueError):
+
+    """Answers that do not fit the questions asked, with every reason listed."""
+
+    def __init__(self, errors: list[str]) -> None:
+
+        """Keep every reason the answers were refused."""
 
         super().__init__("; ".join(errors))
         self.errors = errors
@@ -190,6 +203,10 @@ class DocumentService:
         document.error_message = None if rows else NO_ROWS_MESSAGE
         await self.repository.replace_rows(document.id, rows)
 
+        if rows:
+            await self.session.flush()
+            await run_checks(self.session, document)
+
     async def parse_unknown(self, sheets: list[Sheet]) -> tuple[ParseResult, list[dict[str, Any]]]:
 
         """Read each sheet with its confirmed mapping, asking the model for a proposal where none is confirmed yet."""
@@ -316,6 +333,50 @@ class DocumentService:
 
         return document
 
+    async def answer(
+        self,
+        user_id: int,
+        document_id: int,
+        answers: list[AnswerIn]
+        ) -> Document:
+
+        """Save the user's answers to row questions, then check the whole document again, since one answer can settle others."""
+
+        document = await self.get(user_id, document_id)
+
+        if document.status != DocumentStatus.parsed:
+            raise AnswerInvalid(["This document has no questions waiting"])
+
+        rows = {row.id: row for row in await self.repository.rows(document.id)}
+        errors = []
+
+        for given in answers:
+
+            row = rows.get(given.row_id)
+            asked = next((item for item in (row.questions if row else []) if item["id"] == given.question_id), None)
+
+            if asked is None:
+                errors.append(f"Row {given.row_id} has no question {given.question_id}")
+                continue
+
+            if given.answer not in {choice["value"] for choice in asked["options"]}:
+                errors.append(f"'{given.answer}' is not one of the choices for {given.question_id}")
+                continue
+
+            row.questions = [
+                {**item, "answer": given.answer} if item["id"] == given.question_id else item
+                for item in row.questions
+                ]
+
+        if errors:
+            await self.session.rollback()
+            raise AnswerInvalid(errors)
+
+        await run_checks(self.session, document)
+        await self.session.commit()
+
+        return document
+
     async def get(
         self,
         user_id: int,
@@ -355,7 +416,7 @@ def numbered_rows(
             row_number=position + 1,
             target_table=row.target_table,
             parsed_data=data,
-            source=row.source,
+            source={**row.source, "read_errors": list(row.errors)},
             errors=row.errors,
             warnings=row.warnings,
             ))

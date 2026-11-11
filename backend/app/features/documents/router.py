@@ -9,8 +9,9 @@ from app.db.models import Document
 from app.db.session import get_session
 from app.features.documents.reader import UnreadableFile
 from app.features.documents.repository import DocumentRepository
-from app.features.documents.schemas import ConfirmMapping, DocumentListItem, DocumentOut, ImportRowOut
+from app.features.documents.schemas import AnswerQuestions, ConfirmMapping, DocumentListItem, DocumentOut, ImportRowOut
 from app.features.documents.service import (
+    AnswerInvalid,
     DocumentNotFound,
     DocumentService,
     DocumentTooLarge,
@@ -40,6 +41,7 @@ async def document_out(
         error_message=document.error_message,
         duplicate=duplicate,
         sheets=document.summary.get("sheets", []),
+        checks=document.summary.get("checks", {}),
         pending_mappings=document.summary.get("pending_mappings", []),
         rows=[ImportRowOut.model_validate(row, from_attributes=True) for row in rows],
         created_at=document.created_at,
@@ -134,6 +136,28 @@ async def confirm_mapping(
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
 
     except MappingInvalid as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, exc.errors) from exc
+
+    return await document_out(session, document)
+
+
+@router.post("/{document_id}/answers")
+async def answer_questions(
+    document_id: int,
+    body: AnswerQuestions,
+    user_id: int = Depends(get_current_user_id),
+    session: AsyncSession = Depends(get_session),
+    ) -> DocumentOut:
+
+    """Save answers to row questions, such as which fund a name means, and get the document back checked again."""
+
+    try:
+        document = await DocumentService(session).answer(user_id, document_id, body.answers)
+
+    except DocumentNotFound as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+
+    except AnswerInvalid as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, exc.errors) from exc
 
     return await document_out(session, document)
