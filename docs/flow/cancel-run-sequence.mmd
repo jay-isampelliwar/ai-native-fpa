@@ -1,0 +1,21 @@
+sequenceDiagram
+    participant FE as Frontend
+    participant API as FastAPI API
+    participant PG as PostgreSQL
+    participant R as Redis
+    participant W as Agent worker
+    participant T as Run task
+
+    FE->>API: POST /api/runs/{run_id}/cancel
+    API->>PG: Status running to cancel_requested
+    API->>R: PUBLISH on the run's cancel channel
+    API-->>FE: 202 with status cancel_requested
+    R-->>W: Cancel message
+    W->>T: task.cancel()
+    Note over PG,T: If the signal is missed, the task reads the saved status<br/>before every model call and tool call, and stops itself.
+    T->>PG: Run cancelled, assistant message cancelled, open tool rows closed
+    T->>PG: Save the run.cancelled event
+    T->>R: PUBLISH run.cancelled
+    R-->>API: Live event
+    API-->>FE: SSE run.cancelled
+    FE->>FE: Stop the loader and keep the partial reply

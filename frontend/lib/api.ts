@@ -16,9 +16,8 @@
  * and the shell then sends the page to sign-in.
  *
  * The chat's turns do not appear here because a turn is a run whose reply is read
- * as server-sent events rather than JSON, so `lib/stream.ts` handles both of its calls. The
- * clients that used to sit here - planner, documents, records, goals, assets, alerts, workspace -
- * were removed with the endpoints behind them, and each comes back with the feature that needs it.
+ * as server-sent events rather than JSON, so `lib/stream.ts` handles both of its calls. Uploads
+ * and their review go through `documents`.
  *
  * Nothing here caches. Financial figures shown to a user must be the ones the backend just computed,
  * and a stale surplus rendered as current is exactly the failure the whole backend design avoids.
@@ -27,15 +26,18 @@
 import type {
   ApprovalDecision,
   ApprovalEdits,
-  CommitResult,
+  ApprovalOutcome,
   RunResponse,
   ConversationDetail,
   CurrentUser,
   ConversationList,
   ConversationSummary,
-  DocumentImport,
-  StagedRows,
-  UploadResponse,
+  DocumentView,
+  ImportFields,
+  InstrumentChoice,
+  QuestionAnswer,
+  RowEdit,
+  SheetChoice,
 } from "@/lib/types";
 
 export class ApiError extends Error {
@@ -60,6 +62,23 @@ export function reportUnauthorized(): void {
   unauthorizedHandler?.();
 }
 
+/**
+ * The backend's reason as one line. Most routes send text; the import routes send every reason as
+ * a list, and validation errors come as objects with a `msg`.
+ */
+function readDetail(detail: unknown): string | null {
+  if (typeof detail === "string") return detail;
+
+  if (Array.isArray(detail)) {
+    return detail
+      .map((item) => (typeof item === "string" ? item : (item as { msg?: string })?.msg ?? ""))
+      .filter(Boolean)
+      .join("; ");
+  }
+
+  return null;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...init,
@@ -80,8 +99,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     let detail = response.statusText;
 
     try {
-      const body = (await response.json()) as { detail?: string };
-      detail = body.detail ?? detail;
+      const body = (await response.json()) as { detail?: unknown };
+      detail = readDetail(body.detail) ?? detail;
     } catch {
       // A non-JSON error body is still an error; the status alone is enough to report.
     }
@@ -179,78 +198,102 @@ export const voice = {
 
 export const documents = {
   /**
-   * Send files to be read, answered as soon as the bytes are stored.
-   *
-   * Extraction runs behind this call, so the response carries ids to poll rather than rows. A file
-   * this person has already imported comes back with `duplicate` set and nothing is read again.
+   * Send one file to be read. Answered once it is parsed and checked, or waiting for a password,
+   * an OK for the model, or columns, or failed with a reason. The same file again answers the earlier upload with `duplicate` set.
    */
-  upload(userId: number, files: File[]) {
+  upload(file: File) {
     const form = new FormData();
 
-    form.append('user_id', String(userId));
-    for (const file of files) form.append('files', file);
+    form.append("file", file);
 
-    return request<UploadResponse>('/api/v1/documents', { method: 'POST', body: form });
+    return request<DocumentView>("/api/documents", { method: "POST", body: form });
   },
 
-  /** Where one document has reached. Polled while it is being read. */
-  read(userId: number, importId: string) {
-    return request<DocumentImport>(`/api/v1/documents/${importId}?user_id=${userId}`);
+  /** One upload with its sheet notes, questions and rows. */
+  get(documentId: number) {
+    return request<DocumentView>(`/api/documents/${documentId}`);
   },
 
-  /**
-   * Open a password-protected PDF and read it again.
-   *
-   * The password is sent for this call only. Nothing stores it, so a wrong one is simply retried.
-   */
-  unlock(userId: number, importId: string, password: string) {
-    return request<DocumentImport>(`/api/v1/documents/${importId}/password`, {
-      method: 'POST',
-      body: JSON.stringify({ user_id: userId, password }),
+  /** Every table a file can fill, with each field and its kind, for the mapping step. */
+  fields() {
+    return request<ImportFields>("/api/documents/fields");
+  },
+
+  /** Stocks and funds for a name being typed, closest first. */
+  searchInstruments(query: string, signal?: AbortSignal) {
+    return request<InstrumentChoice[]>(`/api/documents/instruments/search?q=${encodeURIComponent(query)}`, { signal });
+  },
+
+  /** Confirm the mapping of an unknown file; sheets left out keep the model's proposal. */
+  confirmMapping(documentId: number, sheets: SheetChoice[]) {
+    return request<DocumentView>(`/api/documents/${documentId}/mapping`, {
+      method: "POST",
+      body: JSON.stringify({ sheets }),
     });
   },
 
-  /**
-   * Refuse a document: its rows are kept as rejected and the stored file is deleted.
-   *
-   * This is what removing an attachment does, so a file dropped from the composer does not sit on
-   * the server forever waiting for a review that will never happen.
-   */
-  reject(userId: number, importId: string) {
-    return request<DocumentImport>(`/api/v1/documents/${importId}/reject?user_id=${userId}`, {
-      method: 'POST',
-    });
-  },
-};
-
-export const imports = {
-  /** Everything read from one document, in the order the document stated it. */
-  rows(userId: number, importId: string) {
-    return request<StagedRows>(`/api/v1/documents/${importId}/rows?user_id=${userId}`);
-  },
-
-  /**
-   * Accept everything read from this document and write it.
-   *
-   * This is the only path imported data takes into the record tables. The planner has no tool for
-   * it, so a record only exists because the person pressed this.
-   */
-  approve(userId: number, importId: string) {
-    return request<CommitResult>(`/api/v1/documents/${importId}/approve?user_id=${userId}`, {
-      method: 'POST',
+  /** Save answers to row questions. The document comes back checked again. */
+  answer(documentId: number, answers: QuestionAnswer[]) {
+    return request<DocumentView>(`/api/documents/${documentId}/answers`, {
+      method: "POST",
+      body: JSON.stringify({ answers }),
     });
   },
 
-  /**
-   * Write the rows held back because they already appear in the person's records.
-   *
-   * Kept separate from `approve` because only the person can say that two identical charges on one
-   * day are genuinely two charges rather than the same statement imported twice.
-   */
-  approveDuplicates(userId: number, importId: string) {
-    return request<CommitResult>(
-      `/api/v1/documents/${importId}/approve-duplicates?user_id=${userId}`,
-      { method: 'POST' },
-    );
+  /** Change fields of one row, or pick its stock or fund. */
+  editRow(documentId: number, rowId: number, edit: RowEdit) {
+    return request<DocumentView>(`/api/documents/${documentId}/rows/${rowId}`, {
+      method: "PATCH",
+      body: JSON.stringify(edit),
+    });
+  },
+
+  /** Read a locked PDF with its password. The password is used once and never saved. */
+  unlock(documentId: number, password: string) {
+    return request<DocumentView>(`/api/documents/${documentId}/password`, {
+      method: "POST",
+      body: JSON.stringify({ password }),
+    });
+  },
+
+  /** Let the model read the pages only it can read, with the password again for a locked PDF. */
+  allowModel(documentId: number, password?: string) {
+    return request<DocumentView>(`/api/documents/${documentId}/read-pages`, {
+      method: "POST",
+      body: JSON.stringify(password ? { password } : {}),
+    });
+  },
+
+  /** Give every row missing an as-of date this date, such as all holdings of a broker export. */
+  setAsOfDate(documentId: number, asOfDate: string) {
+    return request<DocumentView>(`/api/documents/${documentId}/as-of-date`, {
+      method: "POST",
+      body: JSON.stringify({ as_of_date: asOfDate }),
+    });
+  },
+
+  /** Take one row out of this import so it is never written. Saved records are not touched. */
+  removeRow(documentId: number, rowId: number) {
+    return request<DocumentView>(`/api/documents/${documentId}/rows/${rowId}`, { method: "DELETE" });
+  },
+
+  /** Bring back a row taken out of this import. */
+  restoreRow(documentId: number, rowId: number) {
+    return request<DocumentView>(`/api/documents/${documentId}/rows/${rowId}/restore`, { method: "POST" });
+  },
+
+  /** Import anyway after seeing the rows do not add up to the file's totals. Asked again if that changes. */
+  acceptTotals(documentId: number) {
+    return request<DocumentView>(`/api/documents/${documentId}/accept-totals`, { method: "POST" });
+  },
+
+  /** Write every ready row into the person's records. */
+  approve(documentId: number) {
+    return request<ApprovalOutcome>(`/api/documents/${documentId}/approve`, { method: "POST" });
+  },
+
+  /** Undo everything this upload wrote, or nothing when a record changed after the import. */
+  undo(documentId: number) {
+    return request<DocumentView>(`/api/documents/${documentId}/undo`, { method: "POST" });
   },
 };

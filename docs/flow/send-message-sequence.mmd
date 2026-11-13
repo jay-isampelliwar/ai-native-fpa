@@ -1,0 +1,33 @@
+sequenceDiagram
+    actor User
+    participant FE as Frontend
+    participant API as FastAPI API
+    participant PG as PostgreSQL
+    participant R as Redis
+    participant W as Agent worker
+    participant G as LangGraph
+
+    User->>FE: Sends "What is my net worth?"
+    FE->>FE: Generate client_request_id
+    FE->>API: POST /api/runs
+    API->>PG: Save run (queued), user message, empty assistant message
+    API->>R: XADD start job to the run stream
+    API-->>FE: 202 with run_id and conversation_id
+    FE->>API: GET /api/runs/{run_id}/events (SSE)
+    API->>R: SUBSCRIBE to the run's event channel
+    R->>W: XREADGROUP delivers the job
+    W->>PG: Claim the run (running, worker_id, heartbeat)
+    W->>R: XACK the job
+    W->>G: Start the graph with thread_id = conversation_id
+    loop Each step of the turn
+        G-->>W: Reply text or tool step
+        W->>PG: Save the numbered event in run_events
+        W->>R: PUBLISH the event
+        R-->>API: Live event
+        API-->>FE: SSE assistant.delta, tool.started, tool.finished, ui.block
+    end
+    G-->>W: Graph finished
+    W->>PG: One commit: run completed, usage and cost, outbox row
+    W->>R: PUBLISH run.completed
+    API-->>FE: SSE run.completed
+    FE-->>User: Show the final reply with its cards

@@ -29,6 +29,8 @@ OVERVIEW_TOOLS = (
     "get_upcoming_events",
     )
 
+IMPORT_TOOLS = ("get_import_preview", "answer_import_question", "approve_import")
+
 ADD_TOOLS = (
     "add_family_member",
     "add_income_source",
@@ -50,13 +52,14 @@ ADD_TOOLS = (
     "set_planning_rate",
     "mark_section_status",
     "open_form",
+    *IMPORT_TOOLS,
     )
 
 TOOLS_BY_INTENT: dict[str, tuple[str, ...]] = {
-    VIEW_DATA: ("get_portfolio_exposure", "web_search", *OVERVIEW_TOOLS),
+    VIEW_DATA: ("get_portfolio_exposure", "web_search", "get_import_preview", *OVERVIEW_TOOLS),
     ADD_DATA: ADD_TOOLS,
     CHANGE_DATA: ("update_record", "update_profile", "set_tax_profile", "set_planning_rate", "link_asset_to_goal", "open_form"),
-    DELETE_DATA: ("delete_record",),
+    DELETE_DATA: ("delete_record", "get_import_preview", "undo_import"),
     GOAL_CHECK: ("check_goal_progress", "link_asset_to_goal", "add_goal", "set_planning_rate", "open_form"),
     MISSING_DATA: ("mark_section_status",),
     SIMULATION: ("check_goal_progress", "set_planning_rate", *OVERVIEW_TOOLS),

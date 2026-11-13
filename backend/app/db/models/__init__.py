@@ -4,6 +4,7 @@ from app.db.models.approvals import ToolApproval
 from app.db.models.assets import BankAccount, FixedDeposit, PhysicalAsset, RetirementAccount
 from app.db.models.cash_flow import Expense, IncomeSource, Transaction
 from app.db.models.coverage import DataCoverage
+from app.db.models.documents import Document, ImportRow, LayoutMapping
 from app.db.models.investments import FundHolding, Holding, MutualFund, SipPlan, Stock
 from app.db.models.conversations import AgentRun, Conversation, Message, RunEventRecord, ToolCall
 from app.db.models.liabilities import CreditCard, Loan
@@ -22,6 +23,7 @@ __all__ = [
     "Conversation",
     "CreditCard",
     "DataCoverage",
+    "Document",
     "Expense",
     "FamilyMember",
     "FixedDeposit",
@@ -29,8 +31,10 @@ __all__ = [
     "Goal",
     "GoalAllocation",
     "Holding",
+    "ImportRow",
     "IncomeSource",
     "InsurancePolicy",
+    "LayoutMapping",
     "Loan",
     "MemoryEvent",
     "MemoryItem",

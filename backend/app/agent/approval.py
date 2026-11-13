@@ -1,5 +1,6 @@
 """The approval gate: pause before a risky tool call, then run what the user approved and answer the rest as rejected."""
 
+from collections import Counter
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
@@ -26,13 +27,17 @@ from app.agent.cards import (
 from app.agent.context import PlannerContext
 from app.agent.nodes import AGENT_NODE, TOOLS_NODE
 from app.agent.state import PlannerState
+from app.agent.tools.imports import counts_line, table_counts
 from app.agent.tools.labels import label_for
 from app.agent.tools.policies import needs_approval
 from app.agent.tools.records import record_fields, show_value
 from app.agent.tools.results import over_limit, rejected, to_message
 from app.core.config import get_settings
+from app.db.enums import ImportRowAction, ImportRowStatus
 from app.db.models import Holding, MutualFund, Stock
 from app.db.session import SessionLocal
+from app.features.documents.checks import ready
+from app.features.documents.repository import DocumentRepository
 from app.features.investments.service import InvestmentService
 from app.features.records.exceptions import RecordError
 from app.features.records.kinds import KINDS, RecordKind
@@ -373,7 +378,47 @@ async def instrument_labels(
     return [], fallback
 
 
+async def import_preview(call: ToolCall, user_id: int) -> Preview | None:
+
+    """Show what an import would write, as counts per table, with the link to review every row."""
+
+    async with SessionLocal() as session:
+
+        document = await DocumentRepository(session).get(user_id, int(call["args"].get("document_id", 0)))
+
+        if document is None:
+            return None
+
+        rows = await DocumentRepository(session).rows(document.id)
+
+    lines = counts_line(table_counts([row for row in rows if ready(row)]))
+    fields = [{"name": line.split(":")[0], "value": line.split(": ", 1)[1]} for line in lines]
+
+    return {"action": "run", "title": f"Import {document.original_filename}?", "fields": fields}
+
+
+async def undo_import_preview(call: ToolCall, user_id: int) -> Preview | None:
+
+    """Show how many rows an undo would remove or put back, per table."""
+
+    async with SessionLocal() as session:
+
+        document = await DocumentRepository(session).get(user_id, int(call["args"].get("document_id", 0)))
+
+        if document is None:
+            return None
+
+        rows = await DocumentRepository(session).rows(document.id)
+
+    written = Counter(row.target_table for row in rows if row.status == ImportRowStatus.written and row.action != ImportRowAction.no_change)
+    fields = [{"name": table, "value": f"{number} rows"} for table, number in written.items()]
+
+    return {"action": "remove", "title": f"Undo the import of {document.original_filename}?", "fields": fields}
+
+
 PREVIEWS = {
+    "approve_import": import_preview,
+    "undo_import": undo_import_preview,
     "delete_record": remove_preview,
     "update_record": change_preview,
     "add_stock_or_fund": confirm_preview,

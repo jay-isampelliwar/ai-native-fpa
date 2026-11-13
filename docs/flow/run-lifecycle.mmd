@@ -1,0 +1,20 @@
+flowchart TD
+    A[User submits a message] --> B[Frontend generates client_request_id]
+    B --> C[POST /api/runs]
+    C --> D{Same client_request_id<br/>seen before?}
+    D -- "Yes" --> D1[Return the existing run]
+    D -- "No" --> E[One transaction:<br/>agent_runs row + user message + empty assistant message]
+    E --> F[Run status: queued]
+    F --> G[API adds a start job to the Redis run stream]
+    G --> H[Agent worker claims the run in Postgres]
+    H --> I[Run status: running<br/>heartbeat every 10 s]
+    I --> J[LangGraph runs with conversation_id as thread_id]
+    J --> K[Each event saved in run_events,<br/>then published on Redis]
+    K --> L[Frontend reads the events as SSE]
+    J --> M{How does the turn end?}
+    M -- "Reply finished" --> N[Run status: completed<br/>outbox row in the same commit]
+    M -- "Risky tool call" --> O[Run status: awaiting_approval<br/>approval card shown]
+    O -- "User decides" --> P[Resume job on the Redis run stream]
+    P --> H
+    M -- "Cancel requested" --> Q[Run status: cancelled<br/>partial reply kept]
+    M -- "Error or 90 s timeout" --> R[Run status: failed]

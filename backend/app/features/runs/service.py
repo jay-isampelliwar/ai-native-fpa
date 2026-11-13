@@ -8,6 +8,8 @@ from app.db.models import Conversation
 from app.db.enums import RunStatus
 from app.features.approvals.service import CANCELLED, NEW_MESSAGE, ApprovalService
 from app.features.conversations.titles import title_from
+from app.features.documents.repository import DocumentRepository
+from app.features.documents.service import DocumentNotFound
 from app.features.runs.events import RUN_CANCELLED, RunEvent
 from app.features.runs.exceptions import ConversationNotFound, RunAlreadyActive, RunNotFound
 from app.features.runs.jobs import START, RunJob, submit
@@ -61,9 +63,40 @@ class RunService:
 
         return conversation
 
+    async def with_attachments(
+        self,
+        message: str,
+        document_ids: list[int],
+        user_id: int
+        ) -> str:
+
+        """The message with a line naming each attached upload and its id, so the agent reads them; refuses an upload that is not the user's."""
+
+        repository = DocumentRepository(self.session)
+        names = []
+
+        for document_id in dict.fromkeys(document_ids):
+
+            document = await repository.get(user_id, document_id)
+
+            if document is None:
+                raise DocumentNotFound("An attached file was not found")
+
+            names.append(f"{document.original_filename} (document {document.id})")
+
+        line = f"Attached: {', '.join(names)}."
+
+        if not message.strip():
+            return f"{line} Please read {'them' if len(names) > 1 else 'it'}."
+
+        return f"{message.strip()}\n\n{line}"
+
     async def create_run(self, body: CreateRunRequest, user_id: int) -> RunResponse:
 
         """Return the existing run for a retried request, or reject any pending approval, save a new run with its two messages, commit, and start it."""
+
+        if body.document_ids:
+            body.message = await self.with_attachments(body.message, body.document_ids, user_id)
 
         first_message = f"{FORM_TITLES[body.form.kind]} details" if body.form is not None else body.message
 

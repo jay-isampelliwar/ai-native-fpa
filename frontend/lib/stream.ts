@@ -79,8 +79,8 @@ function wait(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
-/** What one turn sends: typed words, or a filled form that the backend turns into the agent's message. */
-export type Outgoing = { message: string } | { form: FormSubmission };
+/** What one turn sends: typed words with any attached uploads, or a filled form that the backend turns into the agent's message. */
+export type Outgoing = { message: string; document_ids?: number[] } | { form: FormSubmission };
 
 async function createRun(
   conversationId: number | null,

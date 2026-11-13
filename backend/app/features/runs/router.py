@@ -9,6 +9,7 @@ from app.db.session import get_session
 from app.features.approvals.exceptions import ApprovalExpired, ApprovalNotFound, ApprovalNotPending
 from app.features.approvals.schemas import ApprovalDecisionRequest
 from app.features.approvals.service import ApprovalService
+from app.features.documents.service import DocumentNotFound
 from app.features.runs.exceptions import ConversationNotFound, RunAlreadyActive, RunNotFound
 from app.features.runs.repository import RunRepository
 from app.features.runs.schemas import CreateRunRequest, RunResponse
@@ -45,6 +46,9 @@ async def create_run(
 
     except ConversationNotFound as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Conversation not found") from exc
+
+    except DocumentNotFound as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
 
     except RunAlreadyActive as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, "A reply is still in progress in this conversation") from exc

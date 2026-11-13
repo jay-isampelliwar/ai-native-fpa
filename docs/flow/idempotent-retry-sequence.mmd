@@ -1,0 +1,13 @@
+sequenceDiagram
+    participant FE as Frontend
+    participant API as FastAPI API
+    participant PG as PostgreSQL
+
+    FE->>API: POST /api/runs with client_request_id req-001
+    API->>PG: Create run-001
+    API--xFE: Response lost on the network
+    FE->>API: Retry POST /api/runs with the same req-001
+    API->>PG: Find the run by (conversation_id, client_request_id)
+    PG-->>API: run-001 already exists
+    API-->>FE: Return run-001, no second run
+    Note over API,PG: When two retries race, a unique index lets one insert win<br/>and the other request reads the winner.

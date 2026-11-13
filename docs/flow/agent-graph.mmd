@@ -1,0 +1,13 @@
+flowchart TD
+    Start([New user message]) --> Repair[repair_history<br/>answer tool calls a stopped turn left open]
+    Repair --> Intent[classify_intents<br/>keyword rules first, small model when unsure]
+    Intent --> Memory[load_memories<br/>up to 50 active memories]
+    Memory --> Agent[agent<br/>model call with only the tools the intents need]
+    Agent -- "no tool calls" --> End([Turn ends])
+    Agent -- "tool calls" --> Gate{approval_gate<br/>is any call risky?}
+    Gate -- "safe calls" --> Tools[tools<br/>policy check, timeout, retry, write check]
+    Gate -- "risky call" --> Pause[[interrupt<br/>wait for the user's card]]
+    Pause -- "approved" --> Tools
+    Pause -- "rejected" --> Agent
+    Tools -- "results" --> Agent
+    Tools -- "turn closed without a reply" --> End

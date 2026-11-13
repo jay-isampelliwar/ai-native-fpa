@@ -9,6 +9,7 @@ from app.db.models import (
     AgentRun,
     Conversation,
     DataCoverage,
+    Document,
     Expense,
     Goal,
     Holding,
@@ -82,7 +83,7 @@ async def seed_run(user_id: int) -> SeededRun:
 
 async def delete_user_data(user_id: int) -> None:
 
-    """Delete a temp user and every memory, outbox event, approval, tool operation, tool call, expense, loan, asset, SIP, holding, goal, income, message, run and conversation they own."""
+    """Delete a temp user and every document, memory, outbox event, approval, tool operation, tool call, expense, loan, asset, SIP, holding, goal, income, message, run and conversation they own."""
 
     async with SessionLocal() as session:
 
@@ -102,6 +103,7 @@ async def delete_user_data(user_id: int) -> None:
         await session.execute(delete(IncomeSource).where(IncomeSource.user_id == user_id))
         await session.execute(delete(Holding).where(Holding.user_id == user_id))
         await session.execute(delete(DataCoverage).where(DataCoverage.user_id == user_id))
+        await session.execute(delete(Document).where(Document.user_id == user_id))
         await session.execute(delete(Message).where(Message.conversation_id.in_(conversation_ids)))
         await session.execute(delete(AgentRun).where(AgentRun.conversation_id.in_(conversation_ids)))
         await session.execute(delete(Conversation).where(Conversation.user_id == user_id))

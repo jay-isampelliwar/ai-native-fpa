@@ -1,6 +1,18 @@
 # Project Context — AI Native Financial Planner
 
-Snapshot of the code on branch `feat-langfuse` at commit `0117815` (9 November 2026).
+Snapshot of the code on branch `feat-document-extraction` at commit `c6f01eb` (13 November 2026).
+
+Since `0117815` (9 November 2026), 6 commits added **document import**:
+- upload a spreadsheet, CSV, PDF or photo (`POST /api/documents`), read by code into rows the user reviews;
+- known file families read by fixed rules, and a model-proposed column plan for unknown layouts (digits masked);
+- checks on every row, stock and fund matching, questions where the code is unsure, and a check against printed totals;
+- a review panel beside the chat, import behind an approval card, and undo;
+- tables `documents`, `import_rows`, `layout_mappings` (migrations `0022` to `0025`);
+- 4 new tools (`get_import_preview`, `answer_import_question`, `approve_import`, `undo_import`), so the count is now **42**.
+
+The design of the import is in `docs/document-import.md`. This file covers it only where it touches the agent.
+
+The earlier snapshot was `0117815` on branch `feat-langfuse`.
 
 Between `04f8eb8` (30 October 2026) and `0117815`, 30 commits added:
 - **Investments**: stock and mutual fund holdings and SIPs are now saved by the agent (`add_stock_or_fund`, `add_sip_plan`),
@@ -46,7 +58,8 @@ Between `ba3613f` (20 October 2026) and `116c5b1`, every tool call got a set of 
 
 Everything here was read from the code. Where a doc in the repo disagrees with the code, the code wins.
 Those stale docs are listed in section 8. The old root design notes (`TOOL_RESULTS.md`, `IDEMPOTENCY.md`,
-`INTENT_FLOW.md`, `SCALING_FLOW.md`) are no longer in the repo; this file is the only overview.
+`INTENT_FLOW.md`, `SCALING_FLOW.md`) are no longer in the repo. The short overview is the root `README.md`;
+this file is the deep reference, and `docs/flow/` holds the diagrams.
 
 ---
 
@@ -81,6 +94,7 @@ A personal financial planner for Indian households, driven by chat.
 | Market data (read-only, loaded by scripts) | Stock and fund master lists with latest price / NAV, each fund's monthly portfolio | `stocks`, `mutual_funds`, `fund_holdings`, view `fund_sector_allocation` |
 | Onboarding | Per-section status: pending / provided / none / declined (now incl. `holdings`, migration `0021`) | `data_coverage` |
 | Preferences and life events | Sectors to avoid or prefer, answer style, past decisions, life events | `memory_items`, `memory_events` |
+| Document import | Uploaded files, their parsed rows before import, saved column plans | `documents`, `import_rows`, `layout_mappings` |
 | Tracking (not wired) | Net worth by date | `net_worth_snapshots` |
 
 Currency is INR. Amounts are `Numeric(14, 2)`. Rates are `Numeric(5, 2)` percent values.
@@ -118,7 +132,7 @@ An update that changes nothing is refused: "Nothing to change: these values are 
 | Human approval | LangGraph `interrupt()` and `Command(resume=…)`, state kept by the checkpointer |
 | Model | OpenAI via `langchain-openai`, `stream_usage=True`. `CHAT_MODEL` = `gpt-5.6-luna` (with `reasoning_effort="none"`); `MEMORY_MODEL` and `INTENT_MODEL` = `gpt-4o-mini`; `TRANSCRIBE_MODEL` = `gpt-4o-mini-transcribe` |
 | Database | PostgreSQL, SQLAlchemy 2 async, psycopg 3 driver, `connect_timeout` 5 s |
-| Migrations | Alembic, `0001` to `0021` |
+| Migrations | Alembic, `0001` to `0025` |
 | Web search | Tavily (`tavily-python`, `AsyncTavilyClient`), results cached in Redis |
 | Index quotes | Yahoo Finance chart API over `httpx`, cached in Redis |
 | Tracing | Langfuse (`langfuse` ≥ 5.2) LangChain `CallbackHandler`, with span masking. Off when keys are missing |
@@ -126,16 +140,16 @@ An update that changes nothing is refused: "Nothing to change: these values are 
 | Event transport | Redis via `redis` 8 (`redis.asyncio`): streams `ai-native-fpa:runs` (group `agent-workers`) and `ai-native-fpa:memory` (group `memory-workers`); pub/sub channels `ai-native-fpa:run:{id}:events` and `:cancel` |
 | Auth | Argon2 (`pwdlib`) passwords, HS256 JWT (`pyjwt`) in an httpOnly cookie |
 | Streaming | Server-sent events: replayed from `run_events` in Postgres, then live from Redis pub/sub |
-| Tests | `pytest` + `pytest-asyncio`, against real Postgres and Redis. 352 collected. 5 outbox tests skip when the dev DB has pending rows. Autouse fixtures in `tests/conftest.py`: the intent model returns the fallback, and Langfuse keys are cleared (`no_langfuse`) so no test sends a trace |
+| Tests | `pytest` + `pytest-asyncio`, against real Postgres and Redis. 457 collected. 5 outbox tests skip when the dev DB has pending rows. Autouse fixtures in `tests/conftest.py`: the intent model returns the fallback, and Langfuse keys are cleared (`no_langfuse`) so no test sends a trace |
 | Container | `backend/Dockerfile` (`python:3.13-slim` + `uv`, runs `fastapi run`), `infra/docker-compose.yml` (local), `backend/docker-compose.yml` (production) |
-| Installed, not used yet | `tenacity`, `pycryptodome`, `pdfplumber` |
+| Installed, not used yet | `tenacity`, `pycryptodome` |
 
 **Backend packages** (`backend/pyproject.toml`, build with `hatchling`)
 
 | Package | Used for |
 |---|---|
 | `fastapi[standard]`, `uvicorn[standard]` | HTTP API and server |
-| `python-multipart` | multipart form body for voice upload |
+| `python-multipart` | multipart form body for voice and document upload |
 | `pydantic`, `pydantic-settings` | request / tool schemas, `Settings` from env |
 | `langgraph`, `langchain`, `langchain-openai` | agent graph, tools, OpenAI chat models |
 | `langgraph-checkpoint-postgres`, `psycopg[binary,pool]` | conversation state in Postgres, psycopg 3 driver and pool |
@@ -146,8 +160,8 @@ An update that changes nothing is refused: "Nothing to change: these values are 
 | `tavily-python` | web search |
 | `httpx` | Yahoo chart API, web page previews |
 | `langfuse` ≥ 5.2 | tracing (section 2.7) |
-| `openpyxl`, `xlrd` | reading AMC portfolio Excel files in `scripts/market_data/` only |
-| `tenacity`, `pycryptodome`, `pdfplumber` | installed, not used |
+| `openpyxl`, `xlrd`, `pdfplumber` | reading uploaded spreadsheets and PDFs (`features/documents/reader.py`); `openpyxl` and `xlrd` also read AMC portfolio files in `scripts/market_data/` |
+| `tenacity`, `pycryptodome` | installed, not used |
 
 Dev group: `pytest`, `pytest-asyncio` (`asyncio_mode = "auto"`), `pytest-cov`. `respx`, `hypothesis` and `freezegun`
 are installed but no test imports them.
@@ -164,7 +178,7 @@ are installed but no test imports them.
 | `lucide-react` | icons (plus custom `FinIcons`) |
 | `typescript` 5, `eslint` 9, `eslint-config-next` | types and lint |
 
-**Services** — Postgres, Redis, the OpenAI API, Tavily, Yahoo Finance and Langfuse Cloud. No object storage, no vector store.
+**Services** — Postgres, Redis, the OpenAI API, Tavily, Yahoo Finance and Langfuse Cloud. No object storage (uploads are files under `UPLOAD_DIR`), no vector store.
 
 ### 1.4a API endpoints
 
@@ -187,11 +201,19 @@ All routes are under `/api` (`app/api/router.py`), except `/health`. Every route
 | `PATCH /api/conversations/{id}` | rename | same |
 | `DELETE /api/conversations/{id}` | soft delete (`204`); refused while a card is pending | same |
 | `POST /api/voice/transcribe` | multipart `audio` → `{text}` | `features/voice/router.py` |
+| `POST /api/documents` | upload one file; the same file again returns the earlier upload | `features/documents/router.py` |
+| `GET /api/documents`, `GET /api/documents/{id}` | list uploads; read one with its rows, questions and totals | same |
+| `GET /api/documents/fields`, `GET /api/documents/instruments/search` | the fields a column can map to; stock and fund suggestions while editing | same |
+| `POST /api/documents/{id}/mapping` | confirm or change the column plan of an unknown layout | same |
+| `POST /api/documents/{id}/answers` | answer one question | same |
+| `POST /api/documents/{id}/as-of-date`, `/password`, `/read-pages`, `/accept-totals` | set the date for all rows; unlock a PDF; let the model read pages; import despite a totals mismatch | same |
+| `PATCH` / `DELETE /api/documents/{id}/rows/{row_id}`, `POST …/restore` | edit, remove or bring back one row | same |
+| `POST /api/documents/{id}/approve`, `/undo` | import the ready rows; undo the import | same |
 
-There are no routes for records, memories, documents or the dashboard. The agent's tools are the only way to read
-or change financial data.
+There are no routes for records, memories or the dashboard. The agent's tools and the document import are the only
+ways to read or change financial data.
 
-### 1.4b Agent tools (38)
+### 1.4b Agent tools (42)
 
 | Group | Tools |
 |---|---|
@@ -207,6 +229,7 @@ or change financial data.
 | Web | `web_search` |
 | Overview | `get_net_worth`, `get_asset_split`, `get_month_summary`, `get_cash_flow_history`, `get_financial_health`, `get_upcoming_events` |
 | Forms | `open_form` |
+| Document import | `get_import_preview`, `answer_import_question`, `approve_import`, `undo_import` |
 
 Risk and approval for each tool: section 2.2, step 7. Which intent gets which tool: step 6.
 
@@ -229,7 +252,7 @@ ai-native-fpa/
 ├── backend/
 │   ├── app/
 │   │   ├── main.py              FastAPI app; mounts routes, starts no background task, closes pools on shutdown
-│   │   ├── api/                 router.py (mounts /api: auth, runs, conversations, voice), deps.py (current user)
+│   │   ├── api/                 router.py (mounts /api: auth, runs, conversations, voice, documents), deps.py (current user)
 │   │   ├── core/
 │   │   │   ├── config.py        Settings from env, incl. timeouts and turn limits
 │   │   │   └── redis.py         shared Redis client, stream helpers (XADD, XREADGROUP, XACK, …), process_name, prune_consumers
@@ -248,7 +271,7 @@ ai-native-fpa/
 │   │   │   ├── state.py, context.py, prompt.py, checkpointer.py
 │   │   │   └── tools/
 │   │   │       ├── results.py   ToolResult (incl. block, verified), status helpers, card hint, to_message
-│   │   │       ├── policies.py  Risk, ToolPolicy, TOOL_POLICIES for all 38 tools, CONFIRM_RULES
+│   │   │       ├── policies.py  Risk, ToolPolicy, TOOL_POLICIES for all 42 tools, CONFIRM_RULES
 │   │   │       ├── wrapper.py   finish_tool_call: policy check, timeout, retry, repeat stop, name stamp, Langfuse steps
 │   │   │       ├── limits.py    turn deadline, tool timeout, statement timeout, retry rules
 │   │   │       ├── operations.py run_write: the idempotency guard, the write check and the single commit
@@ -258,6 +281,7 @@ ai-native-fpa/
 │   │   │       ├── market.py    search, fund / stock details, compare, portfolio exposure
 │   │   │       ├── overview.py  net worth, asset split, month summary, cash flow history, health, upcoming events
 │   │   │       ├── indices.py, web.py, forms.py   get_index_quote, web_search, open_form
+│   │   │       ├── imports.py   get_import_preview, answer_import_question, approve_import, undo_import
 │   │   │       └── common.py, records.py, profile.py, cash_flow.py, assets.py, liabilities.py,
 │   │   │           protection.py, planning.py, analysis.py, labels.py
 │   │   ├── observability/       langfuse.py (client, handler, trace context), masking.py, observations.py (steps)
@@ -279,13 +303,14 @@ ai-native-fpa/
 │   │   │   ├── indices/         Nifty 50 / Sensex / Bank Nifty quotes from Yahoo, Redis cache
 │   │   │   ├── web_search/      Tavily search, Redis cache with lock, og:image previews
 │   │   │   ├── voice/           POST /api/voice/transcribe
+│   │   │   ├── documents/       upload, reader, families/, layouts, parsing, checks, matching, totals, writer (import, undo)
 │   │   │   └── profile, cash_flow, assets (incl. fund_houses.py), liabilities, protection, planning
 │   │   ├── calc/                pure maths: money, growth, goals, cash_flow
 │   │   └── services/llm.py      the one place a chat model is built; names generations for tracing
-│   ├── alembic/versions/        0001 … 0021
+│   ├── alembic/versions/        0001 … 0025
 │   ├── scripts/                 market_data/ (download, build and push market data), repair_holding_units.py
 │   ├── tests/                   agent/, approvals/, tools/, calc/, core/, runs/, outbox/, memory/, voice/,
-│   │                            observability/, integration/
+│   │                            observability/, documents/, integration/
 │   ├── Dockerfile, docker-compose.yml (production), .dockerignore
 │   ├── deploy/                  Caddyfile, setup-vm.sh, README.md (GCP VM steps)
 │   └── docs/ROADMAP.md          stale, describes the wiped backend
@@ -294,14 +319,15 @@ ai-native-fpa/
 │   ├── components/chat/         ChatWorkspace, MessageTimeline, ApprovalCard, ChatComposer, VoiceBars, HistoryPanel, …
 │   ├── components/blocks/       one card per UI block type (BlockView picks the card)
 │   ├── components/forms/        FormPanel
+│   ├── components/imports/      ImportPanel, RowCard, QuestionStepper, MappingStep, InstrumentSearch
 │   ├── components/ui/           StartupScreen, UserMenu, …
 │   ├── components/icons/        FinIcons (custom icons)
 │   ├── components/dashboard/    cards fed by mock data; hidden for now
 │   ├── lib/                     api.ts, stream.ts, types.ts, session.ts, cards.ts, forms.ts, useVoiceInput.ts, useUploads.ts, mock/
 │   └── DESIGN.md                dark design-system spec (colours, type, layout)
 ├── infra/docker-compose.yml     local stack: Postgres 5433, Redis 6380, API and the three workers (gitignored)
-├── docs/                        PROJECT_CONTEXT.md, MEMORY_IMPLEMENTATION_HANDOFF.md, design.md, chat-components.html,
-│                                flow/, folder.md
+├── docs/                        PROJECT_CONTEXT.md, document-import.md, folder.md, MEMORY_IMPLEMENTATION_HANDOFF.md,
+│                                design.md, chat-components.html, flow/ (diagrams with Mermaid sources)
 └── sql/                         early table drafts + market data CSVs (gitignored)
 ```
 
@@ -396,11 +422,14 @@ ai-native-fpa/
 | `TRANSCRIBE_TIMEOUT_SECONDS` / `MAX_AUDIO_BYTES` | `20` / 4 MiB |
 | `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` | none — tracing is on only when both are set |
 | `LANGFUSE_BASE_URL` | `https://cloud.langfuse.com` |
+| `UPLOAD_DIR` / `MAX_DOCUMENT_BYTES` | `var/uploads` / 10 MiB |
+| `MAPPING_MODEL` / `PAGE_MODEL` | none — the models that propose a column plan and read a page; `CHAT_MODEL` is used when unset |
+| `MAPPING_SAMPLE_ROWS` | `3` — digit-masked sample rows the mapping model sees |
 
 - Hard-coded: approvals expire after 15 minutes (`APPROVAL_TTL`, `features/approvals/repository.py`).
   The agent worker's sweep expires them at startup and then every 30 s (`expire_due` in `features/approvals/sweeper.py`).
-- `backend/.env.example` lists more keys (`ROUTER_MODEL`, `LANGSMITH_*`, `CHECKPOINT_ENCRYPTION_KEY`, …).
-  These are leftovers. `Settings` ignores them. It has `TAVILY_API_KEY` but no `LANGFUSE_*` keys.
+- `backend/.env.example` lists the required keys and the optional Tavily and Langfuse keys. Every other
+  setting keeps its default from `Settings`.
 
 ---
 
@@ -436,7 +465,7 @@ flowchart TD
     LoadMem --> Agent[run_agent<br/>counts calls and tokens,<br/>wraps up at a limit]
     Agent --> LLM[OpenAI chat model]
     Agent -- tool_calls --> Gate[approval_gate<br/>tool limit, interrupt for<br/>update / delete]
-    Gate -- "approved and safe calls" --> Tools[ToolNode: 38 tools<br/>via finish_tool_call]
+    Gate -- "approved and safe calls" --> Tools[ToolNode: 42 tools<br/>via finish_tool_call]
     Tools -- "run_write: guard + write check + one commit" --> DB
     Tools -- "web_search" --> Tavily[Tavily API]
     Tools -- "get_index_quote" --> Yahoo[Yahoo chart API]
@@ -559,8 +588,8 @@ Source: `frontend/lib/stream.ts`, `backend/app/features/runs/`.
   The call is named `chat-model` for tracing (`services/llm.py`, `AGENT_GENERATION`).
 - Tools bound = `tools_for(current_intents)` (`agent/tools/selection.py`):
   - always `list_records` and `get_missing_sections`, plus the union of each intent's group;
-  - `GENERAL_QUESTION`, no intents or an unknown name → all 38 tools;
-  - `wrap_up` gets the same set. `ToolNode` still holds all 38, and every call still goes through the policy check.
+  - `GENERAL_QUESTION`, no intents or an unknown name → all 42 tools;
+  - `wrap_up` gets the same set. `ToolNode` still holds all 42, and every call still goes through the policy check.
   - There is no escape tool. If a tool is missing, the prompt makes the agent say so and ask the user to send that request on its own.
 
 `OVERVIEW` below means the six overview tools: `get_net_worth`, `get_asset_split`, `get_month_summary`,
@@ -568,10 +597,10 @@ Source: `frontend/lib/stream.ts`, `backend/app/features/runs/`.
 
 | Intent | Extra tools |
 |---|---|
-| `VIEW_DATA` | `get_portfolio_exposure`, `web_search`, OVERVIEW |
-| `ADD_DATA` | all 14 `add_*` (incl. `add_stock_or_fund`, `add_sip_plan`), `search_stocks_and_funds`, `update_profile`, `set_tax_profile`, `set_planning_rate`, `mark_section_status`, `open_form` |
+| `VIEW_DATA` | `get_portfolio_exposure`, `web_search`, `get_import_preview`, OVERVIEW |
+| `ADD_DATA` | all 14 `add_*` (incl. `add_stock_or_fund`, `add_sip_plan`), `search_stocks_and_funds`, `update_profile`, `set_tax_profile`, `set_planning_rate`, `mark_section_status`, `open_form`, `get_import_preview`, `answer_import_question`, `approve_import` |
 | `CHANGE_DATA` | `update_record`, `update_profile`, `set_tax_profile`, `set_planning_rate`, `link_asset_to_goal`, `open_form` |
-| `DELETE_DATA` | `delete_record` |
+| `DELETE_DATA` | `delete_record`, `get_import_preview`, `undo_import` |
 | `GOAL_CHECK` | `check_goal_progress`, `link_asset_to_goal`, `add_goal`, `set_planning_rate`, `open_form` |
 | `MISSING_DATA` | `mark_section_status` |
 | `SIMULATION` | `check_goal_progress`, `set_planning_rate`, OVERVIEW |
@@ -613,6 +642,10 @@ Source: `frontend/lib/stream.ts`, `backend/app/features/runs/`.
 | `sensitive` | `update_profile`, `set_tax_profile`, `set_planning_rate`, `link_asset_to_goal` | no |
 | `sensitive` | `update_record` | **yes**, card shows old → new |
 | `destructive` | `delete_record` | **yes**, card shows every field |
+| `read` | `get_import_preview` | no |
+| `write` | `answer_import_question` | no |
+| `sensitive` | `approve_import` | **yes** |
+| `destructive` | `undo_import` | **yes** |
 
 - `list_records(kind, page_size, cursor, filters, sort, fields)`:
   - 20 items by default, 50 at most. `cursor` is a position, taken from the last reply's `data.next_cursor`.
@@ -781,7 +814,7 @@ How a card can end (`Closing` in `features/approvals/service.py`):
 
 **Risk policy** (`agent/tools/policies.py`)
 
-- `TOOL_POLICIES` gives all 38 tools a `Risk` and `approval_required`. A test fails if a tool has no policy.
+- `TOOL_POLICIES` gives all 42 tools a `Risk` and `approval_required`. A test fails if a tool has no policy.
 - `CONFIRM_RULES` adds approval for some arguments only: `units_to_confirm` (`add_stock_or_fund` with `isin` and
   `amount` but no `units`) and `bank_to_confirm` (`add_fixed_deposit` whose bank `is_shared_brand`).
   `needs_approval(name, arguments)` checks both.
@@ -1107,7 +1140,7 @@ Ordered by impact. Items marked **Resolved** or **Partly resolved** are kept for
 
 - Profile and up to 50 memories are injected every time. Other data needs a tool call every time.
 - No selection of relevant memories per question. No input-token budgeting.
-- Only the tools the turn's intents need are sent (step 6). A general question still sends all 38.
+- Only the tools the turn's intents need are sent (step 6). A general question still sends all 42.
 - A wrong intent can leave the agent without a tool for the rest of that turn. There is no escape tool by choice.
 - Intents are not saved on `agent_runs`, so their accuracy cannot be measured later.
 - No embeddings or vector store. This is a stated non-goal for v1.
@@ -1235,8 +1268,8 @@ Enum values added since `0014`:
 **Not connected**
 
 - The dashboard reads `lib/mock/`, and `PlannerShell` hides it for now.
-- `lib/api.ts` and `lib/useUploads.ts` call `/api/v1/documents/*` for file import.
-  Those routes do not exist in the current backend. Upload is not working end to end.
+- File import is connected: `lib/api.ts` (`documents`) and `lib/useUploads.ts` call `/api/documents/*`,
+  and `components/imports/ImportPanel.tsx` is the review panel.
 - There is no UI for saved preference memories yet.
 - Icons are lucide plus custom `components/icons/FinIcons.tsx`. No emoji in the UI.
 
@@ -1268,10 +1301,8 @@ Enum values added since `0014`:
 | File | Why it misleads |
 |---|---|
 | `backend/docs/ROADMAP.md` | Describes the old, wiped backend (`/api/v1/planner/messages`, 24 tables, 132 tests) |
-| `docs/folder.md` | A planned layout (`modules/`, `workers/`, `redis_client.py`) that was never built |
 | `docs/MEMORY_IMPLEMENTATION_HANDOFF.md` | The original plan. It uses UUID ids, Upstash and `app/workers/` / `app/events/` folders. The code uses BIGINT, Redis (local, or Upstash in production) and `features/outbox`, `features/memory` |
 | `backend/app/agent/tools.py` | An empty file next to the `tools/` package. Python imports the package; the file does nothing |
-| `backend/.env.example` | Keys `Settings` does not read (`ROUTER_MODEL`, `LANGSMITH_*`, …); `REDIS_URL`, `LANGFUSE_*`, the memory, limit, web search and `INTENT_*` settings are missing |
 | `infra/docker-compose.yml` | The local stack, but `infra/` is gitignored, so a fresh clone has no local compose file |
 | `backend/app/agent/prompt.py` line 12 | Still says Preeti helps "finance teams and business owners"; the product is personal finance |
 | `sql/*.sql` | Early drafts with UUID keys. Alembic is the real schema |
@@ -1312,7 +1343,7 @@ Enum values added since `0014`:
   must not pass through it.
 - `current_intents` is always a non-empty list of allowed names, with no reducer. Keep `["GENERAL_QUESTION"]` as the fallback.
 - Intents only pick which tools the model sees. They must never skip `approval_gate` or change a tool's policy.
-  Filter in `run_agent` only; `ToolNode` keeps all 38.
+  Filter in `run_agent` only; `ToolNode` keeps all 42.
 - Every tool must be in `ALWAYS_TOOLS` or some `TOOLS_BY_INTENT` group. A test checks this.
 - `list_records` and `get_missing_sections` must stay in `ALWAYS_TOOLS`. The prompt tells the agent to call them on any turn.
 - The worker must keep skipping `repair_history` in `update_messages`, or old tool calls are inserted twice.

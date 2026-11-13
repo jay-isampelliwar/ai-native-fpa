@@ -1,36 +1,39 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Frontend
 
-## Getting Started
+Next.js 16, React 19, TypeScript and Tailwind CSS 4. The architecture is explained in the [root README](../README.md).
 
-First, run the development server:
+## Run
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
+pnpm install
 pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000. The backend must be running on port 8000, or set `BACKEND_ORIGIN`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## How it talks to the backend
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- The browser calls `/api/*` on its own origin. [next.config.ts](next.config.ts) rewrites those calls to the backend, so there is no CORS.
+- [lib/api.ts](lib/api.ts) is the typed client for every route.
+- [lib/stream.ts](lib/stream.ts) reads a run's server-sent events. It keeps the last event id and reconnects with `?after=`, so a dropped connection loses nothing.
+- [lib/types.ts](lib/types.ts) holds the event and UI block types. They must change together with the backend's `features/runs/events.py` and `agent/blocks.py`.
 
-## Learn More
+## Main parts
 
-To learn more about Next.js, take a look at the following resources:
+| Folder | Holds |
+|---|---|
+| [components/chat](components/chat) | The chat workspace, message timeline, composer, approval card and file chips |
+| [components/blocks](components/blocks) | One card per UI block type. `BlockView` picks the card. |
+| [components/imports](components/imports) | The review panel for an uploaded file |
+| [components/forms](components/forms) | The form panel the agent can open |
+| [lib](lib) | API client, stream reader, types, session, voice and upload hooks |
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## How a card appears
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- A tool returns a typed block, such as `hero` for net worth.
+- The backend sends it as a `ui.block` event with the tool call id.
+- The model writes `{{card:<id>}}` in its reply.
+- [lib/cards.ts](lib/cards.ts) cuts the reply at that marker.
+- `MessageTimeline` draws the matching card there.
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Design system: [DESIGN.md](DESIGN.md).

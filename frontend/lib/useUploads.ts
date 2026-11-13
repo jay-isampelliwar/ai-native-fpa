@@ -1,196 +1,123 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useState } from 'react';
 
 import { documents } from '@/lib/api';
-import type { DocumentImport, ImportStatus } from '@/lib/types';
+import type { DocumentStatus, DocumentView } from '@/lib/types';
 
 /**
- * The attachments sitting in the composer, uploaded the moment they are picked.
+ * The files sitting in the composer, each uploaded the moment it is picked.
  *
- * Uploading on pick rather than on send is the whole latency strategy. Reading a statement takes
- * seconds and a person takes seconds to type; overlapping the two means the file is usually ready
- * before the message is finished, and the reply is not held behind a parser.
+ * Uploading on pick rather than on send overlaps reading the file with typing the message, so the
+ * file is usually checked before the message is finished. Each file is its own request, so one
+ * bad file never holds back the others.
  *
- * A chip is keyed locally rather than by import id, because it exists before the server has
- * answered and has to be drawn — with its spinner — during the upload itself.
- *
- * Polling stops the moment every chip reaches a state that is waiting on a person rather than on
- * the server. `locked` and `needs_mapping` are settled in that sense: nothing more will happen
- * until an answer is given, so continuing to poll would be asking the same question forever.
- *
- * Removing a chip rejects the import rather than only forgetting it here. The bytes are already on
- * the server by then, and a file dropped from the composer should not outlive the intent to send it.
+ * A chip is keyed locally, because it is drawn with its spinner before the server has given the
+ * upload an id. Removing a chip only drops it from the message: the upload stays saved, unused.
  */
-
-/** States where the server is still working and the client should keep asking. */
-const WORKING: ReadonlySet<ImportStatus> = new Set(['uploaded', 'extracting']);
-
-const POLL_INTERVAL_MS = 1000;
 
 export interface Attachment {
   /** Stable for the life of the chip, including before an id exists. */
   key: string;
   name: string;
-  importId?: string;
-  status: ImportStatus | 'uploading';
+  documentId?: number;
+  status: DocumentStatus | 'uploading';
   rowCount: number;
-  duplicateRows: number;
-  /** True when this exact file was already imported, so nothing was read again. */
+  openQuestions: number;
+  /** Pages only the model can read, waiting for the person's OK. */
+  modelPages: number;
+  /** True when this exact file was uploaded before, so the earlier upload came back. */
   repeat: boolean;
   error?: string;
 }
 
 const newKey = () => Math.random().toString(36).slice(2, 10);
 
-function fromImport(record: DocumentImport, previous: Attachment): Attachment {
+function fromDocument(document: DocumentView, previous: Attachment): Attachment {
   return {
     ...previous,
-    importId: record.id,
-    status: record.status,
-    rowCount: record.row_count,
-    duplicateRows: record.duplicate_rows,
-    error: record.error ?? undefined,
+    documentId: document.id,
+    status: document.status,
+    rowCount: document.rows.length,
+    openQuestions: document.checks.open_questions ?? 0,
+    modelPages: document.pending_pages?.count ?? 0,
+    repeat: document.duplicate,
+    error: document.error_message ?? undefined,
   };
 }
 
-export function useUploads(userId: number | null) {
+export function useUploads() {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
-
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const amend = useCallback((key: string, change: (item: Attachment) => Attachment) => {
     setAttachments((current) => current.map((item) => (item.key === key ? change(item) : item)));
   }, []);
 
-  /** Upload every picked file at once and draw a chip for each, filled in as the server answers. */
+  /** Upload every picked file on its own and draw a chip for each, filled in as each answers. */
   const add = useCallback(
-    async (picked: File[]) => {
-      if (typeof userId !== 'number' || picked.length === 0) return;
-
-      const started: Attachment[] = picked.map((file) => ({
-        key: newKey(),
-        name: file.name,
-        status: 'uploading',
-        rowCount: 0,
-        duplicateRows: 0,
-        repeat: false,
+    (picked: File[]) => {
+      const started = picked.map((file) => ({
+        file,
+        chip: { key: newKey(), name: file.name, status: 'uploading' as const, rowCount: 0, openQuestions: 0, modelPages: 0, repeat: false },
       }));
 
-      setAttachments((current) => [...current, ...started]);
+      setAttachments((current) => [...current, ...started.map((item) => item.chip)]);
 
-      try {
-        const response = await documents.upload(userId, picked);
+      for (const { file, chip } of started) {
+        documents
+          .upload(file)
+          .then((document) => amend(chip.key, (current) => fromDocument(document, current)))
+          .catch((error: unknown) => {
+            const message = error instanceof Error ? error.message : 'That upload failed';
 
-        setAttachments((current) =>
-          current.map((item) => {
-            const index = started.findIndex((one) => one.key === item.key);
-            const answered = index >= 0 ? response.documents[index] : undefined;
-
-            if (!answered) return item;
-
-            return {
-              ...item,
-              importId: answered.id,
-              status: answered.status,
-              repeat: answered.duplicate,
-            };
-          }),
-        );
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'that upload failed';
-
-        setAttachments((current) =>
-          current.map((item) =>
-            started.some((one) => one.key === item.key)
-              ? { ...item, status: 'failed', error: message }
-              : item,
-          ),
-        );
+            amend(chip.key, (current) => ({ ...current, status: 'failed', error: message }));
+          });
       }
     },
-    [userId],
+    [amend],
   );
 
-  /** Drop one attachment, refusing it on the server so its bytes do not linger. */
-  const remove = useCallback(
-    (key: string) => {
-      const item = attachments.find((one) => one.key === key);
-
-      setAttachments((current) => current.filter((one) => one.key !== key));
-
-      if (typeof userId !== 'number' || !item?.importId || item.repeat) return;
-
-      void documents.reject(userId, item.importId).catch(() => {
-        // The chip is already gone from the composer; a failed cleanup is not worth reporting.
-      });
-    },
-    [attachments, userId],
-  );
-
-  /** Send a password for a locked PDF and let polling pick the file up again. */
+  /** Read a locked PDF with the password typed into its chip. The password is not kept here. */
   const unlock = useCallback(
-    async (key: string, password: string) => {
-      const item = attachments.find((one) => one.key === key);
+    (key: string, documentId: number, password: string) => {
+      amend(key, (current) => ({ ...current, status: 'uploading', error: undefined }));
 
-      if (typeof userId !== 'number' || !item?.importId) return;
+      documents
+        .unlock(documentId, password)
+        .then((document) => amend(key, (current) => fromDocument(document, current)))
+        .catch((error: unknown) => {
+          const message = error instanceof Error ? error.message : 'That password could not be sent';
 
-      amend(key, (current) => ({ ...current, status: 'uploaded', error: undefined }));
-
-      try {
-        const record = await documents.unlock(userId, item.importId, password);
-
-        amend(key, (current) => fromImport(record, current));
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'that password could not be sent';
-
-        amend(key, (current) => ({ ...current, status: 'locked', error: message }));
-      }
+          amend(key, (current) => ({ ...current, status: 'needs_password', error: message }));
+        });
     },
-    [amend, attachments, userId],
+    [amend],
   );
 
-  /** Empty the composer once its attachments have been handed to a sent message. */
+  /** Drop one chip from the message. The upload itself stays saved. */
+  const remove = useCallback((key: string) => {
+    setAttachments((current) => current.filter((one) => one.key !== key));
+  }, []);
+
+  /** Refresh one chip after its review changed, such as a confirmed mapping or an approval. */
+  const refresh = useCallback(
+    (document: DocumentView) => {
+      setAttachments((current) =>
+        current.map((item) => (item.documentId === document.id ? fromDocument(document, item) : item)),
+      );
+    },
+    [],
+  );
+
+  /** Empty the composer once its files have gone with a sent message. */
   const clear = useCallback(() => setAttachments([]), []);
 
-  // Ask the server about anything it is still working on, and stop as soon as nothing is.
-  useEffect(() => {
-    if (typeof userId !== 'number') return;
+  const reading = attachments.some((item) => item.status === 'uploading');
 
-    const working = attachments.filter(
-      (item) => item.importId && item.status !== 'uploading' && WORKING.has(item.status),
-    );
+  // Every upload that reached the server goes to the planner, failed ones too, so it can say why.
+  const documentIds = attachments
+    .map((item) => item.documentId)
+    .filter((id): id is number => typeof id === 'number');
 
-    if (working.length === 0) return;
-
-    timer.current = setTimeout(() => {
-      void Promise.all(
-        working.map(async (item) => {
-          try {
-            const record = await documents.read(userId, item.importId as string);
-
-            amend(item.key, (current) => fromImport(record, current));
-          } catch {
-            // A single missed poll is not a failure; the next tick asks again.
-          }
-        }),
-      );
-    }, POLL_INTERVAL_MS);
-
-    return () => {
-      if (timer.current) clearTimeout(timer.current);
-    };
-  }, [amend, attachments, userId]);
-
-  const reading = attachments.some(
-    (item) => item.status === 'uploading' || WORKING.has(item.status as ImportStatus),
-  );
-
-  // Everything that reached the server goes to the planner, not only what parsed. A locked or
-  // unreadable file is something it should mention, and its summary tool answers with the status.
-  const importIds = attachments
-    .filter((item) => item.importId && item.status !== 'rejected')
-    .map((item) => item.importId as string);
-
-  return { attachments, add, remove, unlock, clear, reading, importIds };
+  return { attachments, add, remove, unlock, refresh, clear, reading, documentIds };
 }

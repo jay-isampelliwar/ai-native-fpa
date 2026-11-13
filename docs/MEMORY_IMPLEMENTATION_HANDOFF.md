@@ -1,5 +1,19 @@
 # Memory Management Implementation Handoff
 
+> **Status: built.** This is the original plan, kept for history. The design below was followed,
+> but some details changed when it was built:
+>
+> | Plan in this document | What the code does |
+> |---|---|
+> | UUID ids | `BIGINT` identity ids, like every other table |
+> | `app/workers/`, `app/events/`, `redis_streams.py`, `memory_service.py` | `app/features/outbox/`, `app/features/memory/`, and stream helpers in `app/core/redis.py` |
+> | Run worker inside the FastAPI process | Runs go through a Redis stream to a separate agent worker process |
+> | Backend on Render | One GCP free-tier VM with Docker Compose; Postgres on Neon, Redis on Upstash |
+> | Optional `memory_embeddings` | Not built. No vector store in v1 |
+>
+> For how the pipeline works today, read section 3.4 of [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md)
+> and the [memory pipeline diagram](flow/README.md#8-memory-pipeline).
+
 ## Purpose
 
 This document defines the implementation plan for adding durable, asynchronous memory processing to the AI Native Financial Planner.

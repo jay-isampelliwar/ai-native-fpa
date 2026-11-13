@@ -1,0 +1,19 @@
+flowchart TD
+    U[User attaches a file in chat] --> Up[POST /api/documents<br/>size, type and hash checked]
+    Up --> Dup{Same file<br/>uploaded before?}
+    Dup -- "Yes" --> Old[Return the earlier upload]
+    Dup -- "No" --> Read[Read into sheets for code<br/>and pages for the model]
+    Read --> Kind{What is in the file?}
+    Kind -- "Known family" --> Fixed[Parse with fixed rules]
+    Kind -- "Header shape seen before" --> Saved[Parse with the saved column plan]
+    Kind -- "New shape" --> Plan[Model sees headings and digit-masked samples,<br/>then proposes a column plan]
+    Kind -- "Scan, photo or text page" --> Consent[Ask the user before the model reads the page]
+    Fixed --> Check
+    Saved --> Check
+    Plan --> Check
+    Consent --> Check
+    Check[Code cleans every value and checks every row:<br/>needed fields, matches, duplicates, printed totals]
+    Check --> Review[Review panel beside the chat:<br/>questions, edits, old against new]
+    Review --> Import[User presses Import,<br/>or approves the card in chat]
+    Import --> Write[Each row written through the domain services<br/>and read back]
+    Write --> Done[Short note to the chat, undo stays possible]

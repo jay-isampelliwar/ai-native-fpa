@@ -1,0 +1,28 @@
+sequenceDiagram
+    actor User
+    participant FE as Frontend
+    participant API as FastAPI API
+    participant PG as PostgreSQL
+    participant R as Redis
+    participant W as Agent worker
+    participant G as LangGraph
+
+    User->>FE: "Delete my rent expense"
+    Note over FE,W: The run starts as in the send message flow
+    G->>G: Model asks for delete_record
+    G->>G: approval_gate: policy says destructive, build a preview
+    G-->>W: interrupt() with the preview, state kept by the checkpointer
+    W->>PG: One commit: run awaiting_approval, tool_approvals row (15 min expiry),<br/>approval.required event, run released
+    W->>R: PUBLISH approval.required
+    API-->>FE: SSE approval.required, then the stream ends
+    FE-->>User: Card "Remove this expense?"
+    User->>FE: Clicks "Yes, remove it"
+    FE->>API: POST /api/runs/{run_id}/approvals/{approval_id}
+    API->>PG: Lock the row, check owner, pending and expiry, save the decision
+    API->>R: XADD resume job to the run stream
+    R->>W: Any agent worker takes the job
+    W->>G: Command(resume = answer)
+    G->>G: Gate checks the same call id and the exact same arguments
+    G->>PG: One commit: delete, read-back check, idempotency row
+    G-->>W: Reply text
+    W-->>FE: Events through Redis and SSE, then run.completed
