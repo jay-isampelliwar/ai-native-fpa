@@ -1,0 +1,22 @@
+sequenceDiagram
+    participant W as Agent worker
+    participant PG as PostgreSQL
+    participant O as Outbox publisher
+    participant R as Redis memory stream
+    participant M as Memory worker
+    participant L as Small model
+
+    W->>PG: One commit: run completed + outbox_events row
+    loop Every second
+        O->>PG: Lock due pending rows (FOR UPDATE SKIP LOCKED)
+        O->>R: XADD the event
+        O->>PG: Mark published (backoff on error, dead_letter after 5 tries)
+    end
+    R->>M: XREADGROUP under the worker's own consumer name
+    M->>PG: Skip if this outbox event was already handled
+    M->>PG: Load the run's messages and the user's active memories
+    M->>L: Propose memories as structured output
+    M->>M: Apply the rules: user's own words, confidence, no data a table owns
+    M->>PG: Save memory_items + memory_events, then commit
+    M->>R: XACK only after the commit
+    Note over R,M: No ack on failure. After more than 5 deliveries<br/>the entry is copied to a dead stream.

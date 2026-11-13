@@ -1,0 +1,30 @@
+flowchart TD
+    User([User in browser]) --> FE[Next.js app<br/>chat, cards, forms, import review]
+    FE -- "/api/* through a Next.js rewrite" --> API[FastAPI API<br/>HTTP and SSE only]
+
+    API -- "run, messages, approvals" --> PG[(PostgreSQL<br/>source of truth)]
+    API -- "XADD run job" --> RunStream[(Redis stream<br/>runs)]
+    RunStream -- "XREADGROUP" --> AgentWorker[Agent worker<br/>claims the run, keeps a heartbeat]
+    AgentWorker --> Graph[LangGraph planner graph<br/>thread_id = conversation_id]
+    Graph <--> Ckpt[(Postgres checkpointer)]
+    Graph --> LLM[OpenAI chat model]
+    Graph --> Tools[42 tools<br/>policy, approval, timeout, retry]
+    Tools -- "one commit: write + idempotency row" --> PG
+    Tools --> Ext[Tavily web search<br/>Yahoo index quotes]
+    Tools <--> Cache[(Redis cache)]
+
+    AgentWorker -- "save numbered event" --> PG
+    AgentWorker -- "PUBLISH live event" --> PubSub[(Redis pub/sub)]
+    PubSub -- "live events" --> API
+    PG -- "replay missed events" --> API
+    API -- "PUBLISH cancel" --> PubSub
+    PubSub -- "cancel signal" --> AgentWorker
+
+    AgentWorker -- "run completed + outbox row, same commit" --> PG
+    Outbox[Outbox publisher] -- "claim pending rows" --> PG
+    Outbox -- "XADD" --> MemStream[(Redis stream<br/>memory)]
+    MemStream -- "XREADGROUP" --> MemWorker[Memory worker]
+    MemWorker --> MemLLM[Small model<br/>structured output]
+    MemWorker -- "memories + history, then XACK" --> PG
+
+    AgentWorker -. "masked traces" .-> Langfuse[Langfuse]
