@@ -1,0 +1,9 @@
+docker compose --env-file backend/.env -f infra/docker-compose.db.yml up -d
+
+
+docker compose --env-file backend/.env -f infra/docker-compose.yml up --watch
+
+
+ docker compose --env-file ../backend/.env -f docker-compose.db.yml down  
+
+ docker compose --env-file ../backend/.env down      
